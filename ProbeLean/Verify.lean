@@ -65,11 +65,11 @@ def parseSorryWarning (line : String) : Option SorryWarning := do
 
   let lineIdx := locParts.length - 2
   let colIdx := locParts.length - 1
-  let lineStr := locParts.get! lineIdx
-  let colStr := locParts.get! colIdx
+  let lineStr := locParts[lineIdx]!
+  let colStr := locParts[colIdx]!
 
-  let lineNum ← lineStr.toNat?
-  let colNum ← colStr.toNat?
+  let lineNum ← String.toNat? lineStr
+  let colNum ← String.toNat? colStr
 
   some {
     filePath := filePath
@@ -89,7 +89,7 @@ def normalizePathForMatch (path : String) : String :=
   let cleaned := path.replace "././" ""
   -- Get just the filename for final fallback comparison
   let parts := cleaned.splitOn "/"
-  parts.getLast!
+  parts[parts.length - 1]!
 
 /-- Check if two file paths refer to the same file -/
 def pathsMatch (path1 : String) (path2 : String) : Bool :=
@@ -155,8 +155,8 @@ partial def checkFilesNewerThan (dir : System.FilePath) (cacheTime : IO.FS.Syste
     if ← path.isDir then
       if ← checkFilesNewerThan path cacheTime then return true
     else if path.extension == some "lean" then
-      let meta ← path.metadata
-      if meta.modified > cacheTime then return true
+      let fileMeta ← path.metadata
+      if fileMeta.modified > cacheTime then return true
   return false
 
 /-- Check if cache is valid (exists and newer than any .lean file) -/

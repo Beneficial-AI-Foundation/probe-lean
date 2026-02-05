@@ -62,8 +62,17 @@ def getProjectModules (projectPath : System.FilePath) : IO (Except String (Array
   -- Parse the LEAN_PATH to find olean directories
   let _leanPath := stdout.trim
 
-  -- Find the project's build directory (typically .lake/build/lib)
-  let projectBuildPath := projectPath / ".lake" / "build" / "lib"
+  -- Find the project's build directory
+  -- Some projects use .lake/build/lib/lean, others use .lake/build/lib directly
+  let buildLibPath := projectPath / ".lake" / "build" / "lib"
+  let buildLibLeanPath := buildLibPath / "lean"
+
+  -- Prefer .lake/build/lib/lean if it exists (standard Lake structure)
+  let projectBuildPath ← do
+    if ← buildLibLeanPath.pathExists then
+      pure buildLibLeanPath
+    else
+      pure buildLibPath
 
   -- Collect all .olean files from the project's build directory
   let mut modules : Array Lean.Name := #[]
