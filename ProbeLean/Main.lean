@@ -3,6 +3,7 @@
 -/
 import Cli
 import ProbeLean.Atomize
+import ProbeLean.Specify
 
 open Cli
 open ProbeLean
@@ -34,9 +35,36 @@ def atomizeCmd : Cmd := `[Cli|
     projectPath : String; "Path to the Lean 4 project to analyze"
 ]
 
+/-- Run the specify command -/
+def runSpecify (parsed : Parsed) : IO UInt32 := do
+  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
+  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
+
+  let config : SpecifyConfig := {
+    projectPath := projectPath
+    atomsPath := atomsPath
+    outputPath := outputPath
+  }
+
+  runSpecifyInProject config
+
+/-- The specify subcommand -/
+def specifyCmd : Cmd := `[Cli|
+  specify VIA runSpecify; ["0.1.0"]
+  "Extract specification status from atoms.json"
+
+  FLAGS:
+    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/atoms.json)"
+    o, output : String; "Output file path (default: PROJECT_PATH/specs.json)"
+
+  ARGS:
+    projectPath : String; "Path to the Lean 4 project"
+]
+
 /-- Run the root command -/
 def runRoot (_parsed : Parsed) : IO UInt32 := do
-  IO.println "Use 'probe-lean atomize <PROJECT_PATH>' to analyze a project"
+  IO.println "Use 'probe-lean <command> <PROJECT_PATH>' to analyze a project"
   IO.println "Run 'probe-lean --help' for more information"
   return 0
 
@@ -46,7 +74,8 @@ def probeleanCmd : Cmd := `[Cli|
   "A tool for analyzing Lean 4 projects"
 
   SUBCOMMANDS:
-    atomizeCmd
+    atomizeCmd;
+    specifyCmd
 ]
 
 /-- Entry point -/

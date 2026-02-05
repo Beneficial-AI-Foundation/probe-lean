@@ -64,6 +64,43 @@ def main : IO UInt32 := do
   result ← test "structure toJson" (Lean.toJson DeclKind.structure == "structure") result
 
   IO.println ""
+  IO.println "Testing isAlwaysSpecified..."
+  result ← test "theorem is specified" (isAlwaysSpecified DeclKind.theorem) result
+  result ← test "def is specified" (isAlwaysSpecified DeclKind.def) result
+  result ← test "structure is specified" (isAlwaysSpecified DeclKind.structure) result
+  result ← test "class is specified" (isAlwaysSpecified DeclKind.class) result
+  result ← test "inductive is specified" (isAlwaysSpecified DeclKind.inductive) result
+  result ← test "instance is specified" (isAlwaysSpecified DeclKind.instance) result
+
+  IO.println ""
+  IO.println "Testing atomToSpecEntry..."
+  let testAtom : Atom := {
+    name := "Test.foo"
+    displayName := "foo"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "/test/Test.lean"
+    codeText := some { linesStart := 10, linesEnd := 15 }
+    kind := .theorem
+  }
+  let specEntry := atomToSpecEntry testAtom
+  result ← test "specEntry specified" specEntry.specified result
+  result ← test "specEntry codePath" (specEntry.codePath == "/test/Test.lean") result
+  result ← test "specEntry specText" (specEntry.specText == some { linesStart := 10, linesEnd := 15 }) result
+
+  IO.println ""
+  IO.println "Testing SpecEntry JSON serialization..."
+  let specJson := Lean.toJson specEntry
+  let hasSpecified := match specJson.getObjValAs? Bool "specified" with
+    | .ok true => true
+    | _ => false
+  let hasCodePath := match specJson.getObjValAs? String "code-path" with
+    | .ok "/test/Test.lean" => true
+    | _ => false
+  result ← test "specEntry toJson has specified" hasSpecified result
+  result ← test "specEntry toJson has code-path" hasCodePath result
+
+  IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
 
   if result.failed > 0 then

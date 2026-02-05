@@ -119,4 +119,33 @@ instance : Lean.ToJson AtomsOutput where
     ("atoms", Lean.toJson output.atoms)
   ]
 
+instance : Lean.FromJson AtomsOutput where
+  fromJson? json := do
+    let atoms ← json.getObjValAs? (Array Atom) "atoms"
+    return { atoms }
+
+/-- A spec entry for specs.json output -/
+structure SpecEntry where
+  /-- Whether the declaration has a complete specification -/
+  specified : Bool
+  /-- File path to source -/
+  codePath : String
+  /-- Source location info -/
+  specText : Option CodeTextInfo
+  deriving Repr, BEq
+
+instance : Lean.ToJson SpecEntry where
+  toJson entry := Lean.Json.mkObj [
+    ("specified", Lean.toJson entry.specified),
+    ("code-path", Lean.toJson entry.codePath),
+    ("spec-text", Lean.toJson entry.specText)
+  ]
+
+instance : Lean.FromJson SpecEntry where
+  fromJson? json := do
+    let specified ← json.getObjValAs? Bool "specified"
+    let codePath ← json.getObjValAs? String "code-path"
+    let specText ← json.getObjValAs? (Option CodeTextInfo) "spec-text"
+    return { specified, codePath, specText }
+
 end ProbeLean

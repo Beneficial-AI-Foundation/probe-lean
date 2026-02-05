@@ -21,34 +21,26 @@ echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-## Usage
+## Commands
+
+### atomize
+
+Analyze a Lean 4 project and output a dependency graph.
 
 ```bash
 probe-lean atomize <PROJECT_PATH> [-o OUTPUT] [-m MODULE]
 ```
 
-### Options
-
+**Options:**
 - `-o, --output` - Output file path (default: `PROJECT_PATH/atoms.json`)
 - `-m, --module` - Filter to specific module prefix
 
-### Examples
-
+**Example:**
 ```bash
-# Analyze a project, output to atoms.json in the project directory
 probe-lean atomize ./my-lean-project
-
-# Custom output path
-probe-lean atomize ./my-lean-project -o ./output/atoms.json
-
-# Filter to specific module
-probe-lean atomize ./my-lean-project -m MyModule
 ```
 
-## Output Format
-
-The tool outputs a JSON file with the following structure:
-
+**Output format (atoms.json):**
 ```json
 {
   "atoms": [
@@ -59,16 +51,44 @@ The tool outputs a JSON file with the following structure:
       "dependencies": ["MyModule.helper"],
       "code-module": "MyModule",
       "code-path": "/path/to/MyModule.lean",
-      "code-text": {
-        "lines-start": 10,
-        "lines-end": 15
-      }
+      "code-text": { "lines-start": 10, "lines-end": 15 }
     }
   ]
 }
 ```
 
-### Fields
+### specify
+
+Extract specification status from atoms.json.
+
+```bash
+probe-lean specify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
+```
+
+**Options:**
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/atoms.json`)
+- `-o, --output` - Output file path (default: `PROJECT_PATH/specs.json`)
+
+**Example:**
+```bash
+probe-lean atomize ./my-lean-project
+probe-lean specify ./my-lean-project
+```
+
+**Output format (specs.json):**
+```json
+{
+  "MyModule.myTheorem": {
+    "specified": true,
+    "code-path": "/path/to/MyModule.lean",
+    "spec-text": { "lines-start": 10, "lines-end": 12 }
+  }
+}
+```
+
+## Output Fields
+
+### atoms.json
 
 | Field | Description |
 |-------|-------------|
@@ -79,6 +99,14 @@ The tool outputs a JSON file with the following structure:
 | `code-module` | Module name containing the declaration |
 | `code-path` | Absolute path to source file |
 | `code-text` | Source location with line numbers (null if unavailable) |
+
+### specs.json
+
+| Field | Description |
+|-------|-------------|
+| `specified` | Whether the declaration has a complete specification |
+| `code-path` | Absolute path to source file |
+| `spec-text` | Source location with line numbers (null if unavailable) |
 
 ## Testing
 
