@@ -101,6 +101,54 @@ def main : IO UInt32 := do
   result ← test "specEntry toJson has code-path" hasCodePath result
 
   IO.println ""
+  IO.println "Testing parseSorryWarning..."
+  let warning1 := parseSorryWarning "warning: ././././TestProject.lean:42:8: declaration uses 'sorry'"
+  result ← test "parse sorry warning" warning1.isSome result
+  match warning1 with
+  | some w =>
+    result ← test "warning file path" (w.filePath == "././././TestProject.lean") result
+    result ← test "warning line" (w.line == 42) result
+    result ← test "warning column" (w.column == 8) result
+  | none => pure ()
+
+  let noWarning := parseSorryWarning "Build completed successfully."
+  result ← test "no warning for non-warning line" noWarning.isNone result
+
+  let noSorry := parseSorryWarning "warning: unused variable 'x'"
+  result ← test "no warning for non-sorry warning" noSorry.isNone result
+
+  IO.println ""
+  IO.println "Testing normalizePathForMatch..."
+  result ← test "normalize relative path" (normalizePathForMatch "././././TestProject.lean" == "TestProject.lean") result
+  result ← test "normalize absolute path" (normalizePathForMatch "/tmp/test/TestProject.lean" == "TestProject.lean") result
+
+  IO.println ""
+  IO.println "Testing pathsMatch..."
+  result ← test "paths match same" (pathsMatch "/tmp/Test.lean" "/tmp/Test.lean") result
+  result ← test "paths match suffix" (pathsMatch "/tmp/project/Test.lean" "Test.lean") result
+  result ← test "paths match normalized" (pathsMatch "././././Test.lean" "/tmp/project/Test.lean") result
+  result ← test "paths no match" (!pathsMatch "/tmp/A.lean" "/tmp/B.lean") result
+
+  IO.println ""
+  IO.println "Testing VerifyStatus JSON serialization..."
+  result ← test "success toJson" (Lean.toJson VerifyStatus.success == "success") result
+  result ← test "sorries toJson" (Lean.toJson VerifyStatus.sorries == "sorries") result
+  result ← test "failure toJson" (Lean.toJson VerifyStatus.failure == "failure") result
+
+  IO.println ""
+  IO.println "Testing atomToProofEntry..."
+  let sorries : Array SorryInfo := #[{ line := 42, message := "uses sorry" }]
+  let proofEntry := atomToProofEntry testAtom sorries
+  result ← test "proofEntry not verified" (!proofEntry.verified) result
+  result ← test "proofEntry status sorries" (proofEntry.status == VerifyStatus.sorries) result
+  result ← test "proofEntry has sorries" (proofEntry.sorries.size == 1) result
+
+  let noSorries : Array SorryInfo := #[]
+  let verifiedEntry := atomToProofEntry testAtom noSorries
+  result ← test "verifiedEntry verified" verifiedEntry.verified result
+  result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
+
+  IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
 
   if result.failed > 0 then

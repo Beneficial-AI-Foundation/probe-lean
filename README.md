@@ -86,6 +86,45 @@ probe-lean specify ./my-lean-project
 }
 ```
 
+### verify
+
+Check proof completeness by detecting `sorry` in Lean compiler output.
+
+```bash
+probe-lean verify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT] [--no-cache] [--from-file FILE]
+```
+
+**Options:**
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/atoms.json`)
+- `-o, --output` - Output file path (default: `PROJECT_PATH/proofs.json`)
+- `--no-cache` - Don't cache verification output
+- `--from-file` - Analyze existing build output instead of running lake
+
+**Example:**
+```bash
+probe-lean atomize ./my-lean-project
+probe-lean verify ./my-lean-project
+```
+
+**Output format (proofs.json):**
+```json
+{
+  "MyModule.myTheorem": {
+    "verified": true,
+    "status": "success",
+    "code-path": "/path/to/MyModule.lean",
+    "code-line": 42
+  },
+  "MyModule.incompleteProof": {
+    "verified": false,
+    "status": "sorries",
+    "code-path": "/path/to/MyModule.lean",
+    "code-line": 100,
+    "sorries": [{ "line": 105, "message": "declaration uses 'sorry'" }]
+  }
+}
+```
+
 ## Output Fields
 
 ### atoms.json
@@ -107,6 +146,16 @@ probe-lean specify ./my-lean-project
 | `specified` | Whether the declaration has a complete specification |
 | `code-path` | Absolute path to source file |
 | `spec-text` | Source location with line numbers (null if unavailable) |
+
+### proofs.json
+
+| Field | Description |
+|-------|-------------|
+| `verified` | Whether the proof is complete (no sorry) |
+| `status` | `success`, `sorries`, or `failure` |
+| `code-path` | Absolute path to source file |
+| `code-line` | Line number of declaration |
+| `sorries` | Array of sorry locations (only if status is `sorries`) |
 
 ## Testing
 

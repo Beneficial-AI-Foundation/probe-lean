@@ -148,4 +148,79 @@ instance : Lean.FromJson SpecEntry where
     let specText ← json.getObjValAs? (Option CodeTextInfo) "spec-text"
     return { specified, codePath, specText }
 
+/-- Information about a sorry occurrence -/
+structure SorryInfo where
+  line : Nat
+  message : String
+  deriving Repr, BEq
+
+instance : Lean.ToJson SorryInfo where
+  toJson info := Lean.Json.mkObj [
+    ("line", Lean.toJson info.line),
+    ("message", Lean.toJson info.message)
+  ]
+
+instance : Lean.FromJson SorryInfo where
+  fromJson? json := do
+    let line ← json.getObjValAs? Nat "line"
+    let message ← json.getObjValAs? String "message"
+    return { line, message }
+
+/-- Verification status -/
+inductive VerifyStatus where
+  | success   -- Proof is complete, no sorry
+  | sorries   -- Proof contains sorry
+  | failure   -- Compilation/type error
+  deriving Repr, BEq
+
+instance : Lean.ToJson VerifyStatus where
+  toJson
+    | .success => "success"
+    | .sorries => "sorries"
+    | .failure => "failure"
+
+instance : Lean.FromJson VerifyStatus where
+  fromJson? json := do
+    let s ← json.getStr?
+    match s with
+    | "success" => return .success
+    | "sorries" => return .sorries
+    | "failure" => return .failure
+    | _ => throw s!"Unknown VerifyStatus: {s}"
+
+/-- A proof entry for proofs.json output -/
+structure ProofEntry where
+  /-- Whether the declaration is verified (no sorries) -/
+  verified : Bool
+  /-- Verification status -/
+  status : VerifyStatus
+  /-- File path to source -/
+  codePath : String
+  /-- Line number of declaration -/
+  codeLine : Nat
+  /-- List of sorries found (if any) -/
+  sorries : Array SorryInfo
+  deriving Repr, BEq
+
+instance : Lean.ToJson ProofEntry where
+  toJson entry :=
+    let base := [
+      ("verified", Lean.toJson entry.verified),
+      ("status", Lean.toJson entry.status),
+      ("code-path", Lean.toJson entry.codePath),
+      ("code-line", Lean.toJson entry.codeLine)
+    ]
+    let withSorries := if entry.sorries.isEmpty then base
+      else base ++ [("sorries", Lean.toJson entry.sorries)]
+    Lean.Json.mkObj withSorries
+
+instance : Lean.FromJson ProofEntry where
+  fromJson? json := do
+    let verified ← json.getObjValAs? Bool "verified"
+    let status ← json.getObjValAs? VerifyStatus "status"
+    let codePath ← json.getObjValAs? String "code-path"
+    let codeLine ← json.getObjValAs? Nat "code-line"
+    let sorries ← json.getObjValAs? (Array SorryInfo) "sorries" <|> pure #[]
+    return { verified, status, codePath, codeLine, sorries }
+
 end ProbeLean

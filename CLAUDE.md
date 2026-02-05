@@ -41,6 +41,7 @@ lake build tests           # Build tests
 .lake/build/bin/tests      # Run tests
 probe-lean atomize <PATH>  # Extract dependency graph to atoms.json
 probe-lean specify <PATH>  # Extract spec status to specs.json
+probe-lean verify <PATH>   # Check proof completeness to proofs.json
 ```
 
 ## Testing

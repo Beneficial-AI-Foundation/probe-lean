@@ -4,6 +4,7 @@
 import Cli
 import ProbeLean.Atomize
 import ProbeLean.Specify
+import ProbeLean.Verify
 
 open Cli
 open ProbeLean
@@ -62,6 +63,39 @@ def specifyCmd : Cmd := `[Cli|
     projectPath : String; "Path to the Lean 4 project"
 ]
 
+/-- Run the verify command -/
+def runVerify (parsed : Parsed) : IO UInt32 := do
+  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
+  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
+  let noCache := parsed.hasFlag "no-cache"
+  let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
+
+  let config : VerifyConfig := {
+    projectPath := projectPath
+    atomsPath := atomsPath
+    outputPath := outputPath
+    noCache := noCache
+    fromFile := fromFile
+  }
+
+  runVerifyInProject config
+
+/-- The verify subcommand -/
+def verifyCmd : Cmd := `[Cli|
+  verify VIA runVerify; ["0.1.0"]
+  "Check proof completeness by detecting sorry"
+
+  FLAGS:
+    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/atoms.json)"
+    o, output : String; "Output file path (default: PROJECT_PATH/proofs.json)"
+    "no-cache"; "Don't cache verification output"
+    "from-file" : String; "Analyze existing build output instead of running lake"
+
+  ARGS:
+    projectPath : String; "Path to the Lean 4 project"
+]
+
 /-- Run the root command -/
 def runRoot (_parsed : Parsed) : IO UInt32 := do
   IO.println "Use 'probe-lean <command> <PROJECT_PATH>' to analyze a project"
@@ -75,7 +109,8 @@ def probeleanCmd : Cmd := `[Cli|
 
   SUBCOMMANDS:
     atomizeCmd;
-    specifyCmd
+    specifyCmd;
+    verifyCmd
 ]
 
 /-- Entry point -/
