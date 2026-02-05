@@ -1,0 +1,83 @@
+/-
+  Environment loading for external Lean projects.
+-/
+import Lean
+
+namespace ProbeLean
+
+/-- Check if a path is a valid Lake project -/
+def isLakeProject (path : System.FilePath) : IO Bool := do
+  let lakefileLean := path / "lakefile.lean"
+  let lakefileToml := path / "lakefile.toml"
+  let hasLean ← lakefileLean.pathExists
+  let hasToml ← lakefileToml.pathExists
+  return hasLean || hasToml
+
+/-- Run a command and return stdout, stderr, and exit code -/
+def runCmd (cmd : String) (args : Array String) (cwd : Option System.FilePath := none) : IO (String × String × UInt32) := do
+  let proc ← IO.Process.spawn {
+    cmd := cmd
+    args := args
+    cwd := cwd
+    stdout := .piped
+    stderr := .piped
+  }
+  let stdout ← proc.stdout.readToEnd
+  let stderr ← proc.stderr.readToEnd
+  let exitCode ← proc.wait
+  return (stdout, stderr, exitCode)
+
+/-- Build the target project using lake -/
+def buildProject (projectPath : System.FilePath) : IO (Except String Unit) := do
+  let (_, stderr, exitCode) ← runCmd "lake" #["build"] projectPath
+  if exitCode != 0 then
+    return .error s!"Lake build failed:\n{stderr}"
+  return .ok ()
+
+/-- Recursively collect .olean files and convert to module names -/
+partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System.FilePath) : IO (Array Lean.Name) := do
+  let mut result : Array Lean.Name := #[]
+  let entries ← currentPath.readDir
+  for entry in entries do
+    let path := entry.path
+    if ← path.isDir then
+      let subResult ← collectOleanFiles basePath path
+      result := result ++ subResult
+    else if path.extension == some "olean" then
+      -- Convert path to module name
+      let relPath := path.toString.stripPrefix basePath.toString
+      let relPath := relPath.stripPrefix "/"
+      let relPath := relPath.stripSuffix ".olean"
+      let moduleName := relPath.replace "/" "."
+      result := result.push (String.toName moduleName)
+  return result
+
+/-- Get the list of modules in the project by parsing lake output -/
+def getProjectModules (projectPath : System.FilePath) : IO (Except String (Array Lean.Name)) := do
+  -- Use lake to print the environment and extract LEAN_PATH
+  let (stdout, stderr, exitCode) ← runCmd "lake" #["env", "printenv", "LEAN_PATH"] projectPath
+  if exitCode != 0 then
+    return .error s!"Failed to get LEAN_PATH:\n{stderr}"
+
+  -- Parse the LEAN_PATH to find olean directories
+  let _leanPath := stdout.trim
+
+  -- Find the project's build directory (typically .lake/build/lib)
+  let projectBuildPath := projectPath / ".lake" / "build" / "lib"
+
+  -- Collect all .olean files from the project's build directory
+  let mut modules : Array Lean.Name := #[]
+
+  if ← projectBuildPath.pathExists then
+    let oleans ← collectOleanFiles projectBuildPath projectBuildPath
+    for olean in oleans do
+      modules := modules.push olean
+
+  return .ok modules
+
+/-- Information about a loaded project -/
+structure ProjectInfo where
+  path : System.FilePath
+  modules : Array Lean.Name
+
+end ProbeLean

@@ -1,0 +1,24 @@
+name = "probe-lean"
+version = "0.1.0"
+defaultTargets = ["probe-lean"]
+
+[[require]]
+name = "Cli"
+git = "https://github.com/leanprover/lean4-cli"
+rev = "v4.15.0"
+
+[[lean_lib]]
+name = "ProbeLean"
+
+[[lean_exe]]
+name = "probe-lean"
+root = "ProbeLean.Main"
+supportInterpreter = true
+
+[[lean_lib]]
+name = "Tests"
+
+[[lean_exe]]
+name = "tests"
+root = "Tests.Main"
+supportInterpreter = true
