@@ -133,7 +133,8 @@ def runAtomizeInProject (config : AtomizeConfig) : IO UInt32 := do
     let json := Lean.toJson output
     let jsonStr := json.pretty
 
-    let outputPath := config.outputPath.getD (config.projectPath / "atoms.json")
+    let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "atoms.json")
+    IO.FS.createDirAll outputPath.parent.get!
     IO.FS.writeFile outputPath jsonStr
     IO.println s!"Wrote {atoms.size} atoms to {outputPath}"
     return 0

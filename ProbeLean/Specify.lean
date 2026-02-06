@@ -76,7 +76,8 @@ def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
   let specsJson := atomsToSpecsJson atoms
 
   -- Write output
-  let outputPath := config.outputPath.getD (config.projectPath / "specs.json")
+  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "specs.json")
+  IO.FS.createDirAll outputPath.parent.get!
   IO.FS.writeFile outputPath specsJson.pretty
   IO.println s!"Wrote specs to {outputPath}"
 

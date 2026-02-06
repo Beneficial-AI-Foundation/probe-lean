@@ -32,7 +32,7 @@ probe-lean atomize <PROJECT_PATH> [-o OUTPUT] [-m MODULE]
 ```
 
 **Options:**
-- `-o, --output` - Output file path (default: `PROJECT_PATH/atoms.json`)
+- `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/atoms.json`)
 - `-m, --module` - Filter to specific module prefix
 
 **Example:**
@@ -63,8 +63,8 @@ probe-lean specify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/atoms.json`)
-- `-o, --output` - Output file path (default: `PROJECT_PATH/specs.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/atoms.json`)
+- `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/specs.json`)
 
 **Example:**
 ```bash
@@ -92,8 +92,8 @@ probe-lean verify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT] [--no-cache] [--from-fil
 ```
 
 **Options:**
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/atoms.json`)
-- `-o, --output` - Output file path (default: `PROJECT_PATH/proofs.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/atoms.json`)
+- `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/proofs.json`)
 - `--no-cache` - Don't cache verification output
 - `--from-file` - Analyze existing build output instead of running lake
 
@@ -131,9 +131,9 @@ probe-lean stubify <PROJECT_PATH> [-f FUNCTIONS] [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-f, --functions` - Path to functions.json (default: `PROJECT_PATH/functions.json`)
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/atoms.json`)
-- `-o, --output` - Output file path (default: `PROJECT_PATH/stubs.json`)
+- `-f, --functions` - Path to functions.json (default: `PROJECT_PATH/.verilib/functions.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/atoms.json`)
+- `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/stubs.json`)
 
 **Example:**
 ```bash

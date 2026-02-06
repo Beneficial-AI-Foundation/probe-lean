@@ -73,9 +73,9 @@ def filterAtoms (atoms : AtomsOutput) (functions : Array FunctionEntry) : AtomsO
 /-- Run the stubify command -/
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   -- Determine paths
-  let functionsPath := config.functionsPath.getD (config.projectPath / "functions.json")
-  let atomsPath := config.atomsPath.getD (config.projectPath / "atoms.json")
-  let outputPath := config.outputPath.getD (config.projectPath / "stubs.json")
+  let functionsPath := config.functionsPath.getD (config.projectPath / ".verilib" / "functions.json")
+  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
+  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "stubs.json")
 
   IO.println s!"Loading functions from {functionsPath}..."
 
@@ -107,6 +107,7 @@ def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
 
   -- Write output
   let json := Lean.toJson stubs
+  IO.FS.createDirAll outputPath.parent.get!
   IO.FS.writeFile outputPath json.pretty
   IO.println s!"Wrote {stubs.atoms.size} stubs to {outputPath}"
 

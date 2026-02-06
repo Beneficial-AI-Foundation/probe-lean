@@ -252,7 +252,8 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
   IO.println s!"Verified: {verified.size}/{atoms.atoms.size} declarations"
 
   -- Write output
-  let outputPath := config.outputPath.getD (config.projectPath / "proofs.json")
+  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "proofs.json")
+  IO.FS.createDirAll outputPath.parent.get!
   IO.FS.writeFile outputPath proofsJson.pretty
   IO.println s!"Wrote proofs to {outputPath}"
 
