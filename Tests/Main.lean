@@ -3,6 +3,8 @@
 -/
 import ProbeLean
 
+set_option maxRecDepth 1024
+
 open ProbeLean
 
 /-- Simple test harness -/
@@ -58,6 +60,19 @@ def main : IO UInt32 := do
   result ← test "at start" (containsSubstring "hello" "hel") result
 
   IO.println ""
+  IO.println "Testing stripLeadingDotSlash..."
+  result ← test "strip single ./" (stripLeadingDotSlash "./test.lean" == "test.lean") result
+  result ← test "strip multiple ./" (stripLeadingDotSlash "././test.lean" == "test.lean") result
+  result ← test "strip many ./" (stripLeadingDotSlash "././././test.lean" == "test.lean") result
+  result ← test "no strip needed" (stripLeadingDotSlash "test.lean" == "test.lean") result
+  result ← test "no strip absolute" (stripLeadingDotSlash "/tmp/test.lean" == "/tmp/test.lean") result
+
+  IO.println ""
+  IO.println "Testing addProbePrefix..."
+  result ← test "add probe prefix" (addProbePrefix "Test.foo" == "probe:Test.foo") result
+  result ← test "add probe prefix simple" (addProbePrefix "foo" == "probe:foo") result
+
+  IO.println ""
   IO.println "Testing DeclKind JSON serialization..."
   result ← test "def toJson" (Lean.toJson DeclKind.def == "def") result
   result ← test "theorem toJson" (Lean.toJson DeclKind.theorem == "theorem") result
@@ -77,16 +92,33 @@ def main : IO UInt32 := do
   let testAtom : Atom := {
     name := "probe:Test.foo"
     displayName := "foo"
-    dependencies := #[]
+    dependencies := #["probe:Test.helper"]
     codeModule := "Test"
-    codePath := "/test/Test.lean"
+    codePath := "Test.lean"
     codeText := some { linesStart := 10, linesEnd := 15 }
     kind := .theorem
   }
   let specEntry := atomToSpecEntry testAtom
   result ← test "specEntry specified" specEntry.specified result
-  result ← test "specEntry codePath" (specEntry.codePath == "/test/Test.lean") result
+  result ← test "specEntry codePath" (specEntry.codePath == "Test.lean") result
   result ← test "specEntry specText" (specEntry.specText == some { linesStart := 10, linesEnd := 15 }) result
+
+  IO.println ""
+  IO.println "Testing AtomsOutput JSON serialization..."
+  let atomsOutput : AtomsOutput := { atoms := #[testAtom] }
+  let atomsJson := Lean.toJson atomsOutput
+  -- Check that the JSON is an object keyed by atom name
+  let hasProbeKey := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok _ => true
+    | _ => false
+  result ← test "atoms keyed by probe: name" hasProbeKey result
+  -- Check that the atom value has the expected fields
+  let hasDeps := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? (Array String) "dependencies" with
+      | .ok deps => deps.size == 1 && deps[0]! == "probe:Test.helper"
+      | _ => false
+    | _ => false
+  result ← test "atom has probe: prefixed dependencies" hasDeps result
 
   IO.println ""
   IO.println "Testing SpecEntry JSON serialization..."
@@ -95,7 +127,7 @@ def main : IO UInt32 := do
     | .ok true => true
     | _ => false
   let hasCodePath := match specJson.getObjValAs? String "code-path" with
-    | .ok "/test/Test.lean" => true
+    | .ok "Test.lean" => true
     | _ => false
   result ← test "specEntry toJson has specified" hasSpecified result
   result ← test "specEntry toJson has code-path" hasCodePath result
@@ -147,6 +179,56 @@ def main : IO UInt32 := do
   let verifiedEntry := atomToProofEntry testAtom noSorries
   result ← test "verifiedEntry verified" verifiedEntry.verified result
   result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
+
+  IO.println ""
+  IO.println "Testing parseFunctionEntry..."
+  let funcJson1 := Lean.Json.mkObj [("lean_name", "Test.foo"), ("is_relevant", true)]
+  let funcEntry1 := parseFunctionEntry funcJson1
+  result ← test "parse function entry" funcEntry1.isOk result
+  match funcEntry1 with
+  | .ok entry =>
+    result ← test "function lean_name" (entry.leanName == "Test.foo") result
+    result ← test "function is_relevant true" entry.isRelevant result
+  | .error _ => pure ()
+
+  let funcJson2 := Lean.Json.mkObj [("lean_name", "Test.bar"), ("is_relevant", false)]
+  let funcEntry2 := parseFunctionEntry funcJson2
+  match funcEntry2 with
+  | .ok entry =>
+    result ← test "function is_relevant false" (!entry.isRelevant) result
+  | .error _ => pure ()
+
+  -- Test is_relevant defaults to true when missing
+  let funcJson3 := Lean.Json.mkObj [("lean_name", "Test.baz")]
+  let funcEntry3 := parseFunctionEntry funcJson3
+  match funcEntry3 with
+  | .ok entry =>
+    result ← test "function is_relevant defaults true" entry.isRelevant result
+  | .error _ => pure ()
+
+  IO.println ""
+  IO.println "Testing filterAtoms..."
+  let testAtom2 : Atom := {
+    name := "probe:Test.bar"
+    displayName := "bar"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := some { linesStart := 20, linesEnd := 25 }
+    kind := .def
+  }
+  let atomsOutput : AtomsOutput := { atoms := #[testAtom, testAtom2] }
+  let functions : Array FunctionEntry := #[
+    { leanName := "Test.foo", isRelevant := true },
+    { leanName := "Test.bar", isRelevant := false },
+    { leanName := "Test.missing", isRelevant := true }
+  ]
+  let filtered := filterAtoms atomsOutput functions
+  result ← test "filterAtoms keeps relevant" (filtered.atoms.size == 1) result
+  let correctAtom := match filtered.atoms[0]? with
+    | some a => a.name == "probe:Test.foo"
+    | none => false
+  result ← test "filterAtoms correct atom" correctAtom result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

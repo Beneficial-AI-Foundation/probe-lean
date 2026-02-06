@@ -5,6 +5,7 @@ import Cli
 import ProbeLean.Atomize
 import ProbeLean.Specify
 import ProbeLean.Verify
+import ProbeLean.Stubify
 
 open Cli
 open ProbeLean
@@ -96,6 +97,36 @@ def verifyCmd : Cmd := `[Cli|
     projectPath : String; "Path to the Lean 4 project"
 ]
 
+/-- Run the stubify command -/
+def runStubify (parsed : Parsed) : IO UInt32 := do
+  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let functionsPath := parsed.flag? "functions" |>.map (·.as! String) |>.map System.FilePath.mk
+  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
+  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
+
+  let config : StubifyConfig := {
+    projectPath := projectPath
+    functionsPath := functionsPath
+    atomsPath := atomsPath
+    outputPath := outputPath
+  }
+
+  runStubifyInProject config
+
+/-- The stubify subcommand -/
+def stubifyCmd : Cmd := `[Cli|
+  stubify VIA runStubify; ["0.1.0"]
+  "Filter atoms based on functions.json to produce stubs.json"
+
+  FLAGS:
+    f, functions : String; "Path to functions.json (default: PROJECT_PATH/functions.json)"
+    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/atoms.json)"
+    o, output : String; "Output file path (default: PROJECT_PATH/stubs.json)"
+
+  ARGS:
+    projectPath : String; "Path to the Lean 4 project"
+]
+
 /-- Run the root command -/
 def runRoot (_parsed : Parsed) : IO UInt32 := do
   IO.println "Use 'probe-lean <command> <PROJECT_PATH>' to analyze a project"
@@ -110,7 +141,8 @@ def probeleanCmd : Cmd := `[Cli|
   SUBCOMMANDS:
     atomizeCmd;
     specifyCmd;
-    verifyCmd
+    verifyCmd;
+    stubifyCmd
 ]
 
 /-- Entry point -/
