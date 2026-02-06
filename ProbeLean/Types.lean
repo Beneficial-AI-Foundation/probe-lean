@@ -86,10 +86,10 @@ structure Atom where
   kind : DeclKind
   deriving Repr, BEq
 
-/-- Custom JSON serialization for Atom with hyphenated field names -/
+/-- Custom JSON serialization for Atom with hyphenated field names.
+    Note: The "name" field is not included here as it becomes the key in atoms.json -/
 instance : Lean.ToJson Atom where
   toJson atom := Lean.Json.mkObj [
-    ("name", Lean.toJson atom.name),
     ("display-name", Lean.toJson atom.displayName),
     ("dependencies", Lean.toJson atom.dependencies),
     ("code-module", Lean.toJson atom.codeModule),
@@ -109,19 +109,30 @@ instance : Lean.FromJson Atom where
     let kind ← json.getObjValAs? DeclKind "kind"
     return { name, displayName, dependencies, codeModule, codePath, codeText, kind }
 
-/-- Output format for atoms.json -/
+/-- Output format for atoms.json - an object keyed by atom name -/
 structure AtomsOutput where
   atoms : Array Atom
   deriving Repr
 
+/-- Serialize atoms as an object with atom names as keys -/
 instance : Lean.ToJson AtomsOutput where
-  toJson output := Lean.Json.mkObj [
-    ("atoms", Lean.toJson output.atoms)
-  ]
+  toJson output :=
+    let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
+    Lean.Json.mkObj entries.toList
 
 instance : Lean.FromJson AtomsOutput where
   fromJson? json := do
-    let atoms ← json.getObjValAs? (Array Atom) "atoms"
+    -- Parse as object where keys are atom names
+    let obj ← json.getObj?
+    let mut atoms : Array Atom := #[]
+    for (name, value) in obj.toArray do
+      let displayName ← value.getObjValAs? String "display-name"
+      let dependencies ← value.getObjValAs? (Array String) "dependencies"
+      let codeModule ← value.getObjValAs? String "code-module"
+      let codePath ← value.getObjValAs? String "code-path"
+      let codeText ← value.getObjValAs? (Option CodeTextInfo) "code-text"
+      let kind ← value.getObjValAs? DeclKind "kind"
+      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind }
     return { atoms }
 
 /-- A spec entry for specs.json output -/

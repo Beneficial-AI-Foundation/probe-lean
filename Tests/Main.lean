@@ -75,7 +75,7 @@ def main : IO UInt32 := do
   IO.println ""
   IO.println "Testing atomToSpecEntry..."
   let testAtom : Atom := {
-    name := "Test.foo"
+    name := "probe:Test.foo"
     displayName := "foo"
     dependencies := #[]
     codeModule := "Test"

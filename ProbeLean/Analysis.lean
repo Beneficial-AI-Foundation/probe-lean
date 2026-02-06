@@ -91,13 +91,13 @@ def getDependencies (info : ConstantInfo) : Array Name :=
     | none => #[]
   (typeConsts ++ valueConsts).toList.eraseDups.toArray
 
-/-- Get source file path for a module -/
-def getModuleSourcePath (_env : Environment) (projectPath : System.FilePath) (modName : Name) : IO (Option System.FilePath) := do
-  -- Convert module name to file path
-  let relPath := modName.toString.replace "." "/"
-  let leanFile := projectPath / (relPath ++ ".lean")
-  if ← leanFile.pathExists then
-    return some leanFile
+/-- Get source file path for a module (relative to project root) -/
+def getModuleSourcePath (_env : Environment) (projectPath : System.FilePath) (modName : Name) : IO (Option String) := do
+  -- Convert module name to relative file path
+  let relPath := modName.toString.replace "." "/" ++ ".lean"
+  let fullPath := projectPath / relPath
+  if ← fullPath.pathExists then
+    return some relPath
   return none
 
 /-- Get declaration source location -/
@@ -146,11 +146,22 @@ def getProjectDecls (env : Environment) (projectModules : Array Name) : Array De
     decls := decls.push (analyzeDecl env name info)
   decls
 
+/-- Strip leading "./" from a path string -/
+def stripLeadingDotSlash (path : String) : String :=
+  -- Replace multiple ./ patterns at the start
+  let path := path.replace "././././" ""
+  let path := path.replace "././" ""
+  if path.startsWith "./" then path.drop 2 else path
+
+/-- Add "probe:" prefix to a name -/
+def addProbePrefix (name : String) : String :=
+  s!"probe:{name}"
+
 /-- Convert a DeclInfo to an Atom -/
 def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (info : DeclInfo) : IO Atom := do
   let sourcePath ← getModuleSourcePath env projectPath info.moduleName
   let sourcePathStr := match sourcePath with
-    | some p => p.toString
+    | some p => stripLeadingDotSlash p
     | none => ""
 
   -- Filter dependencies to only include project declarations
@@ -158,9 +169,9 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     !isInternalName dep && isProjectDecl env projectModules dep
 
   return {
-    name := info.name.toString
+    name := addProbePrefix info.name.toString
     displayName := info.displayName
-    dependencies := projDeps.map (·.toString)
+    dependencies := projDeps.map fun dep => addProbePrefix dep.toString
     codeModule := info.moduleName.toString
     codePath := sourcePathStr
     codeText := info.sourceInfo

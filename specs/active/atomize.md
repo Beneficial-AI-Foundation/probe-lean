@@ -41,11 +41,11 @@ Options:
 ### Output Format (atoms.json)
 ```json
 {
-  "Mathlib.Algebra.Group.Basic.mul_one": {
+  "probe:Mathlib.Algebra.Group.Basic.mul_one": {
     "display-name": "mul_one",
     "dependencies": [
-      "Mathlib.Algebra.Group.Defs.Monoid.one",
-      "Mathlib.Algebra.Group.Defs.Monoid.mul"
+      "probe:Mathlib.Algebra.Group.Defs.Monoid.one",
+      "probe:Mathlib.Algebra.Group.Defs.Monoid.mul"
     ],
     "code-module": "Mathlib.Algebra.Group.Basic",
     "code-path": "Mathlib/Algebra/Group/Basic.lean",
@@ -59,15 +59,17 @@ Options:
 ```
 
 ### Key Format
-Fully qualified Lean name: `<Namespace>.<Name>`
+Prefixed fully qualified Lean name: `probe:<Namespace>.<Name>`
+
+All atom names and dependencies use the `probe:` prefix for namespace consistency with other probe tools.
 
 ### Atom Object Fields
 | Field | Type | Description |
 |-------|------|-------------|
 | `display-name` | string | Short name without namespace |
-| `dependencies` | string[] | Fully qualified names of declarations this depends on |
+| `dependencies` | string[] | Prefixed fully qualified names (`probe:...`) of declarations this depends on |
 | `code-module` | string | Module name (dot-separated) |
-| `code-path` | string | Relative file path from project root |
+| `code-path` | string | Relative file path from project root (no leading `./`) |
 | `code-text` | object | `{ "lines-start": int, "lines-end": int }` |
 | `kind` | string | One of: `def`, `theorem`, `lemma`, `abbrev`, `instance`, `structure`, `inductive`, `class` |
 
