@@ -223,6 +223,8 @@ def main : IO UInt32 := do
   result ← test "parse lines normal" (parseLines "42-58" == { linesStart := 42, linesEnd := 58 }) result
   result ← test "parse lines single" (parseLines "10" == { linesStart := 10, linesEnd := 10 }) result
   result ← test "parse lines empty" (parseLines "" == { linesStart := 0, linesEnd := 0 }) result
+  result ← test "parse lines L-prefix" (parseLines "L230-L238" == { linesStart := 230, linesEnd := 238 }) result
+  result ← test "parse lines mixed prefix" (parseLines "L100-200" == { linesStart := 100, linesEnd := 200 }) result
 
   IO.println ""
   IO.println "Testing generateStubKey..."
