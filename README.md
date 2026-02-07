@@ -131,7 +131,7 @@ probe-lean stubify <PROJECT_PATH> [-f FUNCTIONS] [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-f, --functions` - Path to functions.json (default: `PROJECT_PATH/.verilib/functions.json`)
+- `-f, --functions` - Path to functions.json (default: `PROJECT_PATH/functions.json`)
 - `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/atoms.json`)
 - `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/stubs.json`)
 

@@ -122,7 +122,7 @@ def filterAtoms (atoms : AtomsOutput) (functions : Array FunctionEntry) : AtomsO
 /-- Run the stubify command -/
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   -- Determine paths
-  let functionsPath := config.functionsPath.getD (config.projectPath / ".verilib" / "functions.json")
+  let functionsPath := config.functionsPath.getD (config.projectPath / "functions.json")
   let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
   let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "stubs.json")
 

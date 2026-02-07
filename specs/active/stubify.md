@@ -24,7 +24,7 @@ Arguments:
   <PROJECT_PATH>    Path to Lean 4 project root
 
 Options:
-  -f, --functions <FILE>   Path to functions.json (default: PROJECT_PATH/.verilib/functions.json)
+  -f, --functions <FILE>   Path to functions.json (default: PROJECT_PATH/functions.json)
   -a, --with-atoms <FILE>  Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)
   -o, --output <FILE>      Output file path (default: PROJECT_PATH/.verilib/stubs.json)
   --help                   Show help
