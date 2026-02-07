@@ -223,12 +223,12 @@ def main : IO UInt32 := do
     { leanName := "Test.bar", isRelevant := false, source := "src/test.rs", lines := "30-40", rustName := "test_bar", specFile := none },
     { leanName := "Test.missing", isRelevant := true, source := "src/test.rs", lines := "50-60", rustName := "test_missing", specFile := none }
   ]
-  let filtered := filterAtoms atomsOutput functions
-  result ← test "filterAtoms keeps relevant" (filtered.atoms.size == 1) result
-  let correctAtom := match filtered.atoms[0]? with
-    | some a => a.name == "probe:Test.foo"
+  let filtered := filterFunctions atomsOutput functions
+  result ← test "filterFunctions keeps relevant" (filtered.size == 1) result
+  let correctFunc := match filtered[0]? with
+    | some f => f.leanName == "Test.foo"
     | none => false
-  result ← test "filterAtoms correct atom" correctAtom result
+  result ← test "filterFunctions correct function" correctFunc result
 
   IO.println ""
   IO.println "Testing getLastNamePart..."

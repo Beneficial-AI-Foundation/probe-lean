@@ -60,16 +60,25 @@ def getSecondLastNamePart (name : String) : String :=
   if parts.length < 2 then ""
   else parts[parts.length - 2]!
 
-/-- Parse lines string "start-end" into CodeTextInfo -/
+/-- Strip leading 'L' from line number string if present -/
+def stripLinePrefix (s : String) : String :=
+  if s.startsWith "L" then s.drop 1 else s
+
+/-- Safely convert string to Nat, returning 0 on failure -/
+def safeToNat (s : String) : Nat :=
+  s.toNat?.getD 0
+
+/-- Parse lines string "L230-L238" or "230-238" into CodeTextInfo -/
 def parseLines (lines : String) : CodeTextInfo :=
   if lines.isEmpty then { linesStart := 0, linesEnd := 0 }
   else
     let parts := lines.splitOn "-"
     match parts with
     | [start, end_] =>
-      { linesStart := start.toNat!, linesEnd := end_.toNat! }
+      { linesStart := safeToNat (stripLinePrefix start),
+        linesEnd := safeToNat (stripLinePrefix end_) }
     | [single] =>
-      let n := single.toNat!
+      let n := safeToNat (stripLinePrefix single)
       { linesStart := n, linesEnd := n }
     | _ => { linesStart := 0, linesEnd := 0 }
 
@@ -105,19 +114,56 @@ def loadFunctions (path : System.FilePath) : IO (Except String (Array FunctionEn
 
   return .ok functions
 
-/-- Filter atoms based on function list -/
-def filterAtoms (atoms : AtomsOutput) (functions : Array FunctionEntry) : AtomsOutput :=
-  -- Build a set of relevant lean names
-  let relevantNames := functions
-    |>.filter (·.isRelevant)
-    |>.map (fun f => s!"probe:{f.leanName}")
-    |>.toList
+/-- Filter atoms based on function list, returns functions that have matching atoms -/
+def filterFunctions (atoms : AtomsOutput) (functions : Array FunctionEntry) : Array FunctionEntry :=
+  -- Build a set of atom names
+  let atomNames := atoms.atoms.map (·.name) |>.toList
 
-  -- Filter atoms to only those in the relevant set
-  let filteredAtoms := atoms.atoms.filter fun atom =>
-    relevantNames.contains atom.name
+  -- Filter to only relevant functions that have a matching atom
+  functions.filter fun f =>
+    f.isRelevant && atomNames.contains s!"probe:{f.leanName}"
 
-  { atoms := filteredAtoms }
+/-- Create a StubEntry from a FunctionEntry -/
+def functionToStubEntry (func : FunctionEntry) : StubEntry :=
+  let rustLines := parseLines func.lines
+  let codePath := func.specFile
+  let codeName := func.specFile.map fun _ => s!"probe:{func.leanName}_spec"
+  {
+    leanPath := none
+    leanLines := none
+    leanName := s!"probe:{func.leanName}"
+    rustPath := func.source
+    rustLines := rustLines
+    rustName := func.rustName
+    codePath := codePath
+    codeLines := none
+    codeName := codeName
+  }
+
+/-- Detect clashes: functions with same source/lastPart combination -/
+def detectClashes (functions : Array FunctionEntry) : List String := Id.run do
+  -- Group by source/lastPart
+  let keys := functions.map fun f => (f.source, getLastNamePart f.leanName)
+  let mut seen : List (String × String) := []
+  let mut clashes : List String := []
+  for key in keys do
+    if seen.contains key then
+      let clashKey := s!"{key.1}/{key.2}"
+      if !clashes.contains clashKey then
+        clashes := clashKey :: clashes
+    seen := key :: seen
+  clashes
+
+/-- Generate stubs output as JSON object keyed by stub keys -/
+def generateStubsJson (functions : Array FunctionEntry) : Lean.Json :=
+  let clashKeys := detectClashes functions
+  let entries := functions.map fun f =>
+    let baseKey := s!"{f.source}/{getLastNamePart f.leanName}"
+    let hasClash := clashKeys.contains baseKey
+    let key := generateStubKey f.source f.leanName hasClash
+    let entry := functionToStubEntry f
+    (key, Lean.toJson entry)
+  Lean.Json.mkObj entries.toList
 
 /-- Run the stubify command -/
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
@@ -149,16 +195,16 @@ def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
 
   IO.println s!"Found {atoms.atoms.size} atoms"
 
-  -- Filter atoms
-  let stubs := filterAtoms atoms functions
+  -- Filter to functions that have matching atoms
+  let matchedFunctions := filterFunctions atoms functions
 
-  IO.println s!"Filtered to {stubs.atoms.size} stubs"
+  IO.println s!"Matched {matchedFunctions.size} functions with atoms"
 
-  -- Write output
-  let json := Lean.toJson stubs
+  -- Generate stubs JSON
+  let json := generateStubsJson matchedFunctions
   IO.FS.createDirAll outputPath.parent.get!
   IO.FS.writeFile outputPath json.pretty
-  IO.println s!"Wrote {stubs.atoms.size} stubs to {outputPath}"
+  IO.println s!"Wrote {matchedFunctions.size} stubs to {outputPath}"
 
   return 0
 
