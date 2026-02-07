@@ -2,17 +2,16 @@
 
 ## Summary
 
-Implement `stubify` subcommand for `probe-lean`. The command filters atoms from `atoms.json` to only include those functions listed in `functions.json`, producing `stubs.json` with a custom output format that maps Lean functions to their Rust counterparts.
+Implement `stubify` subcommand for `probe-lean`. The command generates `stubs.json` from `functions.json`, producing a custom output format that maps Lean functions to their Rust counterparts.
 
 ## Requirements
 
-- [ ] Add `stubify` subcommand to CLI
-- [ ] Read `functions.json` containing function entries with Lean/Rust mapping info
-- [ ] Read `atoms.json` containing the full atom data
-- [ ] Filter atoms to only those whose names (without `probe:` prefix) match entries in `functions.json`
-- [ ] Generate keys using `<source>/<lean_name_1>` format with clash resolution
-- [ ] Output `stubs.json` with the new field format
-- [ ] Handle missing files gracefully with clear error messages
+- [x] Add `stubify` subcommand to CLI
+- [x] Read `functions.json` containing function entries with Lean/Rust mapping info
+- [x] Filter to only entries where `is_relevant` is true
+- [x] Generate keys using `<source>/<lean_name_1>` format with clash resolution
+- [x] Output `stubs.json` with the new field format
+- [x] Handle missing files gracefully with clear error messages
 
 ## API / Interface Design
 
@@ -25,7 +24,6 @@ Arguments:
 
 Options:
   -f, --functions <FILE>   Path to functions.json (default: PROJECT_PATH/functions.json)
-  -a, --with-atoms <FILE>  Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)
   -o, --output <FILE>      Output file path (default: PROJECT_PATH/.verilib/stubs.json)
   --help                   Show help
 ```
@@ -118,50 +116,43 @@ Only entries where `is_relevant` is `true` (or field is missing) are included.
 ### Normal Operation
 1. Validate PROJECT_PATH exists
 2. Load `functions.json` and extract entries where `is_relevant` is not false
-3. Load `atoms.json`
-4. Filter to only functions with matching atom in atoms.json
-5. Generate output keys with clash resolution:
+3. Generate output keys with clash resolution:
    a. Group functions by `<source>/<lean_name_1>`
    b. For groups with >1 entry, use `<source>/<lean_name_1>#<lean_name_2>` for all in group
-6. Build output with new field format
-7. Write to `stubs.json`
-8. Print summary: "Filtered X atoms from Y total to stubs.json"
+4. Build output with new field format
+5. Write to `stubs.json`
+6. Print summary: "Wrote X stubs to stubs.json"
 
 ### Lines Format Conversion
-The `lines` field in functions.json uses format `"start-end"` (e.g., `"42-58"`).
-Convert to: `{"lines-start": 42, "lines-end": 58}`
+The `lines` field in functions.json uses format `"L230-L238"` or `"230-238"`.
+Convert to: `{"lines-start": 230, "lines-end": 238}`
 
 ### Edge Cases
-- Function in `functions.json` has no matching atom: Skip silently (function may not exist in Lean code)
-- Atom has no matching function: Excluded from output
 - Empty functions list: Output empty object `{}`
 - `is_relevant` field missing: Treat as `true`
-- `spec_file` field missing or empty: Use `-` for `code-path` and `code-name`
+- `spec_file` field missing or empty: Use `null` for `code-path` and `code-name`
 - `lines` field missing: Use `{"lines-start": 0, "lines-end": 0}`
 
 ### Error Handling
 - Missing `functions.json`: Exit 1 with "Error: Cannot read functions.json: <path>"
-- Missing `atoms.json`: Exit 1 with "Error: Cannot read atoms.json: <path>. Run 'probe-lean atomize' first."
 - Invalid JSON: Exit 1 with "Error: Invalid JSON in <file>"
 - Invalid output path: Exit 1 with "Error: Cannot write to <path>"
 
 ## Non-Goals
 
-- Modifying the atom data (only filtering and reformatting)
 - Validating function specifications
 - Running verification
 - Generating functions.json (that's external tooling)
 
 ## Acceptance Criteria
 
-- [ ] `probe-lean stubify .` filters atoms based on functions.json
-- [ ] Output stubs.json uses `<source>/<lean_name_1>` key format
-- [ ] Clashing keys are resolved with `#<lean_name_2>` suffix
-- [ ] Only atoms with matching lean_name in functions.json are included
-- [ ] Respects `is_relevant` field (false = excluded)
-- [ ] Output fields match the new format specification
-- [ ] Exit codes are correct (0 for success, 1 for errors)
-- [ ] Works with the curve25519-dalek-lean-verify project
+- [x] `probe-lean stubify .` generates stubs from functions.json
+- [x] Output stubs.json uses `<source>/<lean_name_1>` key format
+- [x] Clashing keys are resolved with `#<lean_name_2>` suffix
+- [x] Respects `is_relevant` field (false = excluded)
+- [x] Output fields match the new format specification
+- [x] Exit codes are correct (0 for success, 1 for errors)
+- [x] Works with the curve25519-dalek-lean-verify project
 
 ---
-Status: draft
+Status: done

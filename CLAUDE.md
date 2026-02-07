@@ -42,7 +42,7 @@ lake build tests           # Build tests
 probe-lean atomize <PATH>  # Extract dependency graph to atoms.json
 probe-lean specify <PATH>  # Extract spec status to specs.json
 probe-lean verify <PATH>   # Check proof completeness to proofs.json
-probe-lean stubify <PATH>  # Filter atoms by functions.json to stubs.json
+probe-lean stubify <PATH>  # Generate stubs.json from functions.json
 ```
 
 ## Testing

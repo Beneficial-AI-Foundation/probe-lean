@@ -124,20 +124,18 @@ probe-lean verify ./my-lean-project
 
 ### stubify
 
-Filter atoms based on `functions.json` to produce `stubs.json`. This creates a curated subset mapping Lean functions to their Rust counterparts.
+Generate `stubs.json` from `functions.json`. This creates a mapping of Lean functions to their Rust counterparts.
 
 ```bash
-probe-lean stubify <PROJECT_PATH> [-f FUNCTIONS] [-a ATOMS] [-o OUTPUT]
+probe-lean stubify <PROJECT_PATH> [-f FUNCTIONS] [-o OUTPUT]
 ```
 
 **Options:**
 - `-f, --functions` - Path to functions.json (default: `PROJECT_PATH/functions.json`)
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/atoms.json`)
 - `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/stubs.json`)
 
 **Example:**
 ```bash
-probe-lean atomize ./my-lean-project
 probe-lean stubify ./my-lean-project
 ```
 

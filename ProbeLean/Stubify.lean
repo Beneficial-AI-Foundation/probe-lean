@@ -1,10 +1,9 @@
 /-
   Stubify command implementation.
-  Filters atoms based on functions.json to produce stubs.json.
+  Generates stubs.json from functions.json.
 -/
 import Lean
 import ProbeLean.Types
-import ProbeLean.Specify
 
 namespace ProbeLean
 
@@ -14,7 +13,6 @@ open Lean
 structure StubifyConfig where
   projectPath : System.FilePath
   functionsPath : Option System.FilePath
-  atomsPath : Option System.FilePath
   outputPath : Option System.FilePath
   deriving Repr
 
@@ -114,15 +112,6 @@ def loadFunctions (path : System.FilePath) : IO (Except String (Array FunctionEn
 
   return .ok functions
 
-/-- Filter atoms based on function list, returns functions that have matching atoms -/
-def filterFunctions (atoms : AtomsOutput) (functions : Array FunctionEntry) : Array FunctionEntry :=
-  -- Build a set of atom names
-  let atomNames := atoms.atoms.map (·.name) |>.toList
-
-  -- Filter to only relevant functions that have a matching atom
-  functions.filter fun f =>
-    f.isRelevant && atomNames.contains s!"probe:{f.leanName}"
-
 /-- Create a StubEntry from a FunctionEntry -/
 def functionToStubEntry (func : FunctionEntry) : StubEntry :=
   let rustLines := parseLines func.lines
@@ -169,7 +158,6 @@ def generateStubsJson (functions : Array FunctionEntry) : Lean.Json :=
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   -- Determine paths
   let functionsPath := config.functionsPath.getD (config.projectPath / "functions.json")
-  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
   let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "stubs.json")
 
   IO.println s!"Loading functions from {functionsPath}..."
@@ -181,30 +169,15 @@ def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
       return 1
     | .ok funcs => pure funcs
 
-  let relevantCount := functions.filter (·.isRelevant) |>.size
-  IO.println s!"Found {functions.size} functions ({relevantCount} relevant)"
-
-  IO.println s!"Loading atoms from {atomsPath}..."
-
-  -- Load atoms
-  let atoms ← match ← loadAtoms atomsPath with
-    | .error msg =>
-      IO.eprintln s!"Error: {msg}. Run 'probe-lean atomize' first."
-      return 1
-    | .ok a => pure a
-
-  IO.println s!"Found {atoms.atoms.size} atoms"
-
-  -- Filter to functions that have matching atoms
-  let matchedFunctions := filterFunctions atoms functions
-
-  IO.println s!"Matched {matchedFunctions.size} functions with atoms"
+  -- Filter to only relevant functions
+  let relevantFunctions := functions.filter (·.isRelevant)
+  IO.println s!"Found {functions.size} functions ({relevantFunctions.size} relevant)"
 
   -- Generate stubs JSON
-  let json := generateStubsJson matchedFunctions
+  let json := generateStubsJson relevantFunctions
   IO.FS.createDirAll outputPath.parent.get!
   IO.FS.writeFile outputPath json.pretty
-  IO.println s!"Wrote {matchedFunctions.size} stubs to {outputPath}"
+  IO.println s!"Wrote {relevantFunctions.size} stubs to {outputPath}"
 
   return 0
 

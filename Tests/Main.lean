@@ -207,30 +207,6 @@ def main : IO UInt32 := do
   | .error _ => pure ()
 
   IO.println ""
-  IO.println "Testing filterAtoms..."
-  let testAtom2 : Atom := {
-    name := "probe:Test.bar"
-    displayName := "bar"
-    dependencies := #[]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := some { linesStart := 20, linesEnd := 25 }
-    kind := .def
-  }
-  let atomsOutput : AtomsOutput := { atoms := #[testAtom, testAtom2] }
-  let functions : Array FunctionEntry := #[
-    { leanName := "Test.foo", isRelevant := true, source := "src/test.rs", lines := "10-20", rustName := "test_foo", specFile := none },
-    { leanName := "Test.bar", isRelevant := false, source := "src/test.rs", lines := "30-40", rustName := "test_bar", specFile := none },
-    { leanName := "Test.missing", isRelevant := true, source := "src/test.rs", lines := "50-60", rustName := "test_missing", specFile := none }
-  ]
-  let filtered := filterFunctions atomsOutput functions
-  result ← test "filterFunctions keeps relevant" (filtered.size == 1) result
-  let correctFunc := match filtered[0]? with
-    | some f => f.leanName == "Test.foo"
-    | none => false
-  result ← test "filterFunctions correct function" correctFunc result
-
-  IO.println ""
   IO.println "Testing getLastNamePart..."
   result ← test "last part simple" (getLastNamePart "foo" == "foo") result
   result ← test "last part qualified" (getLastNamePart "Foo.Bar.baz" == "baz") result
