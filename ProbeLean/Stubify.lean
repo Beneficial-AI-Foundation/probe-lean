@@ -22,6 +22,10 @@ structure StubifyConfig where
 structure FunctionEntry where
   leanName : String
   isRelevant : Bool
+  source : String
+  lines : String
+  rustName : String
+  specFile : Option String
   deriving Repr
 
 /-- Parse a single function entry from JSON -/
@@ -31,7 +35,52 @@ def parseFunctionEntry (json : Json) : Except String FunctionEntry := do
   let isRelevant := match json.getObjValAs? Bool "is_relevant" with
     | .ok b => b
     | .error _ => true
-  return { leanName, isRelevant }
+  let source := match json.getObjValAs? String "source" with
+    | .ok s => s
+    | .error _ => ""
+  let lines := match json.getObjValAs? String "lines" with
+    | .ok l => l
+    | .error _ => ""
+  let rustName := match json.getObjValAs? String "rust_name" with
+    | .ok r => r
+    | .error _ => ""
+  let specFile := match json.getObjValAs? String "spec_file" with
+    | .ok s => if s.isEmpty then none else some s
+    | .error _ => none
+  return { leanName, isRelevant, source, lines, rustName, specFile }
+
+/-- Get the last dot-separated part of a name -/
+def getLastNamePart (name : String) : String :=
+  let parts := name.splitOn "."
+  parts.getLast!
+
+/-- Get the second-to-last dot-separated part of a name -/
+def getSecondLastNamePart (name : String) : String :=
+  let parts := name.splitOn "."
+  if parts.length < 2 then ""
+  else parts[parts.length - 2]!
+
+/-- Parse lines string "start-end" into CodeTextInfo -/
+def parseLines (lines : String) : CodeTextInfo :=
+  if lines.isEmpty then { linesStart := 0, linesEnd := 0 }
+  else
+    let parts := lines.splitOn "-"
+    match parts with
+    | [start, end_] =>
+      { linesStart := start.toNat!, linesEnd := end_.toNat! }
+    | [single] =>
+      let n := single.toNat!
+      { linesStart := n, linesEnd := n }
+    | _ => { linesStart := 0, linesEnd := 0 }
+
+/-- Generate stub key with optional clash resolution -/
+def generateStubKey (source : String) (leanName : String) (hasClash : Bool) : String :=
+  let lastPart := getLastNamePart leanName
+  if hasClash then
+    let secondPart := getSecondLastNamePart leanName
+    s!"{source}/{lastPart}#{secondPart}"
+  else
+    s!"{source}/{lastPart}"
 
 /-- Load functions from functions.json -/
 def loadFunctions (path : System.FilePath) : IO (Except String (Array FunctionEntry)) := do

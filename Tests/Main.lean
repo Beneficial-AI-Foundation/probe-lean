@@ -219,9 +219,9 @@ def main : IO UInt32 := do
   }
   let atomsOutput : AtomsOutput := { atoms := #[testAtom, testAtom2] }
   let functions : Array FunctionEntry := #[
-    { leanName := "Test.foo", isRelevant := true },
-    { leanName := "Test.bar", isRelevant := false },
-    { leanName := "Test.missing", isRelevant := true }
+    { leanName := "Test.foo", isRelevant := true, source := "src/test.rs", lines := "10-20", rustName := "test_foo", specFile := none },
+    { leanName := "Test.bar", isRelevant := false, source := "src/test.rs", lines := "30-40", rustName := "test_bar", specFile := none },
+    { leanName := "Test.missing", isRelevant := true, source := "src/test.rs", lines := "50-60", rustName := "test_missing", specFile := none }
   ]
   let filtered := filterAtoms atomsOutput functions
   result ← test "filterAtoms keeps relevant" (filtered.atoms.size == 1) result
@@ -229,6 +229,79 @@ def main : IO UInt32 := do
     | some a => a.name == "probe:Test.foo"
     | none => false
   result ← test "filterAtoms correct atom" correctAtom result
+
+  IO.println ""
+  IO.println "Testing getLastNamePart..."
+  result ← test "last part simple" (getLastNamePart "foo" == "foo") result
+  result ← test "last part qualified" (getLastNamePart "Foo.Bar.baz" == "baz") result
+  result ← test "last part two" (getLastNamePart "Foo.bar" == "bar") result
+
+  IO.println ""
+  IO.println "Testing getSecondLastNamePart..."
+  result ← test "second last simple" (getSecondLastNamePart "foo" == "") result
+  result ← test "second last two" (getSecondLastNamePart "Foo.bar" == "Foo") result
+  result ← test "second last three" (getSecondLastNamePart "Foo.Bar.baz" == "Bar") result
+
+  IO.println ""
+  IO.println "Testing parseLines..."
+  result ← test "parse lines normal" (parseLines "42-58" == { linesStart := 42, linesEnd := 58 }) result
+  result ← test "parse lines single" (parseLines "10" == { linesStart := 10, linesEnd := 10 }) result
+  result ← test "parse lines empty" (parseLines "" == { linesStart := 0, linesEnd := 0 }) result
+
+  IO.println ""
+  IO.println "Testing generateStubKey..."
+  result ← test "stub key simple" (generateStubKey "src/test.rs" "Test.foo" false == "src/test.rs/foo") result
+  result ← test "stub key with clash" (generateStubKey "src/test.rs" "Module.Test.foo" true == "src/test.rs/foo#Test") result
+
+  IO.println ""
+  IO.println "Testing StubEntry JSON serialization..."
+  let stubEntry : StubEntry := {
+    leanPath := none
+    leanLines := none
+    leanName := "probe:Test.foo"
+    rustPath := "src/test.rs"
+    rustLines := { linesStart := 10, linesEnd := 20 }
+    rustName := "test_foo"
+    codePath := some "specs/test_spec.lean"
+    codeLines := none
+    codeName := some "probe:Test.foo_spec"
+  }
+  let stubJson := Lean.toJson stubEntry
+  let hasLeanName := match stubJson.getObjValAs? String "lean-name" with
+    | .ok "probe:Test.foo" => true
+    | _ => false
+  result ← test "stubEntry toJson has lean-name" hasLeanName result
+  let hasRustPath := match stubJson.getObjValAs? String "rust-path" with
+    | .ok "src/test.rs" => true
+    | _ => false
+  result ← test "stubEntry toJson has rust-path" hasRustPath result
+  let hasCodeName := match stubJson.getObjValAs? (Option String) "code-name" with
+    | .ok (some "probe:Test.foo_spec") => true
+    | _ => false
+  result ← test "stubEntry toJson has code-name" hasCodeName result
+  let hasNullLeanPath := match stubJson.getObjValAs? (Option String) "lean-path" with
+    | .ok none => true
+    | _ => false
+  result ← test "stubEntry toJson has null lean-path" hasNullLeanPath result
+
+  IO.println ""
+  IO.println "Testing StubEntry without spec file..."
+  let stubEntryNoSpec : StubEntry := {
+    leanPath := none
+    leanLines := none
+    leanName := "probe:Test.bar"
+    rustPath := "src/test.rs"
+    rustLines := { linesStart := 30, linesEnd := 40 }
+    rustName := "test_bar"
+    codePath := none
+    codeLines := none
+    codeName := none
+  }
+  let stubJsonNoSpec := Lean.toJson stubEntryNoSpec
+  let hasNullCodePath := match stubJsonNoSpec.getObjValAs? (Option String) "code-path" with
+    | .ok none => true
+    | _ => false
+  result ← test "stubEntry without spec has null code-path" hasNullCodePath result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

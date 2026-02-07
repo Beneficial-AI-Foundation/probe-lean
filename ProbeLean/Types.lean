@@ -234,4 +234,52 @@ instance : Lean.FromJson ProofEntry where
     let sorries ← json.getObjValAs? (Array SorryInfo) "sorries" <|> pure #[]
     return { verified, status, codePath, codeLine, sorries }
 
+/-- A stub entry for stubs.json output -/
+structure StubEntry where
+  /-- Lean file path (placeholder, always null) -/
+  leanPath : Option String
+  /-- Lean line info (placeholder, always null) -/
+  leanLines : Option String
+  /-- Lean name with probe: prefix -/
+  leanName : String
+  /-- Rust source file path -/
+  rustPath : String
+  /-- Rust line range -/
+  rustLines : CodeTextInfo
+  /-- Rust function name -/
+  rustName : String
+  /-- Spec file path or null -/
+  codePath : Option String
+  /-- Code line info (placeholder, always null) -/
+  codeLines : Option String
+  /-- Spec name or null -/
+  codeName : Option String
+  deriving Repr, BEq
+
+instance : Lean.ToJson StubEntry where
+  toJson entry := Lean.Json.mkObj [
+    ("lean-path", Lean.toJson entry.leanPath),
+    ("lean-lines", Lean.toJson entry.leanLines),
+    ("lean-name", Lean.toJson entry.leanName),
+    ("rust-path", Lean.toJson entry.rustPath),
+    ("rust-lines", Lean.toJson entry.rustLines),
+    ("rust-name", Lean.toJson entry.rustName),
+    ("code-path", Lean.toJson entry.codePath),
+    ("code-lines", Lean.toJson entry.codeLines),
+    ("code-name", Lean.toJson entry.codeName)
+  ]
+
+instance : Lean.FromJson StubEntry where
+  fromJson? json := do
+    let leanPath ← json.getObjValAs? (Option String) "lean-path"
+    let leanLines ← json.getObjValAs? (Option String) "lean-lines"
+    let leanName ← json.getObjValAs? String "lean-name"
+    let rustPath ← json.getObjValAs? String "rust-path"
+    let rustLines ← json.getObjValAs? CodeTextInfo "rust-lines"
+    let rustName ← json.getObjValAs? String "rust-name"
+    let codePath ← json.getObjValAs? (Option String) "code-path"
+    let codeLines ← json.getObjValAs? (Option String) "code-lines"
+    let codeName ← json.getObjValAs? (Option String) "code-name"
+    return { leanPath, leanLines, leanName, rustPath, rustLines, rustName, codePath, codeLines, codeName }
+
 end ProbeLean

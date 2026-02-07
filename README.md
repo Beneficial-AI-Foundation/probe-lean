@@ -124,7 +124,7 @@ probe-lean verify ./my-lean-project
 
 ### stubify
 
-Filter atoms based on `functions.json` to produce `stubs.json`. This creates a curated subset of the dependency graph containing only the relevant functions.
+Filter atoms based on `functions.json` to produce `stubs.json`. This creates a curated subset mapping Lean functions to their Rust counterparts.
 
 ```bash
 probe-lean stubify <PROJECT_PATH> [-f FUNCTIONS] [-a ATOMS] [-o OUTPUT]
@@ -146,7 +146,11 @@ probe-lean stubify ./my-lean-project
 {
   "functions": [
     {
-      "lean_name": "MyModule.myFunction",
+      "lean_name": "MyModule.SubModule.myFunction",
+      "source": "src/crypto/field.rs",
+      "lines": "42-58",
+      "rust_name": "my_function",
+      "spec_file": "specs/field_spec.lean",
       "is_relevant": true
     }
   ]
@@ -156,7 +160,24 @@ probe-lean stubify ./my-lean-project
 Only entries where `is_relevant` is `true` (or missing) are included.
 
 **Output format (stubs.json):**
-Same format as `atoms.json` - filtered to only include atoms matching functions in `functions.json`.
+
+Keys use `<source>/<lean_name_1>` format where `<lean_name_1>` is the last dot-separated part of the Lean name. If there's a clash, keys become `<source>/<lean_name_1>#<lean_name_2>` where `<lean_name_2>` is the second-last part.
+
+```json
+{
+  "src/crypto/field.rs/myFunction": {
+    "lean-path": null,
+    "lean-lines": null,
+    "lean-name": "probe:MyModule.SubModule.myFunction",
+    "rust-path": "src/crypto/field.rs",
+    "rust-lines": { "lines-start": 42, "lines-end": 58 },
+    "rust-name": "my_function",
+    "code-path": "specs/field_spec.lean",
+    "code-lines": null,
+    "code-name": "probe:MyModule.SubModule.myFunction_spec"
+  }
+}
+```
 
 ## Output Fields
 
@@ -190,6 +211,20 @@ All output files use `probe:` prefixed names as keys (e.g., `probe:MyModule.myFu
 | `code-path` | Relative path to source file from project root |
 | `code-line` | Line number of declaration |
 | `sorries` | Array of sorry locations (only if status is `sorries`) |
+
+### stubs.json
+
+| Field | Description |
+|-------|-------------|
+| `lean-path` | Always `null` (placeholder) |
+| `lean-lines` | Always `null` (placeholder) |
+| `lean-name` | `probe:<lean_name>` from functions.json |
+| `rust-path` | `<source>` from functions.json |
+| `rust-lines` | Line range as `{"lines-start": N, "lines-end": M}` |
+| `rust-name` | `<rust_name>` from functions.json |
+| `code-path` | `<spec_file>` if it exists, otherwise `null` |
+| `code-lines` | Always `null` (placeholder) |
+| `code-name` | `probe:<lean_name>_spec` if spec_file exists, otherwise `null` |
 
 ## Testing
 
