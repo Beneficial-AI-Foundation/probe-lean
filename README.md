@@ -12,7 +12,10 @@ lake build
 
 # Install to ~/.local/bin
 mkdir -p ~/.local/bin
-ln -sf "$(pwd)/.lake/build/bin/probe-lean" ~/.local/bin/probe-lean
+VERSION=$(cat lean-toolchain | cut -d: -f2)
+rm -f ~/.local/bin/probe-lean ~/.local/bin/probe-lean-$VERSION
+cp .lake/build/bin/probe-lean ~/.local/bin/probe-lean-$VERSION
+ln -s probe-lean-$VERSION ~/.local/bin/probe-lean
 ```
 
 Make sure `~/.local/bin` is in your PATH:
