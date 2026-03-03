@@ -5,24 +5,23 @@ A tool for analyzing Lean 4 projects and extracting dependency graphs.
 ## Installation
 
 ```bash
-# Clone and build
 git clone <repo-url>
 cd probe-lean
-lake build
-
-# Install to ~/.local/bin
-mkdir -p ~/.local/bin
-VERSION=$(cat lean-toolchain | cut -d: -f2)
-rm -f ~/.local/bin/probe-lean ~/.local/bin/probe-lean-$VERSION
-cp .lake/build/bin/probe-lean ~/.local/bin/probe-lean-$VERSION
-ln -s probe-lean-$VERSION ~/.local/bin/probe-lean
 ```
 
-Make sure `~/.local/bin` is in your PATH:
+**Option 1: Bash**
 ```bash
-echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
-source ~/.bashrc
+./tools/bash/install.sh
 ```
+
+**Option 2: Python (using uv)**
+```bash
+uv run tools/python/install.py
+```
+
+Both scripts build the project and install to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`.
+
+If the install fails, try deleting `.lake` and `lake-manifest.json` and running again.
 
 ## Commands
 
