@@ -45,9 +45,9 @@ partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System
       result := result ++ subResult
     else if path.extension == some "olean" then
       -- Convert path to module name
-      let relPath := path.toString.stripPrefix basePath.toString
-      let relPath := relPath.stripPrefix "/"
-      let relPath := relPath.stripSuffix ".olean"
+      let relPath := (path.toString.dropPrefix basePath.toString).toString
+      let relPath := (relPath.dropPrefix "/").toString
+      let relPath := (relPath.dropSuffix ".olean").toString
       let moduleName := relPath.replace "/" "."
       result := result.push (String.toName moduleName)
   return result
@@ -60,7 +60,7 @@ def getProjectModules (projectPath : System.FilePath) : IO (Except String (Array
     return .error s!"Failed to get LEAN_PATH:\n{stderr}"
 
   -- Parse the LEAN_PATH to find olean directories
-  let _leanPath := stdout.trim
+  let _leanPath := stdout.trimAscii
 
   -- Find the project's build directory
   -- Some projects use .lake/build/lib/lean, others use .lake/build/lib directly

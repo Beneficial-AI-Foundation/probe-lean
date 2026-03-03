@@ -1,0 +1,28 @@
+{"probe:double_zero":
+ {"kind": "theorem",
+  "display-name": "double_zero",
+  "dependencies": ["probe:double"],
+  "code-text": {"lines-start": 7, "lines-end": 9},
+  "code-path": "Example/F2.lean",
+  "code-module": "Example.F2"},
+ "probe:double_succ":
+ {"kind": "theorem",
+  "display-name": "double_succ",
+  "dependencies": ["probe:double"],
+  "code-text": {"lines-start": 4, "lines-end": 7},
+  "code-path": "Example/F1.lean",
+  "code-module": "Example.F1"},
+ "probe:double_pos":
+ {"kind": "theorem",
+  "display-name": "double_pos",
+  "dependencies": ["probe:double"],
+  "code-text": {"lines-start": 9, "lines-end": 12},
+  "code-path": "Example/F1.lean",
+  "code-module": "Example.F1"},
+ "probe:double":
+ {"kind": "def",
+  "display-name": "double",
+  "dependencies": [],
+  "code-text": {"lines-start": 3, "lines-end": 5},
+  "code-path": "Example/F2.lean",
+  "code-module": "Example.F2"}}

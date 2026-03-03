@@ -60,7 +60,7 @@ def getSecondLastNamePart (name : String) : String :=
 
 /-- Strip leading 'L' from line number string if present -/
 def stripLinePrefix (s : String) : String :=
-  if s.startsWith "L" then s.drop 1 else s
+  if s.startsWith "L" then (s.drop 1).toString else s
 
 /-- Safely convert string to Nat, returning 0 on failure -/
 def safeToNat (s : String) : Nat :=

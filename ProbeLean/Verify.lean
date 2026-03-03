@@ -36,19 +36,14 @@ def parseSorryWarning (line : String) : Option SorryWarning := do
   if !containsSubstring line "sorry" then none
 
   -- Check if it starts with "warning: " prefix
-  let trimmed := line.trim
+  let trimmed := line.trimAscii.toString
   if !trimmed.startsWith "warning: " then none
 
-  -- Remove "warning: " prefix
-  let rest := trimmed.drop 9  -- "warning: ".length = 9
+  let rest := (trimmed.drop 9).toString
 
-  -- Find the position of ": declaration uses" or similar message
-  -- Format is: "path:line:col: message"
-  -- We need to split from the right to find the message part
   let parts := rest.splitOn ": "
   if parts.length < 2 then none
 
-  -- The last part is the message, everything before is location
   let message := parts.getLast!
   let locationParts := parts.dropLast
 
@@ -75,7 +70,7 @@ def parseSorryWarning (line : String) : Option SorryWarning := do
     filePath := filePath
     line := lineNum
     column := colNum
-    message := message.trim
+    message := message.trimAscii.toString
   }
 
 /-- Parse all sorry warnings from build output -/

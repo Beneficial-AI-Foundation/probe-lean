@@ -151,7 +151,7 @@ def stripLeadingDotSlash (path : String) : String :=
   -- Replace multiple ./ patterns at the start
   let path := path.replace "././././" ""
   let path := path.replace "././" ""
-  if path.startsWith "./" then path.drop 2 else path
+  if path.startsWith "./" then (path.drop 2).toString else path
 
 /-- Add "probe:" prefix to a name -/
 def addProbePrefix (name : String) : String :=
