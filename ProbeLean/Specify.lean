@@ -59,7 +59,7 @@ def atomsToSpecsJson (atoms : AtomsOutput) : Json :=
 /-- Run the specify command -/
 def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
   -- Determine atoms.json path
-  let atomsPath := config.atomsPath.getD (config.projectPath / "atoms.json")
+  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
 
   IO.println s!"Loading atoms from {atomsPath}..."
 

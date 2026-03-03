@@ -57,8 +57,8 @@ def specifyCmd : Cmd := `[Cli|
   "Extract specification status from atoms.json"
 
   FLAGS:
-    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/atoms.json)"
-    o, output : String; "Output file path (default: PROJECT_PATH/specs.json)"
+    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)"
+    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/specs.json)"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project"
@@ -88,8 +88,8 @@ def verifyCmd : Cmd := `[Cli|
   "Check proof completeness by detecting sorry"
 
   FLAGS:
-    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/atoms.json)"
-    o, output : String; "Output file path (default: PROJECT_PATH/proofs.json)"
+    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)"
+    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/proofs.json)"
     "no-cache"; "Don't cache verification output"
     "from-file" : String; "Analyze existing build output instead of running lake"
 

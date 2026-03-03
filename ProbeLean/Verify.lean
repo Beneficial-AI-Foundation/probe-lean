@@ -192,7 +192,7 @@ def atomsToProofsJson (atoms : AtomsOutput) (warnings : Array SorryWarning) : Js
 /-- Run the verify command -/
 def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
   -- Determine atoms.json path
-  let atomsPath := config.atomsPath.getD (config.projectPath / "atoms.json")
+  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
