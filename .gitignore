@@ -18,3 +18,4 @@ lake-manifest.json
 # OS files
 .DS_Store
 Thumbs.db
+atoms.json
