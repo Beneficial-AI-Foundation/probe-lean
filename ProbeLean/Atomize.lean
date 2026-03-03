@@ -45,7 +45,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   if exitCode != 0 then
     return .error "Failed to get LEAN_PATH from target project"
 
-  let leanPath := leanPathOut.trim
+  let leanPath := leanPathOut.trimAscii.toString
 
   -- Set up search path with project's paths, resolving relative paths
   let paths := leanPath.splitOn ":"
@@ -134,7 +134,8 @@ def runAtomizeInProject (config : AtomizeConfig) : IO UInt32 := do
     let jsonStr := json.pretty
 
     let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "atoms.json")
-    IO.FS.createDirAll outputPath.parent.get!
+    if let some parentDir := outputPath.parent then
+      IO.FS.createDirAll parentDir
     IO.FS.writeFile outputPath jsonStr
     IO.println s!"Wrote {atoms.size} atoms to {outputPath}"
     return 0
