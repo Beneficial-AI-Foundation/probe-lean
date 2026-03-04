@@ -129,6 +129,55 @@ probe-lean verify ./my-lean-project
 }
 ```
 
+### pipeline
+
+Run atomize, specify, and verify in a single pass and produce an enriched atom dict with verification status. This is the recommended command for generating call graph data for the [web viewer](https://github.com/Beneficial-AI-Foundation/scip-callgraph).
+
+```bash
+probe-lean pipeline <PROJECT_PATH> [-o OUTPUT] [-m MODULE] [--skip-verify] [--from-file FILE]
+```
+
+**Options:**
+- `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/graph.json`)
+- `-m, --module` - Filter to specific module prefix
+- `--skip-verify` - Skip the verification step (only graph structure, no sorry detection)
+- `--from-file` - Use existing build output for verification instead of running lake
+
+**Example:**
+```bash
+probe-lean pipeline ./my-lean-project
+probe-lean pipeline ./my-lean-project --skip-verify
+probe-lean pipeline ./my-lean-project -o graph.json
+```
+
+**Output format (enriched atoms):**
+
+Each atom includes all fields from `atoms.json` plus `verification-status` and `specified`:
+
+```json
+{
+  "probe:MyModule.myTheorem": {
+    "display-name": "myTheorem",
+    "kind": "theorem",
+    "dependencies": ["probe:MyModule.helper"],
+    "code-module": "MyModule",
+    "code-path": "MyModule.lean",
+    "code-text": { "lines-start": 10, "lines-end": 15 },
+    "verification-status": "verified",
+    "specified": true
+  }
+}
+```
+
+The `verification-status` field maps sorry detection results to the web viewer's status model:
+
+| Lean status | `verification-status` | Meaning |
+|-------------|----------------------|---------|
+| No sorry | `"verified"` | Proof is complete |
+| Has sorry | `"unverified"` | Proof deliberately incomplete |
+| Build failure | `"failed"` | Compilation error |
+| (skipped) | absent | Verification was skipped |
+
 ### stubify
 
 Generate `stubs.json` from `functions.json`. This creates a mapping of Lean functions to their Rust counterparts.

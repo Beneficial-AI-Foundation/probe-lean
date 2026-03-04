@@ -20,6 +20,7 @@ structure PipelineConfig where
   outputPath : Option System.FilePath
   moduleFilter : Option String
   skipVerify : Bool
+  skipBuild : Bool
   fromFile : Option System.FilePath
   deriving Repr
 
@@ -51,14 +52,19 @@ def runPipelineInProject (config : PipelineConfig) : IO UInt32 := do
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
     return 1
 
-  -- Build once and capture output (used both for .olean generation and sorry detection)
-  IO.println s!"Building project at {config.projectPath}..."
-  let (buildStdout, buildStderr, buildExit) ← runCmd "lake" #["build"] (some config.projectPath)
-  if buildExit != 0 then
-    IO.eprintln s!"Lake build failed:\n{buildStderr}"
-    return 1
-  let buildOutput := buildStdout ++ "\n" ++ buildStderr
-  saveCache config.projectPath buildOutput
+  -- Build (unless --skip-build, which assumes .olean files already exist)
+  let buildOutput ← if config.skipBuild then
+    IO.println "Skipping build (--skip-build), assuming .olean files exist..."
+    pure ""
+  else do
+    IO.println s!"Building project at {config.projectPath}..."
+    let (buildStdout, buildStderr, buildExit) ← runCmd "lake" #["build"] (some config.projectPath)
+    if buildExit != 0 then
+      IO.eprintln s!"Lake build failed:\n{buildStderr}"
+      return 1
+    let output := buildStdout ++ "\n" ++ buildStderr
+    saveCache config.projectPath output
+    pure output
 
   -- === Step 1: Atomize ===
   IO.println "=== Step 1/3: Atomize ==="

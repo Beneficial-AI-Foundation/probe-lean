@@ -131,6 +131,7 @@ def runPipeline (parsed : Parsed) : IO UInt32 := do
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
   let skipVerify := parsed.hasFlag "skip-verify"
+  let skipBuild := parsed.hasFlag "skip-build"
   let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
 
   let config : PipelineConfig := {
@@ -138,6 +139,7 @@ def runPipeline (parsed : Parsed) : IO UInt32 := do
     outputPath := outputPath
     moduleFilter := moduleFilter
     skipVerify := skipVerify
+    skipBuild := skipBuild
     fromFile := fromFile
   }
 
@@ -152,6 +154,7 @@ def pipelineCmd : Cmd := `[Cli|
     o, output : String; "Output file path (default: PROJECT_PATH/.verilib/graph.json)"
     m, module : String; "Filter to specific module prefix"
     "skip-verify"; "Skip the verification step"
+    "skip-build"; "Skip the lake build step (assumes .olean files already exist)"
     "from-file" : String; "Use existing build output for verification instead of running lake"
 
   ARGS:
