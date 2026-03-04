@@ -6,6 +6,7 @@ import ProbeLean.Atomize
 import ProbeLean.Specify
 import ProbeLean.Verify
 import ProbeLean.Stubify
+import ProbeLean.Pipeline
 
 open Cli
 open ProbeLean
@@ -124,6 +125,39 @@ def stubifyCmd : Cmd := `[Cli|
     projectPath : String; "Path to the Lean 4 project"
 ]
 
+/-- Run the pipeline command -/
+def runPipeline (parsed : Parsed) : IO UInt32 := do
+  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
+  let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
+  let skipVerify := parsed.hasFlag "skip-verify"
+  let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
+
+  let config : PipelineConfig := {
+    projectPath := projectPath
+    outputPath := outputPath
+    moduleFilter := moduleFilter
+    skipVerify := skipVerify
+    fromFile := fromFile
+  }
+
+  runPipelineInProject config
+
+/-- The pipeline subcommand -/
+def pipelineCmd : Cmd := `[Cli|
+  pipeline VIA runPipeline; ["0.1.0"]
+  "Run atomize + specify + verify and produce an enriched atom dict with verification status"
+
+  FLAGS:
+    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/graph.json)"
+    m, module : String; "Filter to specific module prefix"
+    "skip-verify"; "Skip the verification step"
+    "from-file" : String; "Use existing build output for verification instead of running lake"
+
+  ARGS:
+    projectPath : String; "Path to the Lean 4 project to analyze"
+]
+
 /-- Run the root command -/
 def runRoot (_parsed : Parsed) : IO UInt32 := do
   IO.println "Use 'probe-lean <command> <PROJECT_PATH>' to analyze a project"
@@ -139,7 +173,8 @@ def probeleanCmd : Cmd := `[Cli|
     atomizeCmd;
     specifyCmd;
     verifyCmd;
-    stubifyCmd
+    stubifyCmd;
+    pipelineCmd
 ]
 
 /-- Entry point -/

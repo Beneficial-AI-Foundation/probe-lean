@@ -234,6 +234,60 @@ instance : Lean.FromJson ProofEntry where
     let sorries ← json.getObjValAs? (Array SorryInfo) "sorries" <|> pure #[]
     return { verified, status, codePath, codeLine, sorries }
 
+/-- Verification status as consumed by the web frontend -/
+inductive WebVerificationStatus where
+  | verified
+  | failed
+  | unverified
+  deriving Repr, BEq
+
+instance : Lean.ToJson WebVerificationStatus where
+  toJson
+    | .verified => "verified"
+    | .failed => "failed"
+    | .unverified => "unverified"
+
+/-- An enriched atom combining declaration info with verification and specification status -/
+structure EnrichedAtom where
+  name : String
+  displayName : String
+  dependencies : Array String
+  codeModule : String
+  codePath : String
+  codeText : Option CodeTextInfo
+  kind : DeclKind
+  verificationStatus : Option WebVerificationStatus
+  specified : Option Bool
+  deriving Repr, BEq
+
+instance : Lean.ToJson EnrichedAtom where
+  toJson atom :=
+    let base := [
+      ("display-name", Lean.toJson atom.displayName),
+      ("dependencies", Lean.toJson atom.dependencies),
+      ("code-module", Lean.toJson atom.codeModule),
+      ("code-path", Lean.toJson atom.codePath),
+      ("code-text", Lean.toJson atom.codeText),
+      ("kind", Lean.toJson atom.kind)
+    ]
+    let withVerification := match atom.verificationStatus with
+      | some status => base ++ [("verification-status", Lean.toJson status)]
+      | none => base
+    let withSpecified := match atom.specified with
+      | some spec => withVerification ++ [("specified", Lean.toJson spec)]
+      | none => withVerification
+    Lean.Json.mkObj withSpecified
+
+/-- Output format for enriched atoms - an object keyed by atom name -/
+structure EnrichedAtomsOutput where
+  atoms : Array EnrichedAtom
+  deriving Repr
+
+instance : Lean.ToJson EnrichedAtomsOutput where
+  toJson output :=
+    let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
+    Lean.Json.mkObj entries.toList
+
 /-- A stub entry for stubs.json output -/
 structure StubEntry where
   /-- Lean file path (placeholder, always null) -/
