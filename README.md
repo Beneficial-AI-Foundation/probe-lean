@@ -11,17 +11,22 @@ cd probe-lean
 
 **Option 1: Bash**
 ```bash
-./tools/bash/install.sh
+./tools/bash/install.sh [VERSION]
 ```
 
 **Option 2: Python (using uv)**
 ```bash
-uv run tools/python/install.py
+uv run tools/python/install.py [VERSION]
 ```
 
 Both scripts build the project and install to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`.
 
-If the install fails, try deleting `.lake` and `lake-manifest.json` and running again.
+To install for a specific Lean version (e.g., to match a project you want to analyze):
+```bash
+./tools/bash/install.sh v4.28.0-rc1
+```
+
+If no version is specified, the script shows a menu of available versions from GitHub.
 
 ## Commands
 
