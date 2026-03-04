@@ -27,12 +27,57 @@ def runCmd (cmd : String) (args : Array String) (cwd : Option System.FilePath :=
   let exitCode ← proc.wait
   return (stdout, stderr, exitCode)
 
-/-- Build the target project using lake -/
-def buildProject (projectPath : System.FilePath) : IO (Except String Unit) := do
-  let (_, stderr, exitCode) ← runCmd "lake" #["build"] projectPath
+/-- Build the target project using lake, returning combined stdout+stderr on success -/
+def buildProject (projectPath : System.FilePath) : IO (Except String String) := do
+  let (stdout, stderr, exitCode) ← runCmd "lake" #["build"] projectPath
   if exitCode != 0 then
     return .error s!"Lake build failed:\n{stderr}"
-  return .ok ()
+  return .ok (stdout ++ "\n" ++ stderr)
+
+/-- Get cache directory path -/
+def getCacheDir (projectPath : System.FilePath) : System.FilePath :=
+  projectPath / ".lake" / "probe-lean"
+
+/-- Get cache file paths -/
+def getCacheFiles (projectPath : System.FilePath) : System.FilePath × System.FilePath :=
+  let cacheDir := getCacheDir projectPath
+  (cacheDir / "build_output.txt", cacheDir / "build_config.json")
+
+/-- Recursively check if any .lean file is newer than cache -/
+partial def checkFilesNewerThan (dir : System.FilePath) (cacheTime : IO.FS.SystemTime) : IO Bool := do
+  let entries ← dir.readDir
+  for entry in entries do
+    let path := entry.path
+    if ← path.isDir then
+      if ← checkFilesNewerThan path cacheTime then return true
+    else if path.extension == some "lean" then
+      let fileMeta ← path.metadata
+      if fileMeta.modified > cacheTime then return true
+  return false
+
+/-- Check if cache is valid (exists and newer than any .lean file) -/
+def isCacheValid (projectPath : System.FilePath) : IO Bool := do
+  let (outputCache, _) := getCacheFiles projectPath
+  if !(← outputCache.pathExists) then return false
+  let cacheMeta ← outputCache.metadata
+  let cacheTime := cacheMeta.modified
+  let hasNewerFile ← checkFilesNewerThan projectPath cacheTime
+  return !hasNewerFile
+
+/-- Save build output to cache -/
+def saveCache (projectPath : System.FilePath) (output : String) : IO Unit := do
+  let cacheDir := getCacheDir projectPath
+  IO.FS.createDirAll cacheDir
+  let (outputCache, _) := getCacheFiles projectPath
+  IO.FS.writeFile outputCache output
+
+/-- Load build output from cache -/
+def loadCache (projectPath : System.FilePath) : IO (Option String) := do
+  let (outputCache, _) := getCacheFiles projectPath
+  if ← outputCache.pathExists then
+    some <$> IO.FS.readFile outputCache
+  else
+    return none
 
 /-- Recursively collect .olean files and convert to module names -/
 partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System.FilePath) : IO (Array Lean.Name) := do
