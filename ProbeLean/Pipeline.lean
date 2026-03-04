@@ -58,6 +58,7 @@ def runPipelineInProject (config : PipelineConfig) : IO UInt32 := do
     IO.eprintln s!"Lake build failed:\n{buildStderr}"
     return 1
   let buildOutput := buildStdout ++ "\n" ++ buildStderr
+  saveCache config.projectPath buildOutput
 
   -- === Step 1: Atomize ===
   IO.println "=== Step 1/3: Atomize ==="

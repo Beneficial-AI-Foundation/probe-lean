@@ -129,58 +129,9 @@ def atomToProofEntry (atom : Atom) (sorries : Array SorryInfo) : ProofEntry :=
     sorries := sorries
   }
 
-/-- Run lake build and capture output -/
+/-- Run lake build and capture output (verify ignores exit code to still parse sorries) -/
 def runLakeBuild (projectPath : System.FilePath) : IO (String × String × UInt32) := do
   runCmd "lake" #["build"] (some projectPath)
-
-/-- Get cache directory path -/
-def getCacheDir (projectPath : System.FilePath) : System.FilePath :=
-  projectPath / ".lake" / "probe-lean"
-
-/-- Get cache file paths -/
-def getCacheFiles (projectPath : System.FilePath) : System.FilePath × System.FilePath :=
-  let cacheDir := getCacheDir projectPath
-  (cacheDir / "build_output.txt", cacheDir / "build_config.json")
-
-/-- Recursively check if any .lean file is newer than cache -/
-partial def checkFilesNewerThan (dir : System.FilePath) (cacheTime : IO.FS.SystemTime) : IO Bool := do
-  let entries ← dir.readDir
-  for entry in entries do
-    let path := entry.path
-    if ← path.isDir then
-      if ← checkFilesNewerThan path cacheTime then return true
-    else if path.extension == some "lean" then
-      let fileMeta ← path.metadata
-      if fileMeta.modified > cacheTime then return true
-  return false
-
-/-- Check if cache is valid (exists and newer than any .lean file) -/
-def isCacheValid (projectPath : System.FilePath) : IO Bool := do
-  let (outputCache, _) := getCacheFiles projectPath
-  if !(← outputCache.pathExists) then return false
-
-  -- Get cache modification time
-  let cacheMeta ← outputCache.metadata
-  let cacheTime := cacheMeta.modified
-
-  -- Check if any .lean file is newer
-  let hasNewerFile ← checkFilesNewerThan projectPath cacheTime
-  return !hasNewerFile
-
-/-- Save build output to cache -/
-def saveCache (projectPath : System.FilePath) (output : String) : IO Unit := do
-  let cacheDir := getCacheDir projectPath
-  IO.FS.createDirAll cacheDir
-  let (outputCache, _) := getCacheFiles projectPath
-  IO.FS.writeFile outputCache output
-
-/-- Load build output from cache -/
-def loadCache (projectPath : System.FilePath) : IO (Option String) := do
-  let (outputCache, _) := getCacheFiles projectPath
-  if ← outputCache.pathExists then
-    some <$> IO.FS.readFile outputCache
-  else
-    return none
 
 /-- Convert atoms to proofs output (as JSON object keyed by name) -/
 def atomsToProofsJson (atoms : AtomsOutput) (warnings : Array SorryWarning) : Json :=

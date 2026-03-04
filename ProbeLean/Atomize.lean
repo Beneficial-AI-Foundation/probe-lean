@@ -88,13 +88,14 @@ def runAtomizeInProject (config : AtomizeConfig) : IO UInt32 := do
     IO.eprintln s!"Error: Not a Lake project (missing lakefile.lean or lakefile.toml): {config.projectPath}"
     return 1
 
-  -- Build the project first
+  -- Build the project first (and cache output for later verify)
   IO.println s!"Building project at {config.projectPath}..."
   match ← buildProject config.projectPath with
   | .error msg =>
     IO.eprintln msg
     return 1
-  | .ok () => pure ()
+  | .ok buildOutput =>
+    saveCache config.projectPath buildOutput
 
   IO.println "Getting project modules..."
   -- Get the list of project modules
