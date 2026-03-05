@@ -88,7 +88,12 @@ def runPipelineInProject (config : PipelineConfig) : IO UInt32 := do
     | none => modules
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
-  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules with
+
+  -- Load config to get crate name for relevance detection
+  let userConfig ← loadUserConfig config.projectPath
+  let crate := loadRelevantCrate userConfig
+
+  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1

@@ -1,9 +1,10 @@
 /-
   Stubify command implementation.
-  Generates stubs.json from functions.json.
+  Generates stubs.json from atoms.json, filtering out hidden and extraction artifact atoms.
 -/
 import Lean
 import ProbeLean.Types
+import ProbeLean.Atomize
 
 namespace ProbeLean
 
@@ -12,40 +13,9 @@ open Lean
 /-- Configuration for the stubify command -/
 structure StubifyConfig where
   projectPath : System.FilePath
-  functionsPath : Option System.FilePath
+  atomsPath : Option System.FilePath
   outputPath : Option System.FilePath
   deriving Repr
-
-/-- A function entry from functions.json -/
-structure FunctionEntry where
-  leanName : String
-  isRelevant : Bool
-  source : String
-  lines : String
-  rustName : String
-  specFile : Option String
-  deriving Repr
-
-/-- Parse a single function entry from JSON -/
-def parseFunctionEntry (json : Json) : Except String FunctionEntry := do
-  let leanName ← json.getObjValAs? String "lean_name"
-  -- is_relevant defaults to true if missing
-  let isRelevant := match json.getObjValAs? Bool "is_relevant" with
-    | .ok b => b
-    | .error _ => true
-  let source := match json.getObjValAs? String "source" with
-    | .ok s => s
-    | .error _ => ""
-  let lines := match json.getObjValAs? String "lines" with
-    | .ok l => l
-    | .error _ => ""
-  let rustName := match json.getObjValAs? String "rust_name" with
-    | .ok r => r
-    | .error _ => ""
-  let specFile := match json.getObjValAs? String "spec_file" with
-    | .ok s => if s.isEmpty then none else some s
-    | .error _ => none
-  return { leanName, isRelevant, source, lines, rustName, specFile }
 
 /-- Get the last dot-separated part of a name -/
 def getLastNamePart (name : String) : String :=
@@ -80,104 +50,88 @@ def parseLines (lines : String) : CodeTextInfo :=
       { linesStart := n, linesEnd := n }
     | _ => { linesStart := 0, linesEnd := 0 }
 
-/-- Generate stub key with optional clash resolution -/
-def generateStubKey (source : String) (leanName : String) (hasClash : Bool) : String :=
-  let lastPart := getLastNamePart leanName
-  if hasClash then
-    let secondPart := getSecondLastNamePart leanName
-    s!"{source}/{lastPart}#{secondPart}"
-  else
-    s!"{source}/{lastPart}"
-
-/-- Load functions from functions.json -/
-def loadFunctions (path : System.FilePath) : IO (Except String (Array FunctionEntry)) := do
+/-- Load atoms from atoms.json and return filtered atoms (not hidden, not extraction artifact) -/
+def loadFilteredAtoms (path : System.FilePath) : IO (Except String (Array Atom)) := do
   if !(← path.pathExists) then
-    return .error s!"Cannot read functions.json: {path}"
+    return .error s!"Cannot read atoms.json: {path}"
 
   let content ← IO.FS.readFile path
-  let json ← match Json.parse content with
-    | .ok j => pure j
-    | .error e => return .error s!"Invalid JSON in {path}: {e}"
+  match Json.parse content with
+  | .error e => return .error s!"Invalid JSON in {path}: {e}"
+  | .ok json =>
+    match Lean.fromJson? json (α := AtomsOutput) with
+    | .error e => return .error s!"Failed to parse atoms: {e}"
+    | .ok atomsOutput =>
+      -- Filter to atoms that are NOT hidden AND NOT extraction artifacts AND is relevant AND code-path ends with "Funs.lean"
+      let filteredAtoms := atomsOutput.atoms.filter fun atom =>
+        !atom.isHidden && !atom.isExtractionArtifact && atom.isRelevant && atom.codePath.endsWith "Funs.lean"
+      return .ok filteredAtoms
 
-  -- Parse the functions array
-  let functionsJson ← match json.getObjValAs? (Array Json) "functions" with
-    | .ok arr => pure arr
-    | .error e => return .error s!"Missing or invalid 'functions' field: {e}"
+/-- Generate unique keys for atoms, using short form when possible, full name when clashes occur -/
+def generateUniqueKeys (atoms : Array Atom) : Array (String × Atom) := Id.run do
+  -- First pass: count occurrences of each short key
+  let mut shortKeyCounts : List (String × Nat) := []
+  for atom in atoms do
+    let shortKey := s!"{atom.codePath}/{getLastNamePart atom.name}"
+    match shortKeyCounts.find? (·.1 == shortKey) with
+    | some _ =>
+      shortKeyCounts := shortKeyCounts.map fun (k, c) => if k == shortKey then (k, c + 1) else (k, c)
+    | none =>
+      shortKeyCounts := (shortKey, 1) :: shortKeyCounts
 
-  let mut functions : Array FunctionEntry := #[]
-  for fJson in functionsJson do
-    match parseFunctionEntry fJson with
-    | .ok entry => functions := functions.push entry
-    | .error _ => pure ()  -- Skip entries without lean_name
-
-  return .ok functions
-
-/-- Create a StubEntry from a FunctionEntry -/
-def functionToStubEntry (func : FunctionEntry) : StubEntry :=
-  let rustLines := parseLines func.lines
-  let codePath := func.specFile
-  let codeName := func.specFile.map fun _ => s!"probe:{func.leanName}_spec"
-  {
-    leanPath := none
-    leanLines := none
-    leanName := s!"probe:{func.leanName}"
-    rustPath := func.source
-    rustLines := rustLines
-    rustName := func.rustName
-    codePath := codePath
-    codeLines := none
-    codeName := codeName
-  }
-
-/-- Detect clashes: functions with same source/lastPart combination -/
-def detectClashes (functions : Array FunctionEntry) : List String := Id.run do
-  -- Group by source/lastPart
-  let keys := functions.map fun f => (f.source, getLastNamePart f.leanName)
-  let mut seen : List (String × String) := []
-  let mut clashes : List String := []
-  for key in keys do
-    if seen.contains key then
-      let clashKey := s!"{key.1}/{key.2}"
-      if !clashes.contains clashKey then
-        clashes := clashKey :: clashes
-    seen := key :: seen
-  clashes
+  -- Second pass: assign keys, using full name for clashes
+  let mut result : Array (String × Atom) := #[]
+  for atom in atoms do
+    let shortKey := s!"{atom.codePath}/{getLastNamePart atom.name}"
+    let count := shortKeyCounts.find? (·.1 == shortKey) |>.map (·.2) |>.getD 1
+    let key := if count > 1 then
+      -- Use full atom name (without probe: prefix) for uniqueness
+      s!"{atom.codePath}/{stripProbePrefix atom.name}"
+    else
+      shortKey
+    result := result.push (key, atom)
+  result
 
 /-- Generate stubs output as JSON object keyed by stub keys -/
-def generateStubsJson (functions : Array FunctionEntry) : Lean.Json :=
-  let clashKeys := detectClashes functions
-  let entries := functions.map fun f =>
-    let baseKey := s!"{f.source}/{getLastNamePart f.leanName}"
-    let hasClash := clashKeys.contains baseKey
-    let key := generateStubKey f.source f.leanName hasClash
-    let entry := functionToStubEntry f
+def generateStubsJsonFromAtoms (atoms : Array Atom) : Lean.Json :=
+  let keysAndAtoms := generateUniqueKeys atoms
+  let entries := keysAndAtoms.map fun (key, atom) =>
+    let entry : StubEntry := {
+      codePath := some atom.codePath
+      codeLines := atom.codeText.map fun ct => s!"{ct.linesStart}-{ct.linesEnd}"
+      codeName := atom.name
+      rustPath := ""
+      rustLines := { linesStart := 0, linesEnd := 0 }
+      rustName := ""
+      specPath := some atom.codePath
+      specLines := none
+      specName := some atom.name
+    }
     (key, Lean.toJson entry)
   Lean.Json.mkObj entries.toList
 
 /-- Run the stubify command -/
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   -- Determine paths
-  let functionsPath := config.functionsPath.getD (config.projectPath / "functions.json")
+  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
   let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "stubs.json")
 
-  IO.println s!"Loading functions from {functionsPath}..."
+  IO.println s!"Loading atoms from {atomsPath}..."
 
-  -- Load functions
-  let functions ← match ← loadFunctions functionsPath with
+  -- Load and filter atoms
+  let atoms ← match ← loadFilteredAtoms atomsPath with
     | .error msg =>
       IO.eprintln s!"Error: {msg}"
       return 1
-    | .ok funcs => pure funcs
+    | .ok atoms => pure atoms
 
-  -- Filter to only relevant functions
-  let relevantFunctions := functions.filter (·.isRelevant)
-  IO.println s!"Found {functions.size} functions ({relevantFunctions.size} relevant)"
+  IO.println s!"Found {atoms.size} atoms (excluding hidden, extraction artifacts, and irrelevant)"
 
   -- Generate stubs JSON
-  let json := generateStubsJson relevantFunctions
+  let json := generateStubsJsonFromAtoms atoms
   IO.FS.createDirAll outputPath.parent.get!
   IO.FS.writeFile outputPath json.pretty
-  IO.println s!"Wrote {relevantFunctions.size} stubs to {outputPath}"
+  IO.println s!"Wrote {atoms.size} stubs to {outputPath}"
 
   return 0
 

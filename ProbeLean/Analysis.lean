@@ -110,6 +110,61 @@ def getDeclSourceLoc (env : Environment) (name : Name) : Option CodeTextInfo :=
     }
   | none => none
 
+/-- Extract the source file path from Aeneas docstring `Source: 'path'` pattern -/
+def extractSourceFromDocstring (doc : String) : Option String :=
+  let pattern := "Source: '"
+  let parts := doc.splitOn pattern
+  if h : parts.length >= 2 then
+    let afterPattern := parts[1]
+    let quoteParts := afterPattern.splitOn "'"
+    if h2 : quoteParts.length >= 1 then
+      some quoteParts[0]
+    else none
+  else none
+
+/-- Get docstring for a constant from the environment -/
+def getDeclDocstring (env : Environment) (name : Name) : IO (Option String) :=
+  Lean.findDocString? env name
+
+/-- Get the Rust source path from the docstring of a declaration.
+    If no source found and name doesn't end with _body, try the _body variant. -/
+def getDeclRustSource (env : Environment) (name : Name) : IO (Option String) := do
+  -- First try the declaration itself
+  match ← getDeclDocstring env name with
+  | some doc =>
+    match extractSourceFromDocstring doc with
+    | some source => return some source
+    | none =>
+      -- No source in docstring, try _body variant if applicable
+      if !name.toString.endsWith "_body" then
+        let bodyName := name.appendAfter "_body"
+        if env.find? bodyName |>.isSome then
+          match ← getDeclDocstring env bodyName with
+          | some bodyDoc => return extractSourceFromDocstring bodyDoc
+          | none => return none
+        else return none
+      else return none
+  | none =>
+    -- No docstring, try _body variant if applicable
+    if !name.toString.endsWith "_body" then
+      let bodyName := name.appendAfter "_body"
+      if env.find? bodyName |>.isSome then
+        match ← getDeclDocstring env bodyName with
+        | some bodyDoc => return extractSourceFromDocstring bodyDoc
+        | none => return none
+      else return none
+    else return none
+
+/-- Check if a source path indicates a relevant (crate-internal) function -/
+def isRelevantSource (source : Option String) (crate : String) : Bool :=
+  match source with
+  | none => false  -- No source info -> not relevant
+  | some s =>
+    -- Must contain crate name and not be from external sources
+    containsSubstring s crate &&
+    !s.startsWith "/" &&  -- External paths start with /rustc/ or /cargo/
+    !containsSubstring s "/cargo/registry/"
+
 /-- Information about a declaration for analysis -/
 structure DeclInfo where
   name : Name
@@ -158,7 +213,7 @@ def addProbePrefix (name : String) : String :=
   s!"probe:{name}"
 
 /-- Convert a DeclInfo to an Atom -/
-def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (info : DeclInfo) : IO Atom := do
+def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (crate : String) (info : DeclInfo) : IO Atom := do
   let sourcePath ← getModuleSourcePath env projectPath info.moduleName
   let sourcePathStr := match sourcePath with
     | some p => stripLeadingDotSlash p
@@ -168,6 +223,10 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
   let projDeps := info.dependencies.filter fun dep =>
     !isInternalName dep && isProjectDecl env projectModules dep
 
+  -- Get Rust source from docstring and compute relevance
+  let rustSource ← getDeclRustSource env info.name
+  let isRelevant := isRelevantSource rustSource crate
+
   return {
     name := addProbePrefix info.name.toString
     displayName := info.displayName
@@ -176,6 +235,8 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     codePath := sourcePathStr
     codeText := info.sourceInfo
     kind := info.kind
+    isRelevant := isRelevant
+    rustSource := rustSource
   }
 
 end ProbeLean

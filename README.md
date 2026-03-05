@@ -56,7 +56,36 @@ probe-lean atomize ./my-lean-project
     "dependencies": ["probe:MyModule.helper"],
     "code-module": "MyModule",
     "code-path": "MyModule.lean",
-    "code-text": { "lines-start": 10, "lines-end": 15 }
+    "code-text": { "lines-start": 10, "lines-end": 15 },
+    "is-hidden": false,
+    "is-extraction-artifact": false,
+    "is-ignored": false,
+    "is-relevant": true,
+    "rust-source": "my-crate/src/module.rs"
+  }
+}
+```
+
+The `is-hidden`, `is-extraction-artifact`, and `is-ignored` fields are populated from the project's `.verilib/config.json`:
+
+- `is-hidden`: `true` if the atom name (without `probe:` prefix) appears in `user.is-hidden`
+- `is-extraction-artifact`: `true` if the atom name (without `probe:` prefix) ends with any suffix in `user.extraction-artifact-suffixes`
+- `is-ignored`: `true` if the atom name (without `probe:` prefix) appears in `user.is-ignored`
+
+The `is-relevant` field is computed by checking if `user.relevant-crate` appears in the `rust-source` field:
+
+- If `rust-source` exists: `true` if it contains the crate name AND doesn't start with `/` AND doesn't contain `/cargo/registry/`
+- If no `rust-source`: `false`
+
+Example config:
+
+```json
+{
+  "user": {
+    "is-hidden": ["MyModule.internalHelper", "MyModule.derivedInstance"],
+    "extraction-artifact-suffixes": ["_body", "_loop", "_loop0", "_loop1"],
+    "is-ignored": ["MyModule.testHelper", "MyModule.debugFunction"],
+    "relevant-crate": "my-crate-name"
   }
 }
 ```
@@ -180,55 +209,42 @@ The `verification-status` field maps sorry detection results to the web viewer's
 
 ### stubify
 
-Generate `stubs.json` from `functions.json`. This creates a mapping of Lean functions to their Rust counterparts.
+Generate `stubs.json` from `atoms.json`, filtering to only include atoms where:
+- `is-hidden` is `false`
+- `is-extraction-artifact` is `false`
+- `is-relevant` is `true`
+- `code-path` ends with `Funs.lean`
 
 ```bash
-probe-lean stubify <PROJECT_PATH> [-f FUNCTIONS] [-o OUTPUT]
+probe-lean stubify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-f, --functions` - Path to functions.json (default: `PROJECT_PATH/functions.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/atoms.json`)
 - `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/stubs.json`)
 
 **Example:**
 ```bash
+probe-lean atomize ./my-lean-project
 probe-lean stubify ./my-lean-project
 ```
 
-**Input format (functions.json):**
-```json
-{
-  "functions": [
-    {
-      "lean_name": "MyModule.SubModule.myFunction",
-      "source": "src/crypto/field.rs",
-      "lines": "42-58",
-      "rust_name": "my_function",
-      "spec_file": "specs/field_spec.lean",
-      "is_relevant": true
-    }
-  ]
-}
-```
-
-Only entries where `is_relevant` is `true` (or missing) are included.
-
 **Output format (stubs.json):**
 
-Keys use `<source>/<lean_name_1>` format where `<lean_name_1>` is the last dot-separated part of the Lean name. If there's a clash, keys become `<source>/<lean_name_1>#<lean_name_2>` where `<lean_name_2>` is the second-last part.
+Keys use `<code-path>/<name_last>` format where `<name_last>` is the last dot-separated part of the atom name. If multiple atoms would have the same key, the full atom name (without `probe:` prefix) is used instead: `<code-path>/<full_name>`.
 
 ```json
 {
-  "src/crypto/field.rs/myFunction": {
-    "lean-path": null,
-    "lean-lines": null,
-    "lean-name": "probe:MyModule.SubModule.myFunction",
-    "rust-path": "src/crypto/field.rs",
-    "rust-lines": { "lines-start": 42, "lines-end": 58 },
-    "rust-name": "my_function",
-    "code-path": "specs/field_spec.lean",
-    "code-lines": null,
-    "code-name": "probe:MyModule.SubModule.myFunction_spec"
+  "MyModule.lean/myFunction": {
+    "code-path": "MyModule.lean",
+    "code-lines": "10-15",
+    "code-name": "probe:MyModule.myFunction",
+    "rust-path": "",
+    "rust-lines": { "lines-start": 0, "lines-end": 0 },
+    "rust-name": "",
+    "spec-path": "MyModule.lean",
+    "spec-lines": null,
+    "spec-name": "probe:MyModule.myFunction"
   }
 }
 ```
@@ -247,6 +263,11 @@ All output files use `probe:` prefixed names as keys (e.g., `probe:MyModule.myFu
 | `code-module` | Module name containing the declaration |
 | `code-path` | Relative path to source file from project root |
 | `code-text` | Source location with line numbers (null if unavailable) |
+| `is-hidden` | Whether the atom is in the config's `user.is-hidden` list |
+| `is-extraction-artifact` | Whether the atom name ends with a suffix from `user.extraction-artifact-suffixes` |
+| `is-ignored` | Whether the atom is in the config's `user.is-ignored` list |
+| `is-relevant` | Whether the Rust source is from the target crate (not stdlib/external deps) |
+| `rust-source` | Rust source path from Aeneas docstring (null if unavailable). Falls back to `_body` variant's docstring if needed. |
 
 ### specs.json
 
@@ -270,15 +291,15 @@ All output files use `probe:` prefixed names as keys (e.g., `probe:MyModule.myFu
 
 | Field | Description |
 |-------|-------------|
-| `lean-path` | Always `null` (placeholder) |
-| `lean-lines` | Always `null` (placeholder) |
-| `lean-name` | `probe:<lean_name>` from functions.json |
-| `rust-path` | `<source>` from functions.json |
-| `rust-lines` | Line range as `{"lines-start": N, "lines-end": M}` |
-| `rust-name` | `<rust_name>` from functions.json |
-| `code-path` | `<spec_file>` if it exists, otherwise `null` |
-| `code-lines` | Always `null` (placeholder) |
-| `code-name` | `probe:<lean_name>_spec` if spec_file exists, otherwise `null` |
+| `code-path` | Source file path from atoms.json |
+| `code-lines` | Line range as string (e.g., "10-15") |
+| `code-name` | Atom name with `probe:` prefix |
+| `rust-path` | Empty string (no Rust mapping) |
+| `rust-lines` | `{"lines-start": 0, "lines-end": 0}` (no Rust mapping) |
+| `rust-name` | Empty string (no Rust mapping) |
+| `spec-path` | Source file path from atoms.json |
+| `spec-lines` | Always `null` |
+| `spec-name` | Atom name with `probe:` prefix |
 
 ## Testing
 

@@ -68,6 +68,9 @@ instance : Lean.FromJson DeclKind where
     | "quot" => return .quot
     | _ => throw s!"Unknown DeclKind: {s}"
 
+instance : Inhabited DeclKind where
+  default := .def
+
 /-- An atom representing a declaration in the dependency graph -/
 structure Atom where
   /-- Full qualified name -/
@@ -84,7 +87,17 @@ structure Atom where
   codeText : Option CodeTextInfo
   /-- Declaration kind -/
   kind : DeclKind
-  deriving Repr, BEq
+  /-- Whether this atom is hidden (from config.json's user/is-hidden list) -/
+  isHidden : Bool := false
+  /-- Whether this atom is an extraction artifact (suffix matches config.json's user/extraction-artifact-suffixes) -/
+  isExtractionArtifact : Bool := false
+  /-- Whether this atom is ignored (from config.json's user/is-ignored list) -/
+  isIgnored : Bool := false
+  /-- Whether this atom is relevant (from crate source, not stdlib/external deps) -/
+  isRelevant : Bool := true
+  /-- Rust source path from Aeneas docstring (e.g., "curve25519-dalek/src/field.rs") -/
+  rustSource : Option String := none
+  deriving Repr, BEq, Inhabited
 
 /-- Custom JSON serialization for Atom with hyphenated field names.
     Note: The "name" field is not included here as it becomes the key in atoms.json -/
@@ -95,7 +108,12 @@ instance : Lean.ToJson Atom where
     ("code-module", Lean.toJson atom.codeModule),
     ("code-path", Lean.toJson atom.codePath),
     ("code-text", Lean.toJson atom.codeText),
-    ("kind", Lean.toJson atom.kind)
+    ("kind", Lean.toJson atom.kind),
+    ("is-hidden", Lean.toJson atom.isHidden),
+    ("is-extraction-artifact", Lean.toJson atom.isExtractionArtifact),
+    ("is-ignored", Lean.toJson atom.isIgnored),
+    ("is-relevant", Lean.toJson atom.isRelevant),
+    ("rust-source", Lean.toJson atom.rustSource)
   ]
 
 instance : Lean.FromJson Atom where
@@ -107,7 +125,12 @@ instance : Lean.FromJson Atom where
     let codePath ← json.getObjValAs? String "code-path"
     let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
     let kind ← json.getObjValAs? DeclKind "kind"
-    return { name, displayName, dependencies, codeModule, codePath, codeText, kind }
+    let isHidden ← json.getObjValAs? Bool "is-hidden" <|> pure false
+    let isExtractionArtifact ← json.getObjValAs? Bool "is-extraction-artifact" <|> pure false
+    let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
+    let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
+    let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
+    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
 
 /-- Output format for atoms.json - an object keyed by atom name -/
 structure AtomsOutput where
@@ -132,7 +155,11 @@ instance : Lean.FromJson AtomsOutput where
       let codePath ← value.getObjValAs? String "code-path"
       let codeText ← value.getObjValAs? (Option CodeTextInfo) "code-text"
       let kind ← value.getObjValAs? DeclKind "kind"
-      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind }
+      let isHidden ← value.getObjValAs? Bool "is-hidden" <|> pure false
+      let isExtractionArtifact ← value.getObjValAs? Bool "is-extraction-artifact" <|> pure false
+      let isIgnored ← value.getObjValAs? Bool "is-ignored" <|> pure false
+      let isRelevant ← value.getObjValAs? Bool "is-relevant" <|> pure true
+      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, isHidden, isExtractionArtifact, isIgnored, isRelevant }
     return { atoms }
 
 /-- A spec entry for specs.json output -/
@@ -290,12 +317,12 @@ instance : Lean.ToJson EnrichedAtomsOutput where
 
 /-- A stub entry for stubs.json output -/
 structure StubEntry where
-  /-- Lean file path (placeholder, always null) -/
-  leanPath : Option String
-  /-- Lean line info (placeholder, always null) -/
-  leanLines : Option String
-  /-- Lean name with probe: prefix -/
-  leanName : String
+  /-- Code (Lean) file path -/
+  codePath : Option String
+  /-- Code (Lean) line info -/
+  codeLines : Option String
+  /-- Code (Lean) name with probe: prefix -/
+  codeName : String
   /-- Rust source file path -/
   rustPath : String
   /-- Rust line range -/
@@ -303,37 +330,37 @@ structure StubEntry where
   /-- Rust function name -/
   rustName : String
   /-- Spec file path or null -/
-  codePath : Option String
-  /-- Code line info (placeholder, always null) -/
-  codeLines : Option String
+  specPath : Option String
+  /-- Spec line info (placeholder, always null) -/
+  specLines : Option String
   /-- Spec name or null -/
-  codeName : Option String
+  specName : Option String
   deriving Repr, BEq
 
 instance : Lean.ToJson StubEntry where
   toJson entry := Lean.Json.mkObj [
-    ("lean-path", Lean.toJson entry.leanPath),
-    ("lean-lines", Lean.toJson entry.leanLines),
-    ("lean-name", Lean.toJson entry.leanName),
+    ("code-path", Lean.toJson entry.codePath),
+    ("code-lines", Lean.toJson entry.codeLines),
+    ("code-name", Lean.toJson entry.codeName),
     ("rust-path", Lean.toJson entry.rustPath),
     ("rust-lines", Lean.toJson entry.rustLines),
     ("rust-name", Lean.toJson entry.rustName),
-    ("code-path", Lean.toJson entry.codePath),
-    ("code-lines", Lean.toJson entry.codeLines),
-    ("code-name", Lean.toJson entry.codeName)
+    ("spec-path", Lean.toJson entry.specPath),
+    ("spec-lines", Lean.toJson entry.specLines),
+    ("spec-name", Lean.toJson entry.specName)
   ]
 
 instance : Lean.FromJson StubEntry where
   fromJson? json := do
-    let leanPath ← json.getObjValAs? (Option String) "lean-path"
-    let leanLines ← json.getObjValAs? (Option String) "lean-lines"
-    let leanName ← json.getObjValAs? String "lean-name"
+    let codePath ← json.getObjValAs? (Option String) "code-path"
+    let codeLines ← json.getObjValAs? (Option String) "code-lines"
+    let codeName ← json.getObjValAs? String "code-name"
     let rustPath ← json.getObjValAs? String "rust-path"
     let rustLines ← json.getObjValAs? CodeTextInfo "rust-lines"
     let rustName ← json.getObjValAs? String "rust-name"
-    let codePath ← json.getObjValAs? (Option String) "code-path"
-    let codeLines ← json.getObjValAs? (Option String) "code-lines"
-    let codeName ← json.getObjValAs? (Option String) "code-name"
-    return { leanPath, leanLines, leanName, rustPath, rustLines, rustName, codePath, codeLines, codeName }
+    let specPath ← json.getObjValAs? (Option String) "spec-path"
+    let specLines ← json.getObjValAs? (Option String) "spec-lines"
+    let specName ← json.getObjValAs? (Option String) "spec-name"
+    return { codePath, codeLines, codeName, rustPath, rustLines, rustName, specPath, specLines, specName }
 
 end ProbeLean

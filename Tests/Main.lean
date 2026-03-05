@@ -73,6 +73,12 @@ def main : IO UInt32 := do
   result ← test "add probe prefix simple" (addProbePrefix "foo" == "probe:foo") result
 
   IO.println ""
+  IO.println "Testing stripProbePrefix..."
+  result ← test "strip probe prefix" (stripProbePrefix "probe:Test.foo" == "Test.foo") result
+  result ← test "strip probe prefix simple" (stripProbePrefix "probe:foo" == "foo") result
+  result ← test "strip probe prefix no prefix" (stripProbePrefix "Test.foo" == "Test.foo") result
+
+  IO.println ""
   IO.println "Testing DeclKind JSON serialization..."
   result ← test "def toJson" (Lean.toJson DeclKind.def == "def") result
   result ← test "theorem toJson" (Lean.toJson DeclKind.theorem == "theorem") result
@@ -86,6 +92,78 @@ def main : IO UInt32 := do
   result ← test "class is specified" (isAlwaysSpecified DeclKind.class) result
   result ← test "inductive is specified" (isAlwaysSpecified DeclKind.inductive) result
   result ← test "instance is specified" (isAlwaysSpecified DeclKind.instance) result
+
+  IO.println ""
+  IO.println "Testing hasAnySuffix..."
+  result ← test "has suffix _body" (hasAnySuffix "Test.foo_body" #["_body", "_loop"]) result
+  result ← test "has suffix _loop" (hasAnySuffix "Test.bar_loop" #["_body", "_loop"]) result
+  result ← test "no matching suffix" (!hasAnySuffix "Test.baz" #["_body", "_loop"]) result
+  result ← test "empty suffixes" (!hasAnySuffix "Test.foo_body" #[]) result
+
+  IO.println ""
+  IO.println "Testing extractSourceFromDocstring..."
+  let doc1 := "[curve25519_dalek::scalar::Scalar::from_bytes_mod_order]: Source: 'curve25519-dalek/src/scalar.rs', lines 200:4-210:5"
+  result ← test "extract source from docstring" (extractSourceFromDocstring doc1 == some "curve25519-dalek/src/scalar.rs") result
+  let doc2 := "Some other docstring without source"
+  result ← test "no source in docstring" (extractSourceFromDocstring doc2 == none) result
+
+  IO.println ""
+  IO.println "Testing isRelevantSource..."
+  result ← test "relevant source with crate" (isRelevantSource (some "curve25519-dalek/src/scalar.rs") "curve25519-dalek") result
+  result ← test "irrelevant source external" (!isRelevantSource (some "/rustc/abc123/library/core/src/ops.rs") "curve25519-dalek") result
+  result ← test "irrelevant source cargo registry" (!isRelevantSource (some "/cargo/registry/src/subtle-2.4.1/src/lib.rs") "curve25519-dalek") result
+  result ← test "irrelevant source wrong crate" (!isRelevantSource (some "other-crate/src/lib.rs") "curve25519-dalek") result
+  result ← test "no source not relevant" (!isRelevantSource none "curve25519_dalek") result
+  result ← test "empty crate not relevant" (!isRelevantSource (some "/rustc/whatever") "") result
+
+  IO.println ""
+  IO.println "Testing markAtomFlags..."
+  let testAtomForHidden : Atom := {
+    name := "probe:Test.foo"
+    displayName := "foo"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  let testAtomForHidden2 : Atom := {
+    name := "probe:Test.bar"
+    displayName := "bar"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  let testAtomArtifact : Atom := {
+    name := "probe:Test.baz_body"
+    displayName := "baz_body"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  let testAtomIgnored : Atom := {
+    name := "probe:Test.ignored_func"
+    displayName := "ignored_func"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  let hiddenList : Array String := #["Test.foo"]
+  let artifactSuffixes : Array String := #["_body", "_loop"]
+  let ignoredList : Array String := #["Test.ignored_func"]
+  let markedAtoms := markAtomFlags #[testAtomForHidden, testAtomForHidden2, testAtomArtifact, testAtomIgnored] hiddenList artifactSuffixes ignoredList
+  result ← test "marked atom is hidden" markedAtoms[0]!.isHidden result
+  result ← test "unmarked atom is not hidden" (!markedAtoms[1]!.isHidden) result
+  result ← test "artifact atom is extraction artifact" markedAtoms[2]!.isExtractionArtifact result
+  result ← test "non-artifact atom is not extraction artifact" (!markedAtoms[0]!.isExtractionArtifact) result
+  result ← test "ignored atom is ignored" markedAtoms[3]!.isIgnored result
+  result ← test "non-ignored atom is not ignored" (!markedAtoms[0]!.isIgnored) result
 
   IO.println ""
   IO.println "Testing atomToSpecEntry..."
@@ -119,6 +197,62 @@ def main : IO UInt32 := do
       | _ => false
     | _ => false
   result ← test "atom has probe: prefixed dependencies" hasDeps result
+  -- Check is-hidden field
+  let hasIsHidden := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-hidden" with
+      | .ok false => true  -- default value
+      | _ => false
+    | _ => false
+  result ← test "atom has is-hidden field" hasIsHidden result
+
+  -- Test is-hidden true
+  let hiddenAtom : Atom := { testAtom with isHidden := true }
+  let hiddenAtomsOutput : AtomsOutput := { atoms := #[hiddenAtom] }
+  let hiddenAtomsJson := Lean.toJson hiddenAtomsOutput
+  let hasIsHiddenTrue := match hiddenAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-hidden" with
+      | .ok true => true
+      | _ => false
+    | _ => false
+  result ← test "atom has is-hidden true" hasIsHiddenTrue result
+
+  -- Check is-extraction-artifact field
+  let hasIsExtractionArtifact := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-extraction-artifact" with
+      | .ok false => true  -- default value
+      | _ => false
+    | _ => false
+  result ← test "atom has is-extraction-artifact field" hasIsExtractionArtifact result
+
+  -- Test is-extraction-artifact true
+  let artifactAtom : Atom := { testAtom with isExtractionArtifact := true }
+  let artifactAtomsOutput : AtomsOutput := { atoms := #[artifactAtom] }
+  let artifactAtomsJson := Lean.toJson artifactAtomsOutput
+  let hasIsExtractionArtifactTrue := match artifactAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-extraction-artifact" with
+      | .ok true => true
+      | _ => false
+    | _ => false
+  result ← test "atom has is-extraction-artifact true" hasIsExtractionArtifactTrue result
+
+  -- Check is-ignored field
+  let hasIsIgnored := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-ignored" with
+      | .ok false => true  -- default value
+      | _ => false
+    | _ => false
+  result ← test "atom has is-ignored field" hasIsIgnored result
+
+  -- Test is-ignored true
+  let ignoredAtom : Atom := { testAtom with isIgnored := true }
+  let ignoredAtomsOutput : AtomsOutput := { atoms := #[ignoredAtom] }
+  let ignoredAtomsJson := Lean.toJson ignoredAtomsOutput
+  let hasIsIgnoredTrue := match ignoredAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-ignored" with
+      | .ok true => true
+      | _ => false
+    | _ => false
+  result ← test "atom has is-ignored true" hasIsIgnoredTrue result
 
   IO.println ""
   IO.println "Testing SpecEntry JSON serialization..."
@@ -181,32 +315,6 @@ def main : IO UInt32 := do
   result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
 
   IO.println ""
-  IO.println "Testing parseFunctionEntry..."
-  let funcJson1 := Lean.Json.mkObj [("lean_name", "Test.foo"), ("is_relevant", true)]
-  let funcEntry1 := parseFunctionEntry funcJson1
-  result ← test "parse function entry" funcEntry1.isOk result
-  match funcEntry1 with
-  | .ok entry =>
-    result ← test "function lean_name" (entry.leanName == "Test.foo") result
-    result ← test "function is_relevant true" entry.isRelevant result
-  | .error _ => pure ()
-
-  let funcJson2 := Lean.Json.mkObj [("lean_name", "Test.bar"), ("is_relevant", false)]
-  let funcEntry2 := parseFunctionEntry funcJson2
-  match funcEntry2 with
-  | .ok entry =>
-    result ← test "function is_relevant false" (!entry.isRelevant) result
-  | .error _ => pure ()
-
-  -- Test is_relevant defaults to true when missing
-  let funcJson3 := Lean.Json.mkObj [("lean_name", "Test.baz")]
-  let funcEntry3 := parseFunctionEntry funcJson3
-  match funcEntry3 with
-  | .ok entry =>
-    result ← test "function is_relevant defaults true" entry.isRelevant result
-  | .error _ => pure ()
-
-  IO.println ""
   IO.println "Testing getLastNamePart..."
   result ← test "last part simple" (getLastNamePart "foo" == "foo") result
   result ← test "last part qualified" (getLastNamePart "Foo.Bar.baz" == "baz") result
@@ -227,59 +335,54 @@ def main : IO UInt32 := do
   result ← test "parse lines mixed prefix" (parseLines "L100-200" == { linesStart := 100, linesEnd := 200 }) result
 
   IO.println ""
-  IO.println "Testing generateStubKey..."
-  result ← test "stub key simple" (generateStubKey "src/test.rs" "Test.foo" false == "src/test.rs/foo") result
-  result ← test "stub key with clash" (generateStubKey "src/test.rs" "Module.Test.foo" true == "src/test.rs/foo#Test") result
-
-  IO.println ""
   IO.println "Testing StubEntry JSON serialization..."
   let stubEntry : StubEntry := {
-    leanPath := none
-    leanLines := none
-    leanName := "probe:Test.foo"
+    codePath := none
+    codeLines := none
+    codeName := "probe:Test.foo"
     rustPath := "src/test.rs"
     rustLines := { linesStart := 10, linesEnd := 20 }
     rustName := "test_foo"
-    codePath := some "specs/test_spec.lean"
-    codeLines := none
-    codeName := some "probe:Test.foo_spec"
+    specPath := some "specs/test_spec.lean"
+    specLines := none
+    specName := some "probe:Test.foo_spec"
   }
   let stubJson := Lean.toJson stubEntry
-  let hasLeanName := match stubJson.getObjValAs? String "lean-name" with
+  let hasCodeName := match stubJson.getObjValAs? String "code-name" with
     | .ok "probe:Test.foo" => true
     | _ => false
-  result ← test "stubEntry toJson has lean-name" hasLeanName result
+  result ← test "stubEntry toJson has code-name" hasCodeName result
   let hasRustPath := match stubJson.getObjValAs? String "rust-path" with
     | .ok "src/test.rs" => true
     | _ => false
   result ← test "stubEntry toJson has rust-path" hasRustPath result
-  let hasCodeName := match stubJson.getObjValAs? (Option String) "code-name" with
+  let hasSpecName := match stubJson.getObjValAs? (Option String) "spec-name" with
     | .ok (some "probe:Test.foo_spec") => true
     | _ => false
-  result ← test "stubEntry toJson has code-name" hasCodeName result
-  let hasNullLeanPath := match stubJson.getObjValAs? (Option String) "lean-path" with
+  result ← test "stubEntry toJson has spec-name" hasSpecName result
+  let hasNullCodePath := match stubJson.getObjValAs? (Option String) "code-path" with
     | .ok none => true
     | _ => false
-  result ← test "stubEntry toJson has null lean-path" hasNullLeanPath result
+  result ← test "stubEntry toJson has null code-path" hasNullCodePath result
 
   IO.println ""
   IO.println "Testing StubEntry without spec file..."
   let stubEntryNoSpec : StubEntry := {
-    leanPath := none
-    leanLines := none
-    leanName := "probe:Test.bar"
+    codePath := none
+    codeLines := none
+    codeName := "probe:Test.bar"
     rustPath := "src/test.rs"
     rustLines := { linesStart := 30, linesEnd := 40 }
     rustName := "test_bar"
-    codePath := none
-    codeLines := none
-    codeName := none
+    specPath := none
+    specLines := none
+    specName := none
   }
   let stubJsonNoSpec := Lean.toJson stubEntryNoSpec
-  let hasNullCodePath := match stubJsonNoSpec.getObjValAs? (Option String) "code-path" with
+  let hasNullSpecPath := match stubJsonNoSpec.getObjValAs? (Option String) "spec-path" with
     | .ok none => true
     | _ => false
-  result ← test "stubEntry without spec has null code-path" hasNullCodePath result
+  result ← test "stubEntry without spec has null spec-path" hasNullSpecPath result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

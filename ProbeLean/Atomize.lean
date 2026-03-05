@@ -10,6 +10,72 @@ namespace ProbeLean
 
 open Lean
 
+/-- Load user config from .verilib/config.json -/
+def loadUserConfig (projectPath : System.FilePath) : IO (Option Lean.Json) := do
+  let configPath := projectPath / ".verilib" / "config.json"
+  if !(← configPath.pathExists) then
+    return none
+  let content ← IO.FS.readFile configPath
+  match Lean.Json.parse content with
+  | .error _ => return none
+  | .ok json =>
+    match json.getObjVal? "user" with
+    | .error _ => return none
+    | .ok userObj => return some userObj
+
+/-- Load the is-hidden list from .verilib/config.json -/
+def loadIsHiddenList (userConfig : Option Lean.Json) : Array String :=
+  match userConfig with
+  | none => #[]
+  | some userObj =>
+    match userObj.getObjValAs? (Array String) "is-hidden" with
+    | .error _ => #[]
+    | .ok arr => arr
+
+/-- Load the extraction-artifact-suffixes list from .verilib/config.json -/
+def loadExtractionArtifactSuffixes (userConfig : Option Lean.Json) : Array String :=
+  match userConfig with
+  | none => #[]
+  | some userObj =>
+    match userObj.getObjValAs? (Array String) "extraction-artifact-suffixes" with
+    | .error _ => #[]
+    | .ok arr => arr
+
+/-- Load the is-ignored list from .verilib/config.json -/
+def loadIsIgnoredList (userConfig : Option Lean.Json) : Array String :=
+  match userConfig with
+  | none => #[]
+  | some userObj =>
+    match userObj.getObjValAs? (Array String) "is-ignored" with
+    | .error _ => #[]
+    | .ok arr => arr
+
+/-- Load the relevant-crate from .verilib/config.json -/
+def loadRelevantCrate (userConfig : Option Lean.Json) : String :=
+  match userConfig with
+  | none => ""
+  | some userObj =>
+    match userObj.getObjValAs? String "relevant-crate" with
+    | .error _ => ""
+    | .ok crate => crate
+
+/-- Strip "probe:" prefix from an atom name -/
+def stripProbePrefix (name : String) : String :=
+  if name.startsWith "probe:" then (name.drop 6).toString else name
+
+/-- Check if a name ends with any of the given suffixes -/
+def hasAnySuffix (name : String) (suffixes : Array String) : Bool :=
+  suffixes.any fun suffix => name.endsWith suffix
+
+/-- Set isHidden, isExtractionArtifact, and isIgnored fields on atoms based on config -/
+def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (artifactSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
+  atoms.map fun atom =>
+    let nameWithoutPrefix := stripProbePrefix atom.name
+    let isHidden := hiddenList.contains nameWithoutPrefix
+    let isExtractionArtifact := hasAnySuffix nameWithoutPrefix artifactSuffixes
+    let isIgnored := ignoredList.contains nameWithoutPrefix
+    { atom with isHidden := isHidden, isExtractionArtifact := isExtractionArtifact, isIgnored := isIgnored }
+
 /-- Configuration for the atomize command -/
 structure AtomizeConfig where
   projectPath : System.FilePath
@@ -33,7 +99,7 @@ def resolvePath (basePath : System.FilePath) (path : System.FilePath) : IO Syste
       return resolved
 
 /-- Run analysis via lake env to get correct search paths -/
-def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) : IO (Except String (Array Atom)) := do
+def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String) : IO (Except String (Array Atom)) := do
   -- Get absolute project path
   let absProjectPath ← IO.FS.realPath projectPath
 
@@ -76,7 +142,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   -- Convert to atoms
   let mut atoms : Array Atom := #[]
   for decl in decls do
-    let atom ← declInfoToAtom env projectPath modules decl
+    let atom ← declInfoToAtom env projectPath modules crate decl
     atoms := atoms.push atom
 
   return .ok atoms
@@ -121,14 +187,24 @@ def runAtomizeInProject (config : AtomizeConfig) : IO UInt32 := do
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
 
+  -- Load config to get crate name for relevance detection
+  let userConfig ← loadUserConfig config.projectPath
+  let crate := loadRelevantCrate userConfig
+
   -- Use lake env to run analysis with correct environment
-  let analysisResult ← runAnalysisViaLakeEnv config.projectPath filteredModules
+  let analysisResult ← runAnalysisViaLakeEnv config.projectPath filteredModules crate
 
   match analysisResult with
   | .error msg =>
     IO.eprintln s!"Analysis failed: {msg}"
     return 1
   | .ok atoms =>
+    -- Mark atoms with is-hidden, is-extraction-artifact, and is-ignored flags from config
+    let hiddenList := loadIsHiddenList userConfig
+    let artifactSuffixes := loadExtractionArtifactSuffixes userConfig
+    let ignoredList := loadIsIgnoredList userConfig
+    let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
+
     -- Write output
     let output : AtomsOutput := { atoms := atoms }
     let json := Lean.toJson output
