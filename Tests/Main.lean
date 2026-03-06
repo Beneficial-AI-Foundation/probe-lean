@@ -521,6 +521,34 @@ def main : IO UInt32 := do
     | _ => false
   result ← test "bare dict parses as AtomsOutput" bareParsed result
 
+  IO.println ""
+  IO.println "Testing AtomsOutput round-trip preserves rustSource..."
+  let atomWithRust : Atom := {
+    name := "probe:Test.y", displayName := "y",
+    dependencies := #[], codeModule := "Test", codePath := "Test.lean",
+    codeText := none, kind := .def, rustSource := some "src/lib.rs"
+  }
+  let aoWithRust : AtomsOutput := { atoms := #[atomWithRust] }
+  let aoRtOk := match Lean.FromJson.fromJson? (Lean.toJson aoWithRust) (α := AtomsOutput) with
+    | .ok ao => match ao.atoms[0]? with
+      | some a => a.rustSource == some "src/lib.rs"
+      | none => false
+    | .error _ => false
+  result ← test "AtomsOutput round-trip preserves rustSource" aoRtOk result
+
+  let atomNoRust : Atom := {
+    name := "probe:Test.z", displayName := "z",
+    dependencies := #[], codeModule := "Test", codePath := "Test.lean",
+    codeText := none, kind := .theorem, rustSource := none
+  }
+  let aoNoRust : AtomsOutput := { atoms := #[atomNoRust] }
+  let aoRtNone := match Lean.FromJson.fromJson? (Lean.toJson aoNoRust) (α := AtomsOutput) with
+    | .ok ao => match ao.atoms[0]? with
+      | some a => a.rustSource == none
+      | none => false
+    | .error _ => false
+  result ← test "AtomsOutput round-trip preserves rustSource=none" aoRtNone result
+
   let envParsedViaUnwrap := match Lean.Json.parse envStr with
     | .ok j =>
       let inner := unwrapEnvelope j
@@ -666,38 +694,38 @@ def main : IO UInt32 := do
   -- Case 1: exact path exists
   let exactPath := probesDir / "lean_testpkg_abcdef1.json"
   IO.FS.writeFile exactPath "{}"
-  let found1 ← findDefaultAtomsPath tmpBase testPm
-  result ← test "exact path returned when it exists" (found1.toString == exactPath.toString) result
+  let (found1, fb1) ← findDefaultAtomsPath tmpBase testPm
+  result ← test "exact path returned when it exists" (found1.toString == exactPath.toString && !fb1) result
   IO.FS.removeFile exactPath
 
   -- Case 2: exact path missing, fallback finds an alternative
   let altPath := probesDir / "lean_testpkg_old1234.json"
   IO.FS.writeFile altPath "{}"
-  let found2 ← findDefaultAtomsPath tmpBase testPm
-  result ← test "fallback finds alternative atoms file" (found2.toString == altPath.toString) result
+  let (found2, fb2) ← findDefaultAtomsPath tmpBase testPm
+  result ← test "fallback finds alternative atoms file" (found2.toString == altPath.toString && fb2) result
 
   -- Case 3: multiple alternatives, newest is picked
   let _ ← IO.Process.run { cmd := "sleep", args := #["0.05"] }
   let newerPath := probesDir / "lean_testpkg_new5678.json"
   IO.FS.writeFile newerPath "{}"
-  let found3 ← findDefaultAtomsPath tmpBase testPm
-  result ← test "newest alternative picked when multiple exist" (found3.toString == newerPath.toString) result
+  let (found3, fb3) ← findDefaultAtomsPath tmpBase testPm
+  result ← test "newest alternative picked when multiple exist" (found3.toString == newerPath.toString && fb3) result
 
   -- Case 4: derived files are not picked
   IO.FS.removeFile altPath
   IO.FS.removeFile newerPath
   let specsOnly := probesDir / "lean_testpkg_xyz_specs.json"
   IO.FS.writeFile specsOnly "{}"
-  let found4 ← findDefaultAtomsPath tmpBase testPm
-  result ← test "derived files not picked as atoms" (found4.toString == exactPath.toString) result
+  let (found4, fb4) ← findDefaultAtomsPath tmpBase testPm
+  result ← test "derived files not picked as atoms" (found4.toString == exactPath.toString && !fb4) result
   IO.FS.removeFile specsOnly
 
   -- Case 5: no probes dir at all
   let emptyBase := tmpBase / "empty"
   IO.FS.createDirAll emptyBase
-  let found5 ← findDefaultAtomsPath emptyBase testPm
+  let (found5, fb5) ← findDefaultAtomsPath emptyBase testPm
   let expectedEmpty := emptyBase / ".verilib" / "probes" / "lean_testpkg_abcdef1.json"
-  result ← test "returns exact path when probes dir missing" (found5.toString == expectedEmpty.toString) result
+  result ← test "returns exact path when probes dir missing" (found5.toString == expectedEmpty.toString && !fb5) result
 
   -- Cleanup
   try IO.FS.removeDirAll tmpBase catch _ => pure ()

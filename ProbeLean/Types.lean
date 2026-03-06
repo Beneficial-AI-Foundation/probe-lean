@@ -220,7 +220,8 @@ instance : Lean.FromJson AtomsOutput where
       let isExtractionArtifact ← value.getObjValAs? Bool "is-extraction-artifact" <|> pure false
       let isIgnored ← value.getObjValAs? Bool "is-ignored" <|> pure false
       let isRelevant ← value.getObjValAs? Bool "is-relevant" <|> pure true
-      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant }
+      let rustSource ← value.getObjValAs? (Option String) "rust-source" <|> pure none
+      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
     return { atoms }
 
 /-- A spec entry for specs.json output -/

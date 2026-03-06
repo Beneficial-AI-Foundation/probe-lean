@@ -96,7 +96,11 @@ def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   let pm ← gatherMetadata config.projectPath
   let atomsPath ← match config.atomsPath with
     | some p => pure p
-    | none => findDefaultAtomsPath config.projectPath pm
+    | none => do
+      let (path, usedFallback) ← findDefaultAtomsPath config.projectPath pm
+      if usedFallback then
+        IO.println "NOTE: Using atoms from a different version. Re-run 'probe-lean atomize' for accurate results."
+      pure path
 
   IO.println s!"Loading atoms from {atomsPath}..."
 

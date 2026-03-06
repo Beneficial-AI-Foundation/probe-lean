@@ -93,7 +93,11 @@ def gatherMetadata (projectPath : System.FilePath) : IO ProjectMetadata := do
   let commit ← getGitCommit projectPath
   let repo ← getGitRemoteUrl projectPath
   let timestamp ← getTimestamp
-  let (pkgName, pkgVersion) ← getPackageNameAndVersion projectPath commit
+  let (pkgName', pkgVersion) ← getPackageNameAndVersion projectPath commit
+  let pkgName ← if pkgName'.isEmpty then do
+    IO.eprintln "Warning: could not determine package name; using 'unknown-package'"
+    pure "unknown-package"
+  else pure pkgName'
   return { commit, repo, timestamp, pkgName, pkgVersion }
 
 /-- Compute the default output path for a probe-lean command.
@@ -118,16 +122,18 @@ def isAtomsFileName (name : String) (pkgNamePrefix : String) : Bool :=
 /-- Find the default atoms input path. Tries the exact computed path first;
     if it doesn't exist, searches .verilib/probes/ for a matching atoms file
     (picking the most recently modified one). Emits a warning when falling back.
+    Returns `(path, usedFallback)` where `usedFallback = true` when the exact
+    path was not found and an alternative was used instead.
     This handles the case where the git commit changed between atomize and
     downstream commands (specify/verify/stubify). -/
 def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
-    : IO System.FilePath := do
+    : IO (System.FilePath × Bool) := do
   let exactPath := getDefaultOutputPath projectPath pm ""
-  if ← exactPath.pathExists then return exactPath
+  if ← exactPath.pathExists then return (exactPath, false)
   let probesDir := projectPath / ".verilib" / "probes"
   if !(← probesDir.pathExists) then
     IO.eprintln s!"Warning: atoms file not found at {exactPath} and {probesDir} does not exist"
-    return exactPath
+    return (exactPath, false)
   let entries ← probesDir.readDir
   let namePrefix := s!"lean_{pm.pkgName}_"
   let mut candidates : Array (System.FilePath × IO.FS.SystemTime) := #[]
@@ -139,11 +145,15 @@ def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
       catch _ => pure ()
   if candidates.isEmpty then
     IO.eprintln s!"Warning: atoms file not found at {exactPath} and no alternatives found in {probesDir}"
-    return exactPath
+    return (exactPath, false)
   let sorted := candidates.qsort fun (_, t1) (_, t2) => t1 > t2
-  let chosen := sorted[0]!.1
-  IO.eprintln s!"Warning: exact atoms path {exactPath} not found; using {chosen} (from a different version)"
-  return chosen
+  match sorted[0]? with
+  | some (chosen, _) =>
+    IO.eprintln s!"Warning: exact atoms path {exactPath} not found; using {chosen} (from a different version)"
+    return (chosen, true)
+  | none =>
+    IO.eprintln s!"Warning: atoms file not found at {exactPath} and no alternatives found in {probesDir}"
+    return (exactPath, false)
 
 /-- Wrap a JSON payload in a Schema 2.0 envelope using pre-gathered metadata. -/
 def wrapInEnvelopeWith (schema command : String) (data : Json) (pm : ProjectMetadata) : Json :=
