@@ -4,6 +4,8 @@
 -/
 import Lean
 import ProbeLean.Types
+import ProbeLean.Loader
+import ProbeLean.Metadata
 
 namespace ProbeLean
 
@@ -38,32 +40,16 @@ def atomToSpecEntry (atom : Atom) : SpecEntry :=
     specText := atom.codeText
   }
 
-/-- Load atoms.json and parse it -/
-def loadAtoms (path : System.FilePath) : IO (Except String AtomsOutput) := do
-  if !(← path.pathExists) then
-    return .error s!"atoms.json not found at {path}. Run 'probe-lean atomize' first."
-  let content ← IO.FS.readFile path
-  match Json.parse content with
-  | .error err => return .error s!"Failed to parse atoms.json: {err}"
-  | .ok json =>
-    match FromJson.fromJson? json with
-    | .error err => return .error s!"Invalid atoms.json format: {err}"
-    | .ok atoms => return .ok atoms
-
-/-- Convert atoms to specs output (as JSON object keyed by name) -/
-def atomsToSpecsJson (atoms : AtomsOutput) : Json :=
-  let entries := atoms.atoms.map fun atom =>
-    (atom.name, toJson (atomToSpecEntry atom))
-  Json.mkObj entries.toList
+/-- Convert atoms to a typed SpecsOutput -/
+def atomsToSpecsOutput (atoms : AtomsOutput) : SpecsOutput :=
+  { entries := atoms.atoms.map fun atom => (atom.name, atomToSpecEntry atom) }
 
 /-- Run the specify command -/
 def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
-  -- Determine atoms.json path
   let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
-  -- Load atoms
   let atoms ← match ← loadAtoms atomsPath with
   | .error msg =>
     IO.eprintln s!"Error: {msg}"
@@ -72,13 +58,13 @@ def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
 
   IO.println s!"Found {atoms.atoms.size} declarations"
 
-  -- Convert to specs
-  let specsJson := atomsToSpecsJson atoms
+  let output := atomsToSpecsOutput atoms
+  let envelope ← wrapInEnvelope "probe-lean/specs" "specify" (Lean.toJson output) config.projectPath
+  let jsonStr := envelope.pretty
 
-  -- Write output
   let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "specs.json")
   IO.FS.createDirAll outputPath.parent.get!
-  IO.FS.writeFile outputPath specsJson.pretty
+  IO.FS.writeFile outputPath jsonStr
   IO.println s!"Wrote specs to {outputPath}"
 
   return 0

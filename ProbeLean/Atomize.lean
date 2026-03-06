@@ -5,6 +5,7 @@ import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Analysis
+import ProbeLean.Metadata
 
 namespace ProbeLean
 
@@ -205,10 +206,9 @@ def runAtomizeInProject (config : AtomizeConfig) : IO UInt32 := do
     let ignoredList := loadIsIgnoredList userConfig
     let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
 
-    -- Write output
     let output : AtomsOutput := { atoms := atoms }
-    let json := Lean.toJson output
-    let jsonStr := json.pretty
+    let envelope ← wrapInEnvelope "probe-lean/atoms" "atomize" (Lean.toJson output) config.projectPath
+    let jsonStr := envelope.pretty
 
     let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "atoms.json")
     if let some parentDir := outputPath.parent then

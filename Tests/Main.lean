@@ -3,7 +3,7 @@
 -/
 import ProbeLean
 
-set_option maxRecDepth 1024
+set_option maxRecDepth 2048
 
 open ProbeLean
 
@@ -383,6 +383,154 @@ def main : IO UInt32 := do
     | .ok none => true
     | _ => false
   result ← test "stubEntry without spec has null spec-path" hasNullSpecPath result
+
+  IO.println ""
+  IO.println "Testing Atom language field..."
+  let langAtom : Atom := {
+    name := "probe:Test.foo"
+    displayName := "foo"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  result ← test "atom default language is lean" (langAtom.language == "lean") result
+  let langJson := Lean.toJson langAtom
+  let hasLanguage := match langJson.getObjValAs? String "language" with
+    | .ok "lean" => true
+    | _ => false
+  result ← test "atom toJson has language field" hasLanguage result
+
+  let langAtomsOutput : AtomsOutput := { atoms := #[langAtom] }
+  let langAtomsJson := Lean.toJson langAtomsOutput
+  let atomValHasLang := match langAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? String "language" with
+      | .ok "lean" => true
+      | _ => false
+    | _ => false
+  result ← test "atoms output includes language per atom" atomValHasLang result
+
+  IO.println ""
+  IO.println "Testing ToolInfo JSON serialization..."
+  let toolInfo : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "atomize" }
+  let toolJson := Lean.toJson toolInfo
+  let toolNameOk := match toolJson.getObjValAs? String "name" with
+    | .ok "probe-lean" => true | _ => false
+  let toolVersionOk := match toolJson.getObjValAs? String "version" with
+    | .ok "0.1.0" => true | _ => false
+  let toolCommandOk := match toolJson.getObjValAs? String "command" with
+    | .ok "atomize" => true | _ => false
+  result ← test "toolInfo name" toolNameOk result
+  result ← test "toolInfo version" toolVersionOk result
+  result ← test "toolInfo command" toolCommandOk result
+
+  IO.println ""
+  IO.println "Testing SourceInfo JSON serialization..."
+  let sourceInfo : SourceInfo := {
+    repo := "https://github.com/org/project"
+    commit := "abc123def456"
+    language := "lean"
+    package := "MyProject"
+    packageVersion := "0.1.0"
+  }
+  let sourceJson := Lean.toJson sourceInfo
+  let srcRepoOk := match sourceJson.getObjValAs? String "repo" with
+    | .ok "https://github.com/org/project" => true | _ => false
+  let srcLangOk := match sourceJson.getObjValAs? String "language" with
+    | .ok "lean" => true | _ => false
+  let srcPkgVerOk := match sourceJson.getObjValAs? String "package-version" with
+    | .ok "0.1.0" => true | _ => false
+  result ← test "sourceInfo repo" srcRepoOk result
+  result ← test "sourceInfo language" srcLangOk result
+  result ← test "sourceInfo package-version" srcPkgVerOk result
+
+  IO.println ""
+  IO.println "Testing SpecsOutput JSON serialization..."
+  let specsOutput : SpecsOutput := {
+    entries := #[("probe:Test.foo", { specified := true, codePath := "Test.lean", specText := none })]
+  }
+  let specsJson := Lean.toJson specsOutput
+  let specsKeyOk := match specsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "specified" with
+      | .ok true => true | _ => false
+    | _ => false
+  result ← test "specsOutput keyed dict format" specsKeyOk result
+
+  IO.println ""
+  IO.println "Testing ProofsOutput JSON serialization..."
+  let proofsOutput : ProofsOutput := {
+    entries := #[("probe:Test.foo", {
+      verified := true, status := .success,
+      codePath := "Test.lean", codeLine := 10, sorries := #[]
+    })]
+  }
+  let proofsJson := Lean.toJson proofsOutput
+  let proofsKeyOk := match proofsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "verified" with
+      | .ok true => true | _ => false
+    | _ => false
+  result ← test "proofsOutput keyed dict format" proofsKeyOk result
+
+  IO.println ""
+  IO.println "Testing StubsOutput JSON serialization..."
+  let stubsOutput : StubsOutput := {
+    entries := #[("key/foo", {
+      codePath := some "Test.lean", codeLines := some "10-20",
+      codeName := "probe:Test.foo", rustPath := "", rustLines := { linesStart := 0, linesEnd := 0 },
+      rustName := "", specPath := none, specLines := none, specName := none
+    })]
+  }
+  let stubsJson := Lean.toJson stubsOutput
+  let stubsKeyOk := match stubsJson.getObjVal? "key/foo" with
+    | .ok v => match v.getObjValAs? String "code-name" with
+      | .ok "probe:Test.foo" => true | _ => false
+    | _ => false
+  result ← test "stubsOutput keyed dict format" stubsKeyOk result
+
+  IO.println ""
+  IO.println "Testing envelope-aware loading (unwrapEnvelope)..."
+  let bareDict := Lean.Json.mkObj [
+    ("probe:Test.x", Lean.Json.mkObj [
+      ("display-name", Lean.toJson "x"),
+      ("dependencies", Lean.toJson (Array.empty : Array String)),
+      ("code-module", Lean.toJson "Test"),
+      ("code-path", Lean.toJson "Test.lean"),
+      ("code-text", Lean.Json.null),
+      ("kind", Lean.toJson "def"),
+      ("language", Lean.toJson "lean"),
+      ("is-hidden", Lean.toJson false),
+      ("is-extraction-artifact", Lean.toJson false),
+      ("is-ignored", Lean.toJson false),
+      ("is-relevant", Lean.toJson true),
+      ("rust-source", Lean.Json.null)
+    ])
+  ]
+  let enveloped := Lean.Json.mkObj [
+    ("schema", Lean.toJson "probe-lean/atoms"),
+    ("schema-version", Lean.toJson "2.0"),
+    ("data", bareDict)
+  ]
+  let bareStr := Lean.Json.pretty bareDict
+  let envStr := Lean.Json.pretty enveloped
+
+  let bareParsed := match Lean.Json.parse bareStr with
+    | .ok j => match Lean.FromJson.fromJson? j (α := AtomsOutput) with
+      | .ok ao => ao.atoms.size == 1
+      | _ => false
+    | _ => false
+  result ← test "bare dict parses as AtomsOutput" bareParsed result
+
+  let envParsed := match Lean.Json.parse envStr with
+    | .ok j =>
+      let inner := match j.getObjVal? "schema", j.getObjVal? "data" with
+        | .ok _, .ok d => d
+        | _, _ => j
+      match Lean.FromJson.fromJson? inner (α := AtomsOutput) with
+        | .ok ao => ao.atoms.size == 1
+        | _ => false
+    | _ => false
+  result ← test "enveloped dict unwraps and parses as AtomsOutput" envParsed result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

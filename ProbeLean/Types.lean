@@ -1,10 +1,51 @@
 /-
-  Types for probe-lean atomize output.
-  Defines Atom and CodeTextInfo with JSON serialization matching probe-verus format.
+  Types for probe-lean output.
+  Defines atoms, specs, proofs, stubs, and Schema 2.0 envelope types
+  with JSON serialization matching the probe interchange spec.
 -/
 import Lean.Data.Json
 
 namespace ProbeLean
+
+-- ============================================================
+-- Schema 2.0 envelope types
+-- ============================================================
+
+/-- Tool metadata for the Schema 2.0 envelope -/
+structure ToolInfo where
+  name : String
+  version : String
+  command : String
+  deriving Repr, BEq
+
+instance : Lean.ToJson ToolInfo where
+  toJson info := Lean.Json.mkObj [
+    ("name", Lean.toJson info.name),
+    ("version", Lean.toJson info.version),
+    ("command", Lean.toJson info.command)
+  ]
+
+/-- Source metadata for the Schema 2.0 envelope -/
+structure SourceInfo where
+  repo : String
+  commit : String
+  language : String
+  package : String
+  packageVersion : String
+  deriving Repr, BEq
+
+instance : Lean.ToJson SourceInfo where
+  toJson info := Lean.Json.mkObj [
+    ("repo", Lean.toJson info.repo),
+    ("commit", Lean.toJson info.commit),
+    ("language", Lean.toJson info.language),
+    ("package", Lean.toJson info.package),
+    ("package-version", Lean.toJson info.packageVersion)
+  ]
+
+-- ============================================================
+-- Core types
+-- ============================================================
 
 /-- Source location information with line range -/
 structure CodeTextInfo where
@@ -87,6 +128,8 @@ structure Atom where
   codeText : Option CodeTextInfo
   /-- Declaration kind -/
   kind : DeclKind
+  /-- Source language of this atom -/
+  language : String := "lean"
   /-- Whether this atom is hidden (from config.json's user/is-hidden list) -/
   isHidden : Bool := false
   /-- Whether this atom is an extraction artifact (suffix matches config.json's user/extraction-artifact-suffixes) -/
@@ -109,6 +152,7 @@ instance : Lean.ToJson Atom where
     ("code-path", Lean.toJson atom.codePath),
     ("code-text", Lean.toJson atom.codeText),
     ("kind", Lean.toJson atom.kind),
+    ("language", Lean.toJson atom.language),
     ("is-hidden", Lean.toJson atom.isHidden),
     ("is-extraction-artifact", Lean.toJson atom.isExtractionArtifact),
     ("is-ignored", Lean.toJson atom.isIgnored),
@@ -125,12 +169,13 @@ instance : Lean.FromJson Atom where
     let codePath ← json.getObjValAs? String "code-path"
     let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
     let kind ← json.getObjValAs? DeclKind "kind"
+    let language ← json.getObjValAs? String "language" <|> pure "lean"
     let isHidden ← json.getObjValAs? Bool "is-hidden" <|> pure false
     let isExtractionArtifact ← json.getObjValAs? Bool "is-extraction-artifact" <|> pure false
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
-    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
+    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
 
 /-- Output format for atoms.json - an object keyed by atom name -/
 structure AtomsOutput where
@@ -145,7 +190,6 @@ instance : Lean.ToJson AtomsOutput where
 
 instance : Lean.FromJson AtomsOutput where
   fromJson? json := do
-    -- Parse as object where keys are atom names
     let obj ← json.getObj?
     let mut atoms : Array Atom := #[]
     for (name, value) in obj.toArray do
@@ -155,11 +199,12 @@ instance : Lean.FromJson AtomsOutput where
       let codePath ← value.getObjValAs? String "code-path"
       let codeText ← value.getObjValAs? (Option CodeTextInfo) "code-text"
       let kind ← value.getObjValAs? DeclKind "kind"
+      let language ← value.getObjValAs? String "language" <|> pure "lean"
       let isHidden ← value.getObjValAs? Bool "is-hidden" <|> pure false
       let isExtractionArtifact ← value.getObjValAs? Bool "is-extraction-artifact" <|> pure false
       let isIgnored ← value.getObjValAs? Bool "is-ignored" <|> pure false
       let isRelevant ← value.getObjValAs? Bool "is-relevant" <|> pure true
-      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, isHidden, isExtractionArtifact, isIgnored, isRelevant }
+      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant }
     return { atoms }
 
 /-- A spec entry for specs.json output -/
@@ -283,6 +328,7 @@ structure EnrichedAtom where
   codePath : String
   codeText : Option CodeTextInfo
   kind : DeclKind
+  language : String := "lean"
   verificationStatus : Option WebVerificationStatus
   specified : Option Bool
   deriving Repr, BEq
@@ -295,7 +341,8 @@ instance : Lean.ToJson EnrichedAtom where
       ("code-module", Lean.toJson atom.codeModule),
       ("code-path", Lean.toJson atom.codePath),
       ("code-text", Lean.toJson atom.codeText),
-      ("kind", Lean.toJson atom.kind)
+      ("kind", Lean.toJson atom.kind),
+      ("language", Lean.toJson atom.language)
     ]
     let withVerification := match atom.verificationStatus with
       | some status => base ++ [("verification-status", Lean.toJson status)]
@@ -362,5 +409,39 @@ instance : Lean.FromJson StubEntry where
     let specLines ← json.getObjValAs? (Option String) "spec-lines"
     let specName ← json.getObjValAs? (Option String) "spec-name"
     return { codePath, codeLines, codeName, rustPath, rustLines, rustName, specPath, specLines, specName }
+
+-- ============================================================
+-- Typed output wrappers (keyed-dict serialization)
+-- ============================================================
+
+/-- Output format for specs.json - an object keyed by atom name -/
+structure SpecsOutput where
+  entries : Array (String × SpecEntry)
+  deriving Repr
+
+instance : Lean.ToJson SpecsOutput where
+  toJson output :=
+    let pairs := output.entries.map fun (name, entry) => (name, Lean.toJson entry)
+    Lean.Json.mkObj pairs.toList
+
+/-- Output format for proofs.json - an object keyed by atom name -/
+structure ProofsOutput where
+  entries : Array (String × ProofEntry)
+  deriving Repr
+
+instance : Lean.ToJson ProofsOutput where
+  toJson output :=
+    let pairs := output.entries.map fun (name, entry) => (name, Lean.toJson entry)
+    Lean.Json.mkObj pairs.toList
+
+/-- Output format for stubs.json - an object keyed by stub key -/
+structure StubsOutput where
+  entries : Array (String × StubEntry)
+  deriving Repr
+
+instance : Lean.ToJson StubsOutput where
+  toJson output :=
+    let pairs := output.entries.map fun (key, entry) => (key, Lean.toJson entry)
+    Lean.Json.mkObj pairs.toList
 
 end ProbeLean

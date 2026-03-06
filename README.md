@@ -2,6 +2,48 @@
 
 A tool for analyzing Lean 4 projects and extracting dependency graphs.
 
+## Schema 2.0 Envelope
+
+All output files are wrapped in a Schema 2.0 metadata envelope:
+
+```json
+{
+  "schema": "probe-lean/atoms",
+  "schema-version": "2.0",
+  "tool": {
+    "name": "probe-lean",
+    "version": "0.1.0",
+    "command": "atomize"
+  },
+  "source": {
+    "repo": "https://github.com/org/project",
+    "commit": "abc123def456...",
+    "language": "lean",
+    "package": "MyProject",
+    "package-version": "0.1.0"
+  },
+  "timestamp": "2026-03-05T14:30:00Z",
+  "data": { ... }
+}
+```
+
+| Envelope field | Description |
+|---|---|
+| `schema` | Identifies tool and data type (`probe-lean/atoms`, `probe-lean/specs`, `probe-lean/proofs`, `probe-lean/enriched-atoms`, `probe-lean/stubs`) |
+| `schema-version` | Always `"2.0"` |
+| `tool.name` | `"probe-lean"` |
+| `tool.version` | Tool version string |
+| `tool.command` | The command that produced this output (`atomize`, `specify`, `verify`, `pipeline`, `stubify`) |
+| `source.repo` | Git remote URL of the analyzed project |
+| `source.commit` | Full Git commit hash |
+| `source.language` | `"lean"` |
+| `source.package` | Package name from `lakefile.toml` |
+| `source.package-version` | Version from `lakefile.toml`, or 7-char Git commit hash if not available |
+| `timestamp` | ISO 8601 UTC creation time |
+| `data` | The actual payload (see per-command formats below) |
+
+When loading previously generated files, probe-lean auto-detects both bare (Schema 1.x) and enveloped (Schema 2.0) formats.
+
 ## Installation
 
 ```bash
@@ -47,12 +89,13 @@ probe-lean atomize <PROJECT_PATH> [-o OUTPUT] [-m MODULE]
 probe-lean atomize ./my-lean-project
 ```
 
-**Output format (atoms.json):**
+**Output format (atoms.json `data` payload):**
 ```json
 {
   "probe:MyModule.myFunction": {
     "display-name": "myFunction",
     "kind": "def",
+    "language": "lean",
     "dependencies": ["probe:MyModule.helper"],
     "code-module": "MyModule",
     "code-path": "MyModule.lean",
@@ -108,7 +151,7 @@ probe-lean atomize ./my-lean-project
 probe-lean specify ./my-lean-project
 ```
 
-**Output format (specs.json):**
+**Output format (specs.json `data` payload):**
 ```json
 {
   "probe:MyModule.myTheorem": {
@@ -139,7 +182,7 @@ probe-lean atomize ./my-lean-project
 probe-lean verify ./my-lean-project
 ```
 
-**Output format (proofs.json):**
+**Output format (proofs.json `data` payload):**
 ```json
 {
   "probe:MyModule.myTheorem": {
@@ -179,7 +222,7 @@ probe-lean pipeline ./my-lean-project --skip-verify
 probe-lean pipeline ./my-lean-project -o graph.json
 ```
 
-**Output format (enriched atoms):**
+**Output format (graph.json `data` payload):**
 
 Each atom includes all fields from `atoms.json` plus `verification-status` and `specified`:
 
@@ -188,6 +231,7 @@ Each atom includes all fields from `atoms.json` plus `verification-status` and `
   "probe:MyModule.myTheorem": {
     "display-name": "myTheorem",
     "kind": "theorem",
+    "language": "lean",
     "dependencies": ["probe:MyModule.helper"],
     "code-module": "MyModule",
     "code-path": "MyModule.lean",
@@ -229,7 +273,7 @@ probe-lean atomize ./my-lean-project
 probe-lean stubify ./my-lean-project
 ```
 
-**Output format (stubs.json):**
+**Output format (stubs.json `data` payload):**
 
 Keys use `<code-path>/<name_last>` format where `<name_last>` is the last dot-separated part of the atom name. If multiple atoms would have the same key, the full atom name (without `probe:` prefix) is used instead: `<code-path>/<full_name>`.
 
@@ -259,6 +303,7 @@ All output files use `probe:` prefixed names as keys (e.g., `probe:MyModule.myFu
 |-------|-------------|
 | `display-name` | Last component of the name |
 | `kind` | Declaration type: `def`, `theorem`, `abbrev`, `class`, `structure`, `inductive`, `instance`, `axiom`, `opaque` |
+| `language` | Source language of the atom (always `"lean"` for probe-lean) |
 | `dependencies` | Array of `probe:`-prefixed names this declaration depends on |
 | `code-module` | Module name containing the declaration |
 | `code-path` | Relative path to source file from project root |

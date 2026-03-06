@@ -6,6 +6,7 @@
 import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
+import ProbeLean.Metadata
 import ProbeLean.Atomize
 import ProbeLean.Specify
 import ProbeLean.Verify
@@ -41,6 +42,7 @@ def enrichAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option
     codePath := atom.codePath
     codeText := atom.codeText
     kind := atom.kind
+    language := atom.language
     verificationStatus := proofEntry.map fun p => mapVerifyStatus p.status
     specified := specEntry.map fun s => s.specified
   }
@@ -141,8 +143,8 @@ def runPipelineInProject (config : PipelineConfig) : IO UInt32 := do
     enrichAtom atom spec proof
 
   let output : EnrichedAtomsOutput := { atoms := enrichedAtoms }
-  let json := Lean.toJson output
-  let jsonStr := json.pretty
+  let envelope ← wrapInEnvelope "probe-lean/enriched-atoms" "pipeline" (Lean.toJson output) config.projectPath
+  let jsonStr := envelope.pretty
 
   let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "graph.json")
   if let some parentDir := outputPath.parent then

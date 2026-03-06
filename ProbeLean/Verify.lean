@@ -6,6 +6,8 @@ import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Analysis
+import ProbeLean.Loader
+import ProbeLean.Metadata
 import ProbeLean.Specify
 
 namespace ProbeLean
@@ -133,12 +135,11 @@ def atomToProofEntry (atom : Atom) (sorries : Array SorryInfo) : ProofEntry :=
 def runLakeBuild (projectPath : System.FilePath) : IO (String × String × UInt32) := do
   runCmd "lake" #["build"] (some projectPath)
 
-/-- Convert atoms to proofs output (as JSON object keyed by name) -/
-def atomsToProofsJson (atoms : AtomsOutput) (warnings : Array SorryWarning) : Json :=
-  let entries := atoms.atoms.map fun atom =>
-    let sorries := findSorriesForAtom warnings atom
-    (atom.name, toJson (atomToProofEntry atom sorries))
-  Json.mkObj entries.toList
+/-- Convert atoms to a typed ProofsOutput -/
+def atomsToProofsOutput (atoms : AtomsOutput) (warnings : Array SorryWarning) : ProofsOutput :=
+  { entries := atoms.atoms.map fun atom =>
+      let sorries := findSorriesForAtom warnings atom
+      (atom.name, atomToProofEntry atom sorries) }
 
 /-- Run the verify command -/
 def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
@@ -189,18 +190,18 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
   let warnings := parseSorryWarnings buildOutput
   IO.println s!"Found {warnings.size} sorry warnings"
 
-  -- Convert to proofs
-  let proofsJson := atomsToProofsJson atoms warnings
+  let output := atomsToProofsOutput atoms warnings
 
-  -- Count verified vs unverified
   let verified := atoms.atoms.filter fun atom =>
     (findSorriesForAtom warnings atom).isEmpty
   IO.println s!"Verified: {verified.size}/{atoms.atoms.size} declarations"
 
-  -- Write output
+  let envelope ← wrapInEnvelope "probe-lean/proofs" "verify" (Lean.toJson output) config.projectPath
+  let jsonStr := envelope.pretty
+
   let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "proofs.json")
   IO.FS.createDirAll outputPath.parent.get!
-  IO.FS.writeFile outputPath proofsJson.pretty
+  IO.FS.writeFile outputPath jsonStr
   IO.println s!"Wrote proofs to {outputPath}"
 
   return 0

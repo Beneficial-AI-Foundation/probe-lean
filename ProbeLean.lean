@@ -1,6 +1,8 @@
 import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Analysis
+import ProbeLean.Loader
+import ProbeLean.Metadata
 import ProbeLean.Atomize
 import ProbeLean.Specify
 import ProbeLean.Verify
