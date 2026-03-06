@@ -94,7 +94,9 @@ def generateStubsOutput (atoms : Array Atom) : StubsOutput :=
 /-- Run the stubify command -/
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   let pm ← gatherMetadata config.projectPath
-  let atomsPath := config.atomsPath.getD (getDefaultOutputPath config.projectPath pm "")
+  let atomsPath ← match config.atomsPath with
+    | some p => pure p
+    | none => findDefaultAtomsPath config.projectPath pm
 
   IO.println s!"Loading atoms from {atomsPath}..."
 

@@ -46,7 +46,7 @@ private def extractTomlString (line : String) (key : String) : Option String := 
 
 /-- Read package name and version from lakefile.toml via string matching.
     Falls back to lake-manifest.json for name, and short git commit for version. -/
-def getPackageNameAndVersion (projectPath : System.FilePath) : IO (String × String) := do
+def getPackageNameAndVersion (projectPath : System.FilePath) (commit : String) : IO (String × String) := do
   let mut name := ""
   let mut version := ""
 
@@ -72,7 +72,6 @@ def getPackageNameAndVersion (projectPath : System.FilePath) : IO (String × Str
           name := n.replace "«" "" |>.replace "»" ""
 
   if version.isEmpty then
-    let commit ← getGitCommit projectPath
     if commit.length >= 7 then
       version := (commit.take 7).toString
     else
@@ -94,7 +93,7 @@ def gatherMetadata (projectPath : System.FilePath) : IO ProjectMetadata := do
   let commit ← getGitCommit projectPath
   let repo ← getGitRemoteUrl projectPath
   let timestamp ← getTimestamp
-  let (pkgName, pkgVersion) ← getPackageNameAndVersion projectPath
+  let (pkgName, pkgVersion) ← getPackageNameAndVersion projectPath commit
   return { commit, repo, timestamp, pkgName, pkgVersion }
 
 /-- Compute the default output path for a probe-lean command.
@@ -104,6 +103,26 @@ def getDefaultOutputPath (projectPath : System.FilePath) (pm : ProjectMetadata) 
     : System.FilePath :=
   let filename := s!"lean_{pm.pkgName}_{pm.pkgVersion}{suffix}.json"
   projectPath / ".verilib" / "probes" / filename
+
+/-- Find the default atoms input path. Tries the exact computed path first;
+    if it doesn't exist, searches .verilib/probes/ for a matching atoms file.
+    This handles the case where the git commit changed between atomize and
+    downstream commands (specify/verify/stubify). -/
+def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
+    : IO System.FilePath := do
+  let exactPath := getDefaultOutputPath projectPath pm ""
+  if ← exactPath.pathExists then return exactPath
+  let probesDir := projectPath / ".verilib" / "probes"
+  if !(← probesDir.pathExists) then return exactPath
+  let entries ← probesDir.readDir
+  let namePrefix := s!"lean_{pm.pkgName}_"
+  let outputSuffixes := #["_specs.json", "_proofs.json", "_stubs.json", "_graph.json"]
+  for entry in entries do
+    let name := entry.fileName
+    if name.startsWith namePrefix && name.endsWith ".json"
+        && !(outputSuffixes.any (fun s => name.endsWith s)) then
+      return entry.path
+  return exactPath
 
 /-- Wrap a JSON payload in a Schema 2.0 envelope using pre-gathered metadata. -/
 def wrapInEnvelopeWith (schema command : String) (data : Json) (pm : ProjectMetadata) : Json :=

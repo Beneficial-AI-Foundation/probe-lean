@@ -144,7 +144,9 @@ def atomsToProofsOutput (atoms : AtomsOutput) (warnings : Array SorryWarning) : 
 /-- Run the verify command -/
 def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
   let pm ← gatherMetadata config.projectPath
-  let atomsPath := config.atomsPath.getD (getDefaultOutputPath config.projectPath pm "")
+  let atomsPath ← match config.atomsPath with
+    | some p => pure p
+    | none => findDefaultAtomsPath config.projectPath pm
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
