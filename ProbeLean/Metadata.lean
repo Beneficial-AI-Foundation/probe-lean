@@ -104,8 +104,20 @@ def getDefaultOutputPath (projectPath : System.FilePath) (pm : ProjectMetadata) 
   let filename := s!"lean_{pm.pkgName}_{pm.pkgVersion}{suffix}.json"
   projectPath / ".verilib" / "probes" / filename
 
+/-- Check if a filename matches the atoms file pattern `lean_<pkg>_<version>.json`.
+    Uses positive matching: the version portion (between prefix and `.json`) must be
+    non-empty and contain no underscores (git hashes are hex-only, semver uses
+    dots/hyphens), which distinguishes atoms files from derived outputs like
+    `lean_<pkg>_<ver>_specs.json`. -/
+def isAtomsFileName (name : String) (pkgNamePrefix : String) : Bool :=
+  name.startsWith pkgNamePrefix && name.endsWith ".json" &&
+    let afterPrefix := (name.drop pkgNamePrefix.length).toString
+    let versionPart := (afterPrefix.take (afterPrefix.length - ".json".length)).toString
+    !versionPart.isEmpty && (versionPart.splitOn "_").length == 1
+
 /-- Find the default atoms input path. Tries the exact computed path first;
-    if it doesn't exist, searches .verilib/probes/ for a matching atoms file.
+    if it doesn't exist, searches .verilib/probes/ for a matching atoms file
+    (picking the most recently modified one). Emits a warning when falling back.
     This handles the case where the git commit changed between atomize and
     downstream commands (specify/verify/stubify). -/
 def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
@@ -113,16 +125,25 @@ def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
   let exactPath := getDefaultOutputPath projectPath pm ""
   if ← exactPath.pathExists then return exactPath
   let probesDir := projectPath / ".verilib" / "probes"
-  if !(← probesDir.pathExists) then return exactPath
+  if !(← probesDir.pathExists) then
+    IO.eprintln s!"Warning: atoms file not found at {exactPath} and {probesDir} does not exist"
+    return exactPath
   let entries ← probesDir.readDir
   let namePrefix := s!"lean_{pm.pkgName}_"
-  let outputSuffixes := #["_specs.json", "_proofs.json", "_stubs.json", "_graph.json"]
+  let mut candidates : Array (System.FilePath × IO.FS.SystemTime) := #[]
   for entry in entries do
-    let name := entry.fileName
-    if name.startsWith namePrefix && name.endsWith ".json"
-        && !(outputSuffixes.any (fun s => name.endsWith s)) then
-      return entry.path
-  return exactPath
+    if isAtomsFileName entry.fileName namePrefix then
+      try
+        let fileMeta ← entry.path.metadata
+        candidates := candidates.push (entry.path, fileMeta.modified)
+      catch _ => pure ()
+  if candidates.isEmpty then
+    IO.eprintln s!"Warning: atoms file not found at {exactPath} and no alternatives found in {probesDir}"
+    return exactPath
+  let sorted := candidates.qsort fun (_, t1) (_, t2) => t1 > t2
+  let chosen := sorted[0]!.1
+  IO.eprintln s!"Warning: exact atoms path {exactPath} not found; using {chosen} (from a different version)"
+  return chosen
 
 /-- Wrap a JSON payload in a Schema 2.0 envelope using pre-gathered metadata. -/
 def wrapInEnvelopeWith (schema command : String) (data : Json) (pm : ProjectMetadata) : Json :=

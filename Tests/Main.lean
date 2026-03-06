@@ -639,6 +639,70 @@ def main : IO UInt32 := do
   result ← test "stubsOutput round-trips through JSON" stubsRt result
 
   IO.println ""
+  IO.println "Testing isAtomsFileName..."
+  let prefix1 := "lean_foo_"
+  result ← test "atoms file matches" (isAtomsFileName "lean_foo_abc1234.json" prefix1) result
+  result ← test "specs file excluded" (!isAtomsFileName "lean_foo_abc1234_specs.json" prefix1) result
+  result ← test "proofs file excluded" (!isAtomsFileName "lean_foo_abc1234_proofs.json" prefix1) result
+  result ← test "stubs file excluded" (!isAtomsFileName "lean_foo_abc1234_stubs.json" prefix1) result
+  result ← test "graph file excluded" (!isAtomsFileName "lean_foo_abc1234_graph.json" prefix1) result
+  result ← test "non-json excluded" (!isAtomsFileName "lean_foo_abc1234.txt" prefix1) result
+  result ← test "wrong prefix excluded" (!isAtomsFileName "lean_bar_abc1234.json" prefix1) result
+  result ← test "semver version matches" (isAtomsFileName "lean_foo_1.0.0.json" prefix1) result
+  result ← test "unknown version matches" (isAtomsFileName "lean_foo_unknown.json" prefix1) result
+  result ← test "empty version excluded" (!isAtomsFileName "lean_foo_.json" prefix1) result
+  result ← test "future suffix excluded" (!isAtomsFileName "lean_foo_abc1234_metrics.json" prefix1) result
+
+  IO.println ""
+  IO.println "Testing findDefaultAtomsPath..."
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-" ++ toString (← IO.monoNanosNow)
+  let probesDir := tmpBase / ".verilib" / "probes"
+  IO.FS.createDirAll probesDir
+  let testPm : ProjectMetadata := {
+    commit := "abcdef1234567890", repo := "", timestamp := "",
+    pkgName := "testpkg", pkgVersion := "abcdef1"
+  }
+
+  -- Case 1: exact path exists
+  let exactPath := probesDir / "lean_testpkg_abcdef1.json"
+  IO.FS.writeFile exactPath "{}"
+  let found1 ← findDefaultAtomsPath tmpBase testPm
+  result ← test "exact path returned when it exists" (found1.toString == exactPath.toString) result
+  IO.FS.removeFile exactPath
+
+  -- Case 2: exact path missing, fallback finds an alternative
+  let altPath := probesDir / "lean_testpkg_old1234.json"
+  IO.FS.writeFile altPath "{}"
+  let found2 ← findDefaultAtomsPath tmpBase testPm
+  result ← test "fallback finds alternative atoms file" (found2.toString == altPath.toString) result
+
+  -- Case 3: multiple alternatives, newest is picked
+  let _ ← IO.Process.run { cmd := "sleep", args := #["0.05"] }
+  let newerPath := probesDir / "lean_testpkg_new5678.json"
+  IO.FS.writeFile newerPath "{}"
+  let found3 ← findDefaultAtomsPath tmpBase testPm
+  result ← test "newest alternative picked when multiple exist" (found3.toString == newerPath.toString) result
+
+  -- Case 4: derived files are not picked
+  IO.FS.removeFile altPath
+  IO.FS.removeFile newerPath
+  let specsOnly := probesDir / "lean_testpkg_xyz_specs.json"
+  IO.FS.writeFile specsOnly "{}"
+  let found4 ← findDefaultAtomsPath tmpBase testPm
+  result ← test "derived files not picked as atoms" (found4.toString == exactPath.toString) result
+  IO.FS.removeFile specsOnly
+
+  -- Case 5: no probes dir at all
+  let emptyBase := tmpBase / "empty"
+  IO.FS.createDirAll emptyBase
+  let found5 ← findDefaultAtomsPath emptyBase testPm
+  let expectedEmpty := emptyBase / ".verilib" / "probes" / "lean_testpkg_abcdef1.json"
+  result ← test "returns exact path when probes dir missing" (found5.toString == expectedEmpty.toString) result
+
+  -- Cleanup
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+
+  IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
 
   if result.failed > 0 then

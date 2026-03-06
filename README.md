@@ -142,7 +142,7 @@ probe-lean specify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>.json`; if not found, falls back to the most recently modified atoms file in `.verilib/probes/` with a warning)
 - `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>_specs.json`)
 
 **Example:**
@@ -171,7 +171,7 @@ probe-lean verify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT] [--no-cache] [--from-fil
 ```
 
 **Options:**
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>.json`; if not found, falls back to the most recently modified atoms file in `.verilib/probes/` with a warning)
 - `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>_proofs.json`)
 - `--no-cache` - Don't cache verification output
 - `--from-file` - Analyze existing build output instead of running lake
@@ -264,7 +264,7 @@ probe-lean stubify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>.json`)
+- `-a, --with-atoms` - Path to atoms.json (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>.json`; if not found, falls back to the most recently modified atoms file in `.verilib/probes/` with a warning)
 - `-o, --output` - Output file path (default: `PROJECT_PATH/.verilib/probes/lean_<pkg>_<ver>_stubs.json`)
 
 **Example:**
