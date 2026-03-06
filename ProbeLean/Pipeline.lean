@@ -143,10 +143,11 @@ def runPipelineInProject (config : PipelineConfig) : IO UInt32 := do
     enrichAtom atom spec proof
 
   let output : EnrichedAtomsOutput := { atoms := enrichedAtoms }
-  let envelope ← wrapInEnvelope "probe-lean/enriched-atoms" "pipeline" (Lean.toJson output) config.projectPath
+  let pm ← gatherMetadata config.projectPath
+  let envelope := wrapInEnvelopeWith "probe-lean/enriched-atoms" "pipeline" (Lean.toJson output) pm
   let jsonStr := envelope.pretty
 
-  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "graph.json")
+  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_graph")
   if let some parentDir := outputPath.parent then
     IO.FS.createDirAll parentDir
   IO.FS.writeFile outputPath jsonStr

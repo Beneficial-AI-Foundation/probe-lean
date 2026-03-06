@@ -28,7 +28,7 @@ def getGitRemoteUrl (projectPath : System.FilePath) : IO String :=
   runCmdOrDefault "git" #["remote", "get-url", "origin"] (some projectPath) ""
 
 def getTimestamp : IO String :=
-  runCmdOrDefault "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"] none ""
+  runCmdOrDefault "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"] none "1970-01-01T00:00:00Z"
 
 /-- Try to extract `name = "value"` from a TOML line. -/
 private def extractTomlString (line : String) (key : String) : Option String := do
@@ -54,6 +54,8 @@ def getPackageNameAndVersion (projectPath : System.FilePath) : IO (String × Str
   if ← tomlPath.pathExists then
     let content ← IO.FS.readFile tomlPath
     for line in content.splitOn "\n" do
+      let trimmed := line.trimAscii.toString
+      if trimmed.startsWith "[" then break
       if name.isEmpty then
         if let some v := extractTomlString line "name" then
           name := v
@@ -78,33 +80,57 @@ def getPackageNameAndVersion (projectPath : System.FilePath) : IO (String × Str
 
   return (name, version)
 
-/-- Wrap a JSON payload in a Schema 2.0 envelope. -/
-def wrapInEnvelope (schema command : String) (data : Json) (projectPath : System.FilePath) : IO Json := do
+/-- Gathered metadata for the project, used by both envelope wrapping and output path generation. -/
+structure ProjectMetadata where
+  commit : String
+  repo : String
+  timestamp : String
+  pkgName : String
+  pkgVersion : String
+  deriving Repr
+
+/-- Gather all project metadata in one pass (git info, package name/version, timestamp). -/
+def gatherMetadata (projectPath : System.FilePath) : IO ProjectMetadata := do
   let commit ← getGitCommit projectPath
   let repo ← getGitRemoteUrl projectPath
   let timestamp ← getTimestamp
   let (pkgName, pkgVersion) ← getPackageNameAndVersion projectPath
+  return { commit, repo, timestamp, pkgName, pkgVersion }
 
+/-- Compute the default output path for a probe-lean command.
+    Format: `.verilib/probes/lean_<pkg>_<ver><suffix>.json`
+    Pass `suffix = ""` for atoms, `"_specs"` for specs, etc. -/
+def getDefaultOutputPath (projectPath : System.FilePath) (pm : ProjectMetadata) (suffix : String)
+    : System.FilePath :=
+  let filename := s!"lean_{pm.pkgName}_{pm.pkgVersion}{suffix}.json"
+  projectPath / ".verilib" / "probes" / filename
+
+/-- Wrap a JSON payload in a Schema 2.0 envelope using pre-gathered metadata. -/
+def wrapInEnvelopeWith (schema command : String) (data : Json) (pm : ProjectMetadata) : Json :=
   let tool : ToolInfo := {
     name := "probe-lean"
     version := probeVersion
     command := command
   }
   let source : SourceInfo := {
-    repo := repo
-    commit := commit
+    repo := pm.repo
+    commit := pm.commit
     language := "lean"
-    package := pkgName
-    packageVersion := pkgVersion
+    package := pm.pkgName
+    packageVersion := pm.pkgVersion
   }
-
-  return Json.mkObj [
+  Json.mkObj [
     ("schema", toJson schema),
     ("schema-version", toJson "2.0"),
     ("tool", toJson tool),
     ("source", toJson source),
-    ("timestamp", toJson timestamp),
+    ("timestamp", toJson pm.timestamp),
     ("data", data)
   ]
+
+/-- Wrap a JSON payload in a Schema 2.0 envelope (convenience that gathers metadata). -/
+def wrapInEnvelope (schema command : String) (data : Json) (projectPath : System.FilePath) : IO Json := do
+  let pm ← gatherMetadata projectPath
+  return wrapInEnvelopeWith schema command data pm
 
 end ProbeLean

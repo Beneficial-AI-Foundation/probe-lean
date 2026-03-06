@@ -25,6 +25,13 @@ instance : Lean.ToJson ToolInfo where
     ("command", Lean.toJson info.command)
   ]
 
+instance : Lean.FromJson ToolInfo where
+  fromJson? json := do
+    let name ← json.getObjValAs? String "name"
+    let version ← json.getObjValAs? String "version"
+    let command ← json.getObjValAs? String "command"
+    return { name, version, command }
+
 /-- Source metadata for the Schema 2.0 envelope -/
 structure SourceInfo where
   repo : String
@@ -42,6 +49,15 @@ instance : Lean.ToJson SourceInfo where
     ("package", Lean.toJson info.package),
     ("package-version", Lean.toJson info.packageVersion)
   ]
+
+instance : Lean.FromJson SourceInfo where
+  fromJson? json := do
+    let repo ← json.getObjValAs? String "repo"
+    let commit ← json.getObjValAs? String "commit"
+    let language ← json.getObjValAs? String "language"
+    let package ← json.getObjValAs? String "package"
+    let packageVersion ← json.getObjValAs? String "package-version"
+    return { repo, commit, language, package, packageVersion }
 
 -- ============================================================
 -- Core types
@@ -424,6 +440,15 @@ instance : Lean.ToJson SpecsOutput where
     let pairs := output.entries.map fun (name, entry) => (name, Lean.toJson entry)
     Lean.Json.mkObj pairs.toList
 
+instance : Lean.FromJson SpecsOutput where
+  fromJson? json := do
+    let obj ← json.getObj?
+    let mut entries : Array (String × SpecEntry) := #[]
+    for (name, value) in obj.toArray do
+      let entry ← Lean.FromJson.fromJson? value
+      entries := entries.push (name, entry)
+    return { entries }
+
 /-- Output format for proofs.json - an object keyed by atom name -/
 structure ProofsOutput where
   entries : Array (String × ProofEntry)
@@ -434,6 +459,15 @@ instance : Lean.ToJson ProofsOutput where
     let pairs := output.entries.map fun (name, entry) => (name, Lean.toJson entry)
     Lean.Json.mkObj pairs.toList
 
+instance : Lean.FromJson ProofsOutput where
+  fromJson? json := do
+    let obj ← json.getObj?
+    let mut entries : Array (String × ProofEntry) := #[]
+    for (name, value) in obj.toArray do
+      let entry ← Lean.FromJson.fromJson? value
+      entries := entries.push (name, entry)
+    return { entries }
+
 /-- Output format for stubs.json - an object keyed by stub key -/
 structure StubsOutput where
   entries : Array (String × StubEntry)
@@ -443,5 +477,14 @@ instance : Lean.ToJson StubsOutput where
   toJson output :=
     let pairs := output.entries.map fun (key, entry) => (key, Lean.toJson entry)
     Lean.Json.mkObj pairs.toList
+
+instance : Lean.FromJson StubsOutput where
+  fromJson? json := do
+    let obj ← json.getObj?
+    let mut entries : Array (String × StubEntry) := #[]
+    for (key, value) in obj.toArray do
+      let entry ← Lean.FromJson.fromJson? value
+      entries := entries.push (key, entry)
+    return { entries }
 
 end ProbeLean

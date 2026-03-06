@@ -207,10 +207,11 @@ def runAtomizeInProject (config : AtomizeConfig) : IO UInt32 := do
     let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
 
     let output : AtomsOutput := { atoms := atoms }
-    let envelope ← wrapInEnvelope "probe-lean/atoms" "atomize" (Lean.toJson output) config.projectPath
+    let pm ← gatherMetadata config.projectPath
+    let envelope := wrapInEnvelopeWith "probe-lean/atoms" "atomize" (Lean.toJson output) pm
     let jsonStr := envelope.pretty
 
-    let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "atoms.json")
+    let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "")
     if let some parentDir := outputPath.parent then
       IO.FS.createDirAll parentDir
     IO.FS.writeFile outputPath jsonStr

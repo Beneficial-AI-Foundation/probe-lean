@@ -3,7 +3,7 @@
 -/
 import ProbeLean
 
-set_option maxRecDepth 2048
+set_option maxRecDepth 4096
 
 open ProbeLean
 
@@ -521,16 +521,122 @@ def main : IO UInt32 := do
     | _ => false
   result ← test "bare dict parses as AtomsOutput" bareParsed result
 
-  let envParsed := match Lean.Json.parse envStr with
+  let envParsedViaUnwrap := match Lean.Json.parse envStr with
     | .ok j =>
-      let inner := match j.getObjVal? "schema", j.getObjVal? "data" with
-        | .ok _, .ok d => d
-        | _, _ => j
+      let inner := unwrapEnvelope j
       match Lean.FromJson.fromJson? inner (α := AtomsOutput) with
         | .ok ao => ao.atoms.size == 1
         | _ => false
     | _ => false
-  result ← test "enveloped dict unwraps and parses as AtomsOutput" envParsed result
+  result ← test "enveloped dict unwraps via unwrapEnvelope" envParsedViaUnwrap result
+
+  IO.println ""
+  IO.println "Testing unwrapEnvelope schema validation..."
+  let foreignEnvelope := Lean.Json.mkObj [
+    ("schema", Lean.toJson "probe-verus/atoms"),
+    ("schema-version", Lean.toJson "2.0"),
+    ("data", bareDict)
+  ]
+  let foreignNotUnwrapped := match Lean.Json.parse (Lean.Json.pretty foreignEnvelope) with
+    | .ok j =>
+      let inner := unwrapEnvelope j
+      match inner.getObjVal? "schema" with
+      | .ok _ => true
+      | _ => false
+    | _ => false
+  result ← test "foreign envelope not unwrapped" foreignNotUnwrapped result
+
+  IO.println ""
+  IO.println "Testing loadAtoms end-to-end with envelope..."
+  let tmpBarePath : System.FilePath := "/tmp/probe-lean-test-bare.json"
+  let tmpEnvPath : System.FilePath := "/tmp/probe-lean-test-env.json"
+  IO.FS.writeFile tmpBarePath bareStr
+  IO.FS.writeFile tmpEnvPath envStr
+
+  let bareLoadOk ← do
+    match ← loadAtoms tmpBarePath with
+    | .ok ao => pure (ao.atoms.size == 1)
+    | .error _ => pure false
+  result ← test "loadAtoms bare dict end-to-end" bareLoadOk result
+
+  let envLoadOk ← do
+    match ← loadAtoms tmpEnvPath with
+    | .ok ao => pure (ao.atoms.size == 1)
+    | .error _ => pure false
+  result ← test "loadAtoms enveloped dict end-to-end" envLoadOk result
+
+  IO.FS.removeFile tmpBarePath
+  IO.FS.removeFile tmpEnvPath
+
+  IO.println ""
+  IO.println "Testing probeVersion consistency..."
+  result ← test "probeVersion matches lakefile" (probeVersion == "0.1.0") result
+
+  IO.println ""
+  IO.println "Testing ToolInfo FromJson round-trip..."
+  let toolInfo2 : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "atomize" }
+  let toolRt := match Lean.FromJson.fromJson? (Lean.toJson toolInfo2) (α := ToolInfo) with
+    | .ok ti => ti.name == "probe-lean" && ti.version == "0.1.0" && ti.command == "atomize"
+    | .error _ => false
+  result ← test "toolInfo round-trips through JSON" toolRt result
+
+  IO.println ""
+  IO.println "Testing SourceInfo FromJson round-trip..."
+  let sourceInfo2 : SourceInfo := {
+    repo := "https://github.com/org/project"
+    commit := "abc123"
+    language := "lean"
+    package := "MyProject"
+    packageVersion := "0.1.0"
+  }
+  let srcRt := match Lean.FromJson.fromJson? (Lean.toJson sourceInfo2) (α := SourceInfo) with
+    | .ok si => si.repo == "https://github.com/org/project" && si.package == "MyProject"
+      && si.packageVersion == "0.1.0"
+    | .error _ => false
+  result ← test "sourceInfo round-trips through JSON" srcRt result
+
+  IO.println ""
+  IO.println "Testing SpecsOutput FromJson round-trip..."
+  let specsOutput2 : SpecsOutput := {
+    entries := #[("probe:Test.foo", { specified := true, codePath := "Test.lean", specText := none })]
+  }
+  let specsRt := match Lean.FromJson.fromJson? (Lean.toJson specsOutput2) (α := SpecsOutput) with
+    | .ok so => match so.entries.toList with
+      | [(n, e)] => n == "probe:Test.foo" && e.specified == true
+      | _ => false
+    | .error _ => false
+  result ← test "specsOutput round-trips through JSON" specsRt result
+
+  IO.println ""
+  IO.println "Testing ProofsOutput FromJson round-trip..."
+  let proofsOutput2 : ProofsOutput := {
+    entries := #[("probe:Test.foo", {
+      verified := true, status := .success,
+      codePath := "Test.lean", codeLine := 10, sorries := #[]
+    })]
+  }
+  let proofsRt := match Lean.FromJson.fromJson? (Lean.toJson proofsOutput2) (α := ProofsOutput) with
+    | .ok po => match po.entries.toList with
+      | [(n, e)] => n == "probe:Test.foo" && e.verified == true
+      | _ => false
+    | .error _ => false
+  result ← test "proofsOutput round-trips through JSON" proofsRt result
+
+  IO.println ""
+  IO.println "Testing StubsOutput FromJson round-trip..."
+  let stubsOutput2 : StubsOutput := {
+    entries := #[("key/foo", {
+      codePath := some "Test.lean", codeLines := some "10-20",
+      codeName := "probe:Test.foo", rustPath := "", rustLines := { linesStart := 0, linesEnd := 0 },
+      rustName := "", specPath := none, specLines := none, specName := none
+    })]
+  }
+  let stubsRt := match Lean.FromJson.fromJson? (Lean.toJson stubsOutput2) (α := StubsOutput) with
+    | .ok so => match so.entries.toList with
+      | [(k, e)] => k == "key/foo" && e.codeName == "probe:Test.foo"
+      | _ => false
+    | .error _ => false
+  result ← test "stubsOutput round-trips through JSON" stubsRt result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

@@ -46,7 +46,8 @@ def atomsToSpecsOutput (atoms : AtomsOutput) : SpecsOutput :=
 
 /-- Run the specify command -/
 def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
-  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
+  let pm ← gatherMetadata config.projectPath
+  let atomsPath := config.atomsPath.getD (getDefaultOutputPath config.projectPath pm "")
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
@@ -59,11 +60,12 @@ def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
   IO.println s!"Found {atoms.atoms.size} declarations"
 
   let output := atomsToSpecsOutput atoms
-  let envelope ← wrapInEnvelope "probe-lean/specs" "specify" (Lean.toJson output) config.projectPath
+  let envelope := wrapInEnvelopeWith "probe-lean/specs" "specify" (Lean.toJson output) pm
   let jsonStr := envelope.pretty
 
-  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "specs.json")
-  IO.FS.createDirAll outputPath.parent.get!
+  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_specs")
+  if let some parentDir := outputPath.parent then
+    IO.FS.createDirAll parentDir
   IO.FS.writeFile outputPath jsonStr
   IO.println s!"Wrote specs to {outputPath}"
 

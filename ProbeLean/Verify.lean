@@ -143,12 +143,11 @@ def atomsToProofsOutput (atoms : AtomsOutput) (warnings : Array SorryWarning) : 
 
 /-- Run the verify command -/
 def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
-  -- Determine atoms.json path
-  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
+  let pm ← gatherMetadata config.projectPath
+  let atomsPath := config.atomsPath.getD (getDefaultOutputPath config.projectPath pm "")
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
-  -- Load atoms
   let atoms ← match ← loadAtoms atomsPath with
   | .error msg =>
     IO.eprintln s!"Error: {msg}"
@@ -159,11 +158,9 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
 
   -- Get build output
   let buildOutput ← if let some fromFile := config.fromFile then
-    -- Use provided file
     IO.println s!"Reading build output from {fromFile}..."
     IO.FS.readFile fromFile
   else if !config.noCache then
-    -- Try cache first
     if ← isCacheValid config.projectPath then
       IO.println "Using cached build output..."
       match ← loadCache config.projectPath with
@@ -181,12 +178,10 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
       saveCache config.projectPath output
       pure output
   else
-    -- No cache
     IO.println "Building project..."
     let (stdout, stderr, _) ← runLakeBuild config.projectPath
     pure (stdout ++ "\n" ++ stderr)
 
-  -- Parse sorry warnings
   let warnings := parseSorryWarnings buildOutput
   IO.println s!"Found {warnings.size} sorry warnings"
 
@@ -196,11 +191,12 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
     (findSorriesForAtom warnings atom).isEmpty
   IO.println s!"Verified: {verified.size}/{atoms.atoms.size} declarations"
 
-  let envelope ← wrapInEnvelope "probe-lean/proofs" "verify" (Lean.toJson output) config.projectPath
+  let envelope := wrapInEnvelopeWith "probe-lean/proofs" "verify" (Lean.toJson output) pm
   let jsonStr := envelope.pretty
 
-  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "proofs.json")
-  IO.FS.createDirAll outputPath.parent.get!
+  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_proofs")
+  if let some parentDir := outputPath.parent then
+    IO.FS.createDirAll parentDir
   IO.FS.writeFile outputPath jsonStr
   IO.println s!"Wrote proofs to {outputPath}"
 

@@ -56,6 +56,7 @@ probe-lean registers the following `schema` values:
 | `probe-lean/specs` | Lean specification status |
 | `probe-lean/proofs` | Lean verification results (sorry detection) |
 | `probe-lean/enriched-atoms` | Atoms + specs + proofs combined (produced by `pipeline`) |
+| `probe-lean/stubs` | Lean stub entries for Aeneas bridge (produced by `stubify`) |
 
 ## Package Versioning for Lean
 

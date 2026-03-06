@@ -93,8 +93,8 @@ def generateStubsOutput (atoms : Array Atom) : StubsOutput :=
 
 /-- Run the stubify command -/
 def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
-  let atomsPath := config.atomsPath.getD (config.projectPath / ".verilib" / "atoms.json")
-  let outputPath := config.outputPath.getD (config.projectPath / ".verilib" / "stubs.json")
+  let pm ← gatherMetadata config.projectPath
+  let atomsPath := config.atomsPath.getD (getDefaultOutputPath config.projectPath pm "")
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
@@ -107,10 +107,12 @@ def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
   IO.println s!"Found {atoms.size} atoms (excluding hidden, extraction artifacts, and irrelevant)"
 
   let output := generateStubsOutput atoms
-  let envelope ← wrapInEnvelope "probe-lean/stubs" "stubify" (Lean.toJson output) config.projectPath
+  let envelope := wrapInEnvelopeWith "probe-lean/stubs" "stubify" (Lean.toJson output) pm
   let jsonStr := envelope.pretty
 
-  IO.FS.createDirAll outputPath.parent.get!
+  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_stubs")
+  if let some parentDir := outputPath.parent then
+    IO.FS.createDirAll parentDir
   IO.FS.writeFile outputPath jsonStr
   IO.println s!"Wrote {atoms.size} stubs to {outputPath}"
 
