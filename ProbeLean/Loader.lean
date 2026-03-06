@@ -9,12 +9,10 @@ namespace ProbeLean
 
 open Lean
 
-/-- Extract the atom data from JSON, unwrapping the Schema 2.0 envelope if present.
-    Only unwraps envelopes whose `schema` value starts with `"probe-lean/"`. -/
+/-- Extract the atom data from JSON, unwrapping the Schema 2.0 envelope if present. -/
 def unwrapEnvelope (json : Json) : Json :=
   match json.getObjVal? "schema", json.getObjVal? "data" with
-  | .ok (.str s), .ok data =>
-    if s.startsWith "probe-lean/" then data else json
+  | .ok (.str _), .ok data => data
   | _, _ => json
 
 /-- Load atoms.json, handling both bare-dict and enveloped formats. -/

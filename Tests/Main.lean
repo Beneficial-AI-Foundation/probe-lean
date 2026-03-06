@@ -559,20 +559,20 @@ def main : IO UInt32 := do
   result ← test "enveloped dict unwraps via unwrapEnvelope" envParsedViaUnwrap result
 
   IO.println ""
-  IO.println "Testing unwrapEnvelope schema validation..."
+  IO.println "Testing unwrapEnvelope accepts any schema prefix..."
   let foreignEnvelope := Lean.Json.mkObj [
     ("schema", Lean.toJson "probe-verus/atoms"),
     ("schema-version", Lean.toJson "2.0"),
     ("data", bareDict)
   ]
-  let foreignNotUnwrapped := match Lean.Json.parse (Lean.Json.pretty foreignEnvelope) with
+  let foreignUnwrapped := match Lean.Json.parse (Lean.Json.pretty foreignEnvelope) with
     | .ok j =>
       let inner := unwrapEnvelope j
       match inner.getObjVal? "schema" with
-      | .ok _ => true
-      | _ => false
+      | .ok _ => false
+      | _ => true
     | _ => false
-  result ← test "foreign envelope not unwrapped" foreignNotUnwrapped result
+  result ← test "foreign envelope is unwrapped" foreignUnwrapped result
 
   IO.println ""
   IO.println "Testing loadAtoms end-to-end with envelope..."
