@@ -114,14 +114,14 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
 
   -- === Step 2: Specify ===
   IO.println "=== Step 2/3: Specify ==="
-  let specEntries := atoms.map fun atom => (atom.name, atomToSpecEntry atom)
+  let specEntries := atoms.map fun atom => atomToSpecEntry atom
   IO.println s!"Computed specification status for {specEntries.size} declarations"
 
   -- === Step 3: Sorry detection ===
   IO.println "=== Step 3/3: Verify ==="
-  let proofEntries : Array (String × ProofEntry) ← if config.skipVerify then
+  let proofEntries : Option (Array ProofEntry) ← if config.skipVerify then
     IO.println "Verification skipped (--skip-verify)"
-    pure #[]
+    pure none
   else do
     let verifyOutput ← match config.fromFile with
       | some file =>
@@ -135,20 +135,18 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
 
     let entries := atoms.map fun atom =>
       let sorries := findSorriesForAtom warnings atom
-      (atom.name, atomToProofEntry atom sorries)
+      atomToProofEntry atom sorries
 
-    let verified := entries.filter fun (_, p) => p.verified
+    let verified := entries.filter fun p => p.verified
     IO.println s!"Verified: {verified.size}/{entries.size} declarations"
-    pure entries
+    pure (some entries)
 
-  -- === Merge ===
+  -- === Merge (parallel arrays, O(n)) ===
   IO.println "=== Merging results ==="
 
-  let unifiedAtoms := atoms.map fun atom =>
-    let spec := specEntries.findSome? fun (n, entry) =>
-      if n == atom.name then some entry else none
-    let proof := proofEntries.findSome? fun (n, entry) =>
-      if n == atom.name then some entry else none
+  let unifiedAtoms := atoms.mapIdx fun i atom =>
+    let spec := specEntries[i]?
+    let proof := proofEntries.bind fun ps => ps[i]?
     unifyAtom atom spec proof
 
   let source ← collectSourceInfo config.projectPath

@@ -23,12 +23,6 @@ def getLastNamePart (name : String) : String :=
   let parts := name.splitOn "."
   parts.getLast!
 
-/-- Get the second-to-last dot-separated part of a name -/
-def getSecondLastNamePart (name : String) : String :=
-  let parts := name.splitOn "."
-  if parts.length < 2 then ""
-  else parts[parts.length - 2]!
-
 /-- Strip leading 'L' from line number string if present -/
 def stripLinePrefix (s : String) : String :=
   if s.startsWith "L" then (s.drop 1).toString else s

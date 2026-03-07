@@ -121,7 +121,8 @@ def buildViewsOutputPath (projectPath : System.FilePath) : System.FilePath :=
   projectPath / Constants.verilibDir / Constants.viewsDir / "molecules_all.json"
 
 /-- Check if a filename matches the probes file pattern `lean_<prefix>*.json`.
-    Simplified: just checks prefix and suffix. -/
+    Only prefix+suffix are checked because each output type now lives in its own
+    directory (probes/, views/, maps/), so there are no sibling files to confuse. -/
 def isAtomsFileName (name : String) (pkgNamePrefix : String) : Bool :=
   name.startsWith pkgNamePrefix && name.endsWith ".json"
 

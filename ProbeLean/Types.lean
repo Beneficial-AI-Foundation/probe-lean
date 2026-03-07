@@ -371,6 +371,15 @@ instance : Lean.ToJson WebVerificationStatus where
     | .failed => "failed"
     | .unverified => "unverified"
 
+instance : Lean.FromJson WebVerificationStatus where
+  fromJson? json := do
+    let s ← json.getStr?
+    match s with
+    | "verified" => return .verified
+    | "failed" => return .failed
+    | "unverified" => return .unverified
+    | _ => throw s!"Unknown WebVerificationStatus: {s}"
+
 /-- A unified atom combining all atom fields with verification and specification status -/
 structure UnifiedAtom where
   name : String
@@ -414,6 +423,25 @@ instance : Lean.ToJson UnifiedAtom where
       | none => withVerification
     Lean.Json.mkObj withSpecified
 
+instance : Lean.FromJson UnifiedAtom where
+  fromJson? json := do
+    let name ← json.getObjValAs? String "name"
+    let displayName ← json.getObjValAs? String "display-name"
+    let dependencies ← json.getObjValAs? (Array String) "dependencies"
+    let codeModule ← json.getObjValAs? String "code-module"
+    let codePath ← json.getObjValAs? String "code-path"
+    let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
+    let kind ← json.getObjValAs? DeclKind "kind"
+    let language ← json.getObjValAs? String "language" <|> pure "lean"
+    let isHidden ← json.getObjValAs? Bool "is-hidden" <|> pure false
+    let isExtractionArtifact ← json.getObjValAs? Bool "is-extraction-artifact" <|> pure false
+    let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
+    let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
+    let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
+    let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
+    let specified ← json.getObjValAs? (Option Bool) "specified" <|> pure none
+    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, verificationStatus, specified }
+
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where
   atoms : Array UnifiedAtom
@@ -423,6 +451,28 @@ instance : Lean.ToJson UnifiedAtomsOutput where
   toJson output :=
     let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
+
+instance : Lean.FromJson UnifiedAtomsOutput where
+  fromJson? json := do
+    let obj ← json.getObj?
+    let mut atoms : Array UnifiedAtom := #[]
+    for (name, value) in obj.toArray do
+      let displayName ← value.getObjValAs? String "display-name"
+      let dependencies ← value.getObjValAs? (Array String) "dependencies"
+      let codeModule ← value.getObjValAs? String "code-module"
+      let codePath ← value.getObjValAs? String "code-path"
+      let codeText ← value.getObjValAs? (Option CodeTextInfo) "code-text"
+      let kind ← value.getObjValAs? DeclKind "kind"
+      let language ← value.getObjValAs? String "language" <|> pure "lean"
+      let isHidden ← value.getObjValAs? Bool "is-hidden" <|> pure false
+      let isExtractionArtifact ← value.getObjValAs? Bool "is-extraction-artifact" <|> pure false
+      let isIgnored ← value.getObjValAs? Bool "is-ignored" <|> pure false
+      let isRelevant ← value.getObjValAs? Bool "is-relevant" <|> pure true
+      let rustSource ← value.getObjValAs? (Option String) "rust-source" <|> pure none
+      let verificationStatus ← value.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
+      let specified ← value.getObjValAs? (Option Bool) "specified" <|> pure none
+      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, verificationStatus, specified }
+    return { atoms }
 
 /-- A stub/molecule entry for view output -/
 structure StubEntry where

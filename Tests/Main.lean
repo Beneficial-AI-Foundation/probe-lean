@@ -540,12 +540,6 @@ def main : IO UInt32 := do
   result ← test "last part two" (getLastNamePart "Foo.bar" == "bar") result
 
   IO.println ""
-  IO.println "Testing getSecondLastNamePart..."
-  result ← test "second last simple" (getSecondLastNamePart "foo" == "") result
-  result ← test "second last two" (getSecondLastNamePart "Foo.bar" == "Foo") result
-  result ← test "second last three" (getSecondLastNamePart "Foo.Bar.baz" == "Bar") result
-
-  IO.println ""
   IO.println "Testing parseLines..."
   result ← test "parse lines normal" (parseLines "42-58" == { linesStart := 42, linesEnd := 58 }) result
   result ← test "parse lines single" (parseLines "10" == { linesStart := 10, linesEnd := 10 }) result

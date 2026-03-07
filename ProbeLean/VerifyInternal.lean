@@ -5,7 +5,6 @@
 -/
 import Lean
 import ProbeLean.Types
-import ProbeLean.Environment
 import ProbeLean.Analysis
 
 namespace ProbeLean
@@ -107,15 +106,5 @@ def atomToProofEntry (atom : Atom) (sorries : Array SorryInfo) : ProofEntry :=
     codeLine := codeLine
     sorries := sorries
   }
-
-/-- Run lake build and capture output -/
-def runLakeBuild (projectPath : System.FilePath) : IO (String × String × UInt32) := do
-  runCmd "lake" #["build"] (some projectPath)
-
-/-- Convert atoms to a typed ProofsOutput -/
-def atomsToProofsOutput (atoms : AtomsOutput) (warnings : Array SorryWarning) : ProofsOutput :=
-  { entries := atoms.atoms.map fun atom =>
-      let sorries := findSorriesForAtom warnings atom
-      (atom.name, atomToProofEntry atom sorries) }
 
 end ProbeLean
