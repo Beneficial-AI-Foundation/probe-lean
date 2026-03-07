@@ -222,7 +222,7 @@ instance : Lean.ToJson Atom where
 
 instance : Lean.FromJson Atom where
   fromJson? json := do
-    let name ← json.getObjValAs? String "name"
+    let name ← json.getObjValAs? String "name" <|> pure ""
     let displayName ← json.getObjValAs? String "display-name"
     let dependencies ← json.getObjValAs? (Array String) "dependencies"
     let codeModule ← json.getObjValAs? String "code-module"
@@ -251,20 +251,10 @@ instance : Lean.FromJson AtomsOutput where
   fromJson? json := do
     let obj ← json.getObj?
     let mut atoms : Array Atom := #[]
-    for (name, value) in obj.toArray do
-      let displayName ← value.getObjValAs? String "display-name"
-      let dependencies ← value.getObjValAs? (Array String) "dependencies"
-      let codeModule ← value.getObjValAs? String "code-module"
-      let codePath ← value.getObjValAs? String "code-path"
-      let codeText ← value.getObjValAs? (Option CodeTextInfo) "code-text"
-      let kind ← value.getObjValAs? DeclKind "kind"
-      let language ← value.getObjValAs? String "language" <|> pure "lean"
-      let isHidden ← value.getObjValAs? Bool "is-hidden" <|> pure false
-      let isExtractionArtifact ← value.getObjValAs? Bool "is-extraction-artifact" <|> pure false
-      let isIgnored ← value.getObjValAs? Bool "is-ignored" <|> pure false
-      let isRelevant ← value.getObjValAs? Bool "is-relevant" <|> pure true
-      let rustSource ← value.getObjValAs? (Option String) "rust-source" <|> pure none
-      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
+    for (key, value) in obj.toArray do
+      let parsed : Atom ← Lean.FromJson.fromJson? value
+      let withKey : Atom := { parsed with name := key }
+      atoms := atoms.push withKey
     return { atoms }
 
 /-- A spec entry for specs output -/
@@ -397,7 +387,7 @@ structure UnifiedAtom where
   rustSource : Option String := none
   verificationStatus : Option WebVerificationStatus
   specified : Option Bool
-  deriving Repr, BEq
+  deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson UnifiedAtom where
   toJson atom :=
@@ -425,7 +415,7 @@ instance : Lean.ToJson UnifiedAtom where
 
 instance : Lean.FromJson UnifiedAtom where
   fromJson? json := do
-    let name ← json.getObjValAs? String "name"
+    let name ← json.getObjValAs? String "name" <|> pure ""
     let displayName ← json.getObjValAs? String "display-name"
     let dependencies ← json.getObjValAs? (Array String) "dependencies"
     let codeModule ← json.getObjValAs? String "code-module"
@@ -456,22 +446,10 @@ instance : Lean.FromJson UnifiedAtomsOutput where
   fromJson? json := do
     let obj ← json.getObj?
     let mut atoms : Array UnifiedAtom := #[]
-    for (name, value) in obj.toArray do
-      let displayName ← value.getObjValAs? String "display-name"
-      let dependencies ← value.getObjValAs? (Array String) "dependencies"
-      let codeModule ← value.getObjValAs? String "code-module"
-      let codePath ← value.getObjValAs? String "code-path"
-      let codeText ← value.getObjValAs? (Option CodeTextInfo) "code-text"
-      let kind ← value.getObjValAs? DeclKind "kind"
-      let language ← value.getObjValAs? String "language" <|> pure "lean"
-      let isHidden ← value.getObjValAs? Bool "is-hidden" <|> pure false
-      let isExtractionArtifact ← value.getObjValAs? Bool "is-extraction-artifact" <|> pure false
-      let isIgnored ← value.getObjValAs? Bool "is-ignored" <|> pure false
-      let isRelevant ← value.getObjValAs? Bool "is-relevant" <|> pure true
-      let rustSource ← value.getObjValAs? (Option String) "rust-source" <|> pure none
-      let verificationStatus ← value.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
-      let specified ← value.getObjValAs? (Option Bool) "specified" <|> pure none
-      atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, verificationStatus, specified }
+    for (key, value) in obj.toArray do
+      let parsed : UnifiedAtom ← Lean.FromJson.fromJson? value
+      let withKey : UnifiedAtom := { parsed with name := key }
+      atoms := atoms.push withKey
     return { atoms }
 
 /-- A stub/molecule entry for view output -/

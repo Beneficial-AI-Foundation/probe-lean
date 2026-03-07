@@ -530,6 +530,95 @@ def main : IO UInt32 := do
   result ← test "proofsOutput round-trips through JSON" proofsRt result
 
   -- ============================================================
+  -- WebVerificationStatus / UnifiedAtom / UnifiedAtomsOutput JSON
+  -- ============================================================
+
+  IO.println ""
+  IO.println "Testing WebVerificationStatus FromJson round-trip..."
+  let wvsVerified := match Lean.FromJson.fromJson? (Lean.toJson WebVerificationStatus.verified) (α := WebVerificationStatus) with
+    | .ok .verified => true | _ => false
+  let wvsFailed := match Lean.FromJson.fromJson? (Lean.toJson WebVerificationStatus.failed) (α := WebVerificationStatus) with
+    | .ok .failed => true | _ => false
+  let wvsUnverified := match Lean.FromJson.fromJson? (Lean.toJson WebVerificationStatus.unverified) (α := WebVerificationStatus) with
+    | .ok .unverified => true | _ => false
+  result ← test "WebVerificationStatus verified round-trips" wvsVerified result
+  result ← test "WebVerificationStatus failed round-trips" wvsFailed result
+  result ← test "WebVerificationStatus unverified round-trips" wvsUnverified result
+
+  IO.println ""
+  IO.println "Testing UnifiedAtomsOutput FromJson round-trip..."
+  let unifiedAtom1 : UnifiedAtom := {
+    name := "probe:Test.foo"
+    displayName := "foo"
+    dependencies := #["probe:Test.helper"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := some { linesStart := 10, linesEnd := 15 }
+    kind := .theorem
+    verificationStatus := some .verified
+    specified := some true
+  }
+  let unifiedAtom2 : UnifiedAtom := {
+    name := "probe:Test.bar"
+    displayName := "bar"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+    rustSource := some "src/lib.rs"
+    verificationStatus := none
+    specified := none
+  }
+  let unifiedOutput : UnifiedAtomsOutput := { atoms := #[unifiedAtom1, unifiedAtom2] }
+  let uaoJson := Lean.toJson unifiedOutput
+  match Lean.FromJson.fromJson? uaoJson (α := UnifiedAtomsOutput) with
+  | .ok uo => do
+    let findAtom (n : String) := uo.atoms.find? fun a => a.name == n
+    result ← test "UAO round-trip: atom count" (uo.atoms.size == 2) result
+    match findAtom "probe:Test.foo" with
+    | some a1 => do
+      result ← test "UAO round-trip: foo displayName" (a1.displayName == "foo") result
+      result ← test "UAO round-trip: foo verificationStatus" (a1.verificationStatus == some .verified) result
+      result ← test "UAO round-trip: foo specified" (a1.specified == some true) result
+      result ← test "UAO round-trip: foo dependencies" (a1.dependencies.size == 1) result
+    | none => do
+      IO.println "  ✗ UAO round-trip: probe:Test.foo not found"
+      result := result.add false
+    match findAtom "probe:Test.bar" with
+    | some a2 => do
+      result ← test "UAO round-trip: bar rustSource" (a2.rustSource == some "src/lib.rs") result
+      result ← test "UAO round-trip: bar verificationStatus none" (a2.verificationStatus == none) result
+      result ← test "UAO round-trip: bar specified none" (a2.specified == none) result
+    | none => do
+      IO.println "  ✗ UAO round-trip: probe:Test.bar not found"
+      result := result.add false
+  | .error err => do
+    IO.println s!"  ✗ UAO round-trip PARSE ERROR: {err}"
+    result := result.add false
+
+  IO.println ""
+  IO.println "Testing UnifiedAtomsOutput round-trip preserves optional fields..."
+  let uaoNoneFields : UnifiedAtomsOutput := { atoms := #[{
+    name := "probe:Test.z"
+    displayName := "z"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+    verificationStatus := none
+    specified := none
+  }] }
+  let uaoNoneRt := match Lean.FromJson.fromJson? (Lean.toJson uaoNoneFields) (α := UnifiedAtomsOutput) with
+    | .ok uo => match uo.atoms[0]? with
+      | some a => a.verificationStatus == none && a.specified == none
+        && a.rustSource == none && a.isHidden == false
+      | none => false
+    | .error _ => false
+  result ← test "UnifiedAtomsOutput round-trip preserves none fields" uaoNoneRt result
+
+  -- ============================================================
   -- View helpers
   -- ============================================================
 
