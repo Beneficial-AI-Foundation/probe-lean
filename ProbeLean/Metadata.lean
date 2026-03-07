@@ -21,7 +21,7 @@ private def runCmdOrDefault (cmd : String) (args : Array String)
   catch _ => return default
 
 def getGitCommit (projectPath : System.FilePath) : IO String :=
-  runCmdOrDefault "git" #["rev-parse", "--short", "HEAD"] (some projectPath) ""
+  runCmdOrDefault "git" #["rev-parse", "HEAD"] (some projectPath) ""
 
 def getGitRemoteUrl (projectPath : System.FilePath) : IO String :=
   runCmdOrDefault "git" #["remote", "get-url", "origin"] (some projectPath) ""
