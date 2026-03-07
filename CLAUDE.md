@@ -40,11 +40,8 @@ This project uses spec-driven development. Follow this workflow:
 lake build                 # Build the project
 lake build tests           # Build tests
 .lake/build/bin/tests      # Run tests
-probe-lean atomize <PATH>  # Extract dependency graph to atoms.json
-probe-lean specify <PATH>  # Extract spec status to specs.json
-probe-lean verify <PATH>   # Check proof completeness to proofs.json
-probe-lean pipeline <PATH> # Run atomize+specify+verify, output enriched graph.json
-probe-lean stubify <PATH>  # Generate stubs.json from functions.json
+probe-lean verify <PATH>   # Combined atomize+specify+sorry detection → unified atoms
+probe-lean view <PATH>     # Filter verify output → molecules for web UI
 ```
 
 ## Testing

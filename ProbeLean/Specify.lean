@@ -1,24 +1,16 @@
 /-
-  Specify command implementation.
-  Extracts specification status from atoms.json.
+  Specify: core logic for extracting specification status from atoms.
+  Not a CLI command - used by Verify.lean.
 -/
 import Lean
 import ProbeLean.Types
-import ProbeLean.Loader
-import ProbeLean.Metadata
 
 namespace ProbeLean
 
 open Lean
 
-/-- Configuration for the specify command -/
-structure SpecifyConfig where
-  projectPath : System.FilePath
-  atomsPath : Option System.FilePath
-  outputPath : Option System.FilePath
-  deriving Repr
-
-/-- Determine if a declaration kind is always considered specified -/
+/-- Determine if a declaration kind is always considered specified.
+    In Lean, all declaration kinds have type signatures serving as specs. -/
 def isAlwaysSpecified (kind : DeclKind) : Bool :=
   match kind with
   | .theorem => true
@@ -43,38 +35,5 @@ def atomToSpecEntry (atom : Atom) : SpecEntry :=
 /-- Convert atoms to a typed SpecsOutput -/
 def atomsToSpecsOutput (atoms : AtomsOutput) : SpecsOutput :=
   { entries := atoms.atoms.map fun atom => (atom.name, atomToSpecEntry atom) }
-
-/-- Run the specify command -/
-def runSpecifyInProject (config : SpecifyConfig) : IO UInt32 := do
-  let pm ← gatherMetadata config.projectPath
-  let atomsPath ← match config.atomsPath with
-    | some p => pure p
-    | none => do
-      let (path, usedFallback) ← findDefaultAtomsPath config.projectPath pm
-      if usedFallback then
-        IO.println "NOTE: Using atoms from a different version. Re-run 'probe-lean atomize' for accurate results."
-      pure path
-
-  IO.println s!"Loading atoms from {atomsPath}..."
-
-  let atoms ← match ← loadAtoms atomsPath with
-  | .error msg =>
-    IO.eprintln s!"Error: {msg}"
-    return 1
-  | .ok atoms => pure atoms
-
-  IO.println s!"Found {atoms.atoms.size} declarations"
-
-  let output := atomsToSpecsOutput atoms
-  let envelope := wrapInEnvelopeWith "probe-lean/specs" "specify" (Lean.toJson output) pm
-  let jsonStr := envelope.pretty
-
-  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_specs")
-  if let some parentDir := outputPath.parent then
-    IO.FS.createDirAll parentDir
-  IO.FS.writeFile outputPath jsonStr
-  IO.println s!"Wrote specs to {outputPath}"
-
-  return 0
 
 end ProbeLean

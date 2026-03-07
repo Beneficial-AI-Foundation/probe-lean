@@ -1,14 +1,15 @@
 /-
-  Verify command implementation.
-  Checks proof completeness by detecting sorry in Lean compiler output.
+  Verify command: combined atomize + specify + sorry detection.
+  Produces unified atoms with verification and specification status.
+  Schema: probe-lean/verify
 -/
 import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
-import ProbeLean.Analysis
-import ProbeLean.Loader
 import ProbeLean.Metadata
+import ProbeLean.Atomize
 import ProbeLean.Specify
+import ProbeLean.VerifyInternal
 
 namespace ProbeLean
 
@@ -17,195 +18,158 @@ open Lean
 /-- Configuration for the verify command -/
 structure VerifyConfig where
   projectPath : System.FilePath
-  atomsPath : Option System.FilePath
   outputPath : Option System.FilePath
-  noCache : Bool
+  moduleFilter : Option String
+  skipVerify : Bool
+  skipBuild : Bool
   fromFile : Option System.FilePath
   deriving Repr
 
-/-- A parsed sorry warning from Lean output -/
-structure SorryWarning where
-  filePath : String
-  line : Nat
-  column : Nat
-  message : String
-  deriving Repr, BEq
+/-- Map probe-lean VerifyStatus to the web frontend's verification status -/
+def mapVerifyStatus : VerifyStatus → WebVerificationStatus
+  | .success => .verified
+  | .sorries => .unverified
+  | .failure => .failed
 
-/-- Parse a single line of Lean output for sorry warnings -/
-def parseSorryWarning (line : String) : Option SorryWarning := do
-  -- Format: "warning: ././././TestProject.lean:42:8: declaration uses 'sorry'"
-  -- Or: "⚠ [2/3] Replayed TestProject" (not a sorry warning)
-  if !containsSubstring line "sorry" then none
-
-  -- Check if it starts with "warning: " prefix
-  let trimmed := line.trimAscii.toString
-  if !trimmed.startsWith "warning: " then none
-
-  let rest := (trimmed.drop 9).toString
-
-  let parts := rest.splitOn ": "
-  if parts.length < 2 then none
-
-  let message := parts.getLast!
-  let locationParts := parts.dropLast
-
-  -- Rejoin location parts (in case path had ": " in it, unlikely but safe)
-  let locationStr := String.intercalate ": " locationParts
-
-  -- Parse location: "path/to/File.lean:42:8"
-  let locParts := locationStr.splitOn ":"
-  if locParts.length < 3 then none
-
-  -- File path is all but last 2 parts (line and column)
-  let filePathParts := locParts.dropLast.dropLast
-  let filePath := String.intercalate ":" filePathParts
-
-  let lineIdx := locParts.length - 2
-  let colIdx := locParts.length - 1
-  let lineStr := locParts[lineIdx]!
-  let colStr := locParts[colIdx]!
-
-  let lineNum ← String.toNat? lineStr
-  let colNum ← String.toNat? colStr
-
-  some {
-    filePath := filePath
-    line := lineNum
-    column := colNum
-    message := message.trimAscii.toString
-  }
-
-/-- Parse all sorry warnings from build output -/
-def parseSorryWarnings (output : String) : Array SorryWarning :=
-  let lines := output.splitOn "\n"
-  lines.filterMap parseSorryWarning |>.toArray
-
-/-- Normalize a file path by removing leading ./ and extracting filename -/
-def normalizePathForMatch (path : String) : String :=
-  -- Remove leading ./ sequences
-  let cleaned := path.replace "././" ""
-  -- Get just the filename for final fallback comparison
-  let parts := cleaned.splitOn "/"
-  parts[parts.length - 1]!
-
-/-- Check if two file paths refer to the same file -/
-def pathsMatch (path1 : String) (path2 : String) : Bool :=
-  -- Direct match
-  path1 == path2 ||
-  -- Suffix match (handles absolute vs relative)
-  path1.endsWith path2 ||
-  path2.endsWith path1 ||
-  -- Filename match (handles ./ prefixes)
-  normalizePathForMatch path1 == normalizePathForMatch path2
-
-/-- Check if a sorry warning falls within a declaration's line range -/
-def sorryInDeclaration (warning : SorryWarning) (atom : Atom) : Bool :=
-  -- Check file path matches
-  if !pathsMatch warning.filePath atom.codePath then false
-  else
-    match atom.codeText with
-    | none => false
-    | some range =>
-      warning.line >= range.linesStart && warning.line <= range.linesEnd
-
-/-- Find all sorries for a given atom -/
-def findSorriesForAtom (warnings : Array SorryWarning) (atom : Atom) : Array SorryInfo :=
-  warnings.filterMap fun w =>
-    if sorryInDeclaration w atom then
-      some { line := w.line, message := w.message }
-    else
-      none
-
-/-- Convert an atom and its sorries to a ProofEntry -/
-def atomToProofEntry (atom : Atom) (sorries : Array SorryInfo) : ProofEntry :=
-  let verified := sorries.isEmpty
-  let status := if verified then VerifyStatus.success else VerifyStatus.sorries
-  let codeLine := match atom.codeText with
-    | some range => range.linesStart
-    | none => 0
+/-- Combine an Atom with its optional spec and proof entries into a UnifiedAtom,
+    preserving all atom fields. -/
+def unifyAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option ProofEntry)
+    : UnifiedAtom :=
   {
-    verified := verified
-    status := status
+    name := atom.name
+    displayName := atom.displayName
+    dependencies := atom.dependencies
+    codeModule := atom.codeModule
     codePath := atom.codePath
-    codeLine := codeLine
-    sorries := sorries
+    codeText := atom.codeText
+    kind := atom.kind
+    language := atom.language
+    isHidden := atom.isHidden
+    isExtractionArtifact := atom.isExtractionArtifact
+    isIgnored := atom.isIgnored
+    isRelevant := atom.isRelevant
+    rustSource := atom.rustSource
+    verificationStatus := proofEntry.map fun p => mapVerifyStatus p.status
+    specified := specEntry.map fun s => s.specified
   }
 
-/-- Run lake build and capture output (verify ignores exit code to still parse sorries) -/
-def runLakeBuild (projectPath : System.FilePath) : IO (String × String × UInt32) := do
-  runCmd "lake" #["build"] (some projectPath)
-
-/-- Convert atoms to a typed ProofsOutput -/
-def atomsToProofsOutput (atoms : AtomsOutput) (warnings : Array SorryWarning) : ProofsOutput :=
-  { entries := atoms.atoms.map fun atom =>
-      let sorries := findSorriesForAtom warnings atom
-      (atom.name, atomToProofEntry atom sorries) }
-
-/-- Run the verify command -/
+/-- Run the combined verify pipeline: build → atomize → markAtomFlags → specify → sorry detection → merge → envelope → write -/
 def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
-  let pm ← gatherMetadata config.projectPath
-  let atomsPath ← match config.atomsPath with
-    | some p => pure p
-    | none => do
-      let (path, usedFallback) ← findDefaultAtomsPath config.projectPath pm
-      if usedFallback then
-        IO.println "NOTE: Using atoms from a different version. Re-run 'probe-lean atomize' for accurate results."
-      pure path
-
-  IO.println s!"Loading atoms from {atomsPath}..."
-
-  let atoms ← match ← loadAtoms atomsPath with
-  | .error msg =>
-    IO.eprintln s!"Error: {msg}"
+  if !(← isLakeProject config.projectPath) then
+    IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
     return 1
-  | .ok atoms => pure atoms
 
-  IO.println s!"Found {atoms.atoms.size} declarations"
+  let buildOutput ← if config.skipBuild then
+    IO.println "Skipping build (--skip-build), assuming .olean files exist..."
+    pure ""
+  else do
+    IO.println s!"Building project at {config.projectPath}..."
+    let (buildStdout, buildStderr, buildExit) ← runCmd "lake" #["build"] (some config.projectPath)
+    if buildExit != 0 then
+      IO.eprintln s!"Lake build failed:\n{buildStderr}"
+      return 1
+    let output := buildStdout ++ "\n" ++ buildStderr
+    saveCache config.projectPath output
+    pure output
 
-  -- Get build output
-  let buildOutput ← if let some fromFile := config.fromFile then
-    IO.println s!"Reading build output from {fromFile}..."
-    IO.FS.readFile fromFile
-  else if !config.noCache then
-    if ← isCacheValid config.projectPath then
-      IO.println "Using cached build output..."
-      match ← loadCache config.projectPath with
-      | some output => pure output
+  -- === Step 1: Atomize ===
+  IO.println "=== Step 1/3: Atomize ==="
+
+  IO.println "Getting project modules..."
+  let modules ← match ← getProjectModules config.projectPath with
+    | .error msg =>
+      IO.eprintln msg
+      return 1
+    | .ok mods => pure mods
+
+  if modules.isEmpty then
+    IO.eprintln "Error: No modules found in project"
+    return 1
+
+  let filteredModules := match config.moduleFilter with
+    | some filter =>
+      let filterName := String.toName filter
+      modules.filter fun m =>
+        m == filterName || m.toString.startsWith (filter ++ ".")
+    | none => modules
+
+  IO.println s!"Analyzing {filteredModules.size} modules..."
+
+  let userConfig ← loadUserConfig config.projectPath
+  let crate := loadRelevantCrate userConfig
+
+  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate with
+    | .error msg =>
+      IO.eprintln s!"Analysis failed: {msg}"
+      return 1
+    | .ok atoms => pure atoms
+
+  IO.println s!"Found {atoms.size} atoms"
+
+  -- Mark filtering flags from .verilib/config.json (bug fix: was missing in old pipeline)
+  let hiddenList := loadIsHiddenList userConfig
+  let artifactSuffixes := loadExtractionArtifactSuffixes userConfig
+  let ignoredList := loadIsIgnoredList userConfig
+  let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
+
+  -- === Step 2: Specify ===
+  IO.println "=== Step 2/3: Specify ==="
+  let specEntries := atoms.map fun atom => (atom.name, atomToSpecEntry atom)
+  IO.println s!"Computed specification status for {specEntries.size} declarations"
+
+  -- === Step 3: Sorry detection ===
+  IO.println "=== Step 3/3: Verify ==="
+  let proofEntries : Array (String × ProofEntry) ← if config.skipVerify then
+    IO.println "Verification skipped (--skip-verify)"
+    pure #[]
+  else do
+    let verifyOutput ← match config.fromFile with
+      | some file =>
+        IO.println s!"Reading build output from {file}..."
+        IO.FS.readFile file
       | none =>
-        IO.println "Cache invalid, rebuilding..."
-        let (stdout, stderr, _) ← runLakeBuild config.projectPath
-        let output := stdout ++ "\n" ++ stderr
-        saveCache config.projectPath output
-        pure output
-    else
-      IO.println "Building project..."
-      let (stdout, stderr, _) ← runLakeBuild config.projectPath
-      let output := stdout ++ "\n" ++ stderr
-      saveCache config.projectPath output
-      pure output
-  else
-    IO.println "Building project..."
-    let (stdout, stderr, _) ← runLakeBuild config.projectPath
-    pure (stdout ++ "\n" ++ stderr)
+        pure buildOutput
 
-  let warnings := parseSorryWarnings buildOutput
-  IO.println s!"Found {warnings.size} sorry warnings"
+    let warnings := parseSorryWarnings verifyOutput
+    IO.println s!"Found {warnings.size} sorry warnings"
 
-  let output := atomsToProofsOutput atoms warnings
+    let entries := atoms.map fun atom =>
+      let sorries := findSorriesForAtom warnings atom
+      (atom.name, atomToProofEntry atom sorries)
 
-  let verified := atoms.atoms.filter fun atom =>
-    (findSorriesForAtom warnings atom).isEmpty
-  IO.println s!"Verified: {verified.size}/{atoms.atoms.size} declarations"
+    let verified := entries.filter fun (_, p) => p.verified
+    IO.println s!"Verified: {verified.size}/{entries.size} declarations"
+    pure entries
 
-  let envelope := wrapInEnvelopeWith "probe-lean/proofs" "verify" (Lean.toJson output) pm
-  let jsonStr := envelope.pretty
+  -- === Merge ===
+  IO.println "=== Merging results ==="
 
-  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_proofs")
+  let unifiedAtoms := atoms.map fun atom =>
+    let spec := specEntries.findSome? fun (n, entry) =>
+      if n == atom.name then some entry else none
+    let proof := proofEntries.findSome? fun (n, entry) =>
+      if n == atom.name then some entry else none
+    unifyAtom atom spec proof
+
+  let source ← collectSourceInfo config.projectPath
+  let timestamp ← getCurrentTimestamp
+
+  let output : UnifiedAtomsOutput := { atoms := unifiedAtoms }
+  let envelope : Envelope UnifiedAtomsOutput := {
+    schema := Constants.schemaVerify
+    tool := { command := "verify" }
+    source := source
+    timestamp := timestamp
+    data := output
+  }
+  let json := Lean.toJson envelope
+  let jsonStr := json.pretty
+
+  let outputPath := config.outputPath.getD (buildProbesOutputPath config.projectPath source)
   if let some parentDir := outputPath.parent then
     IO.FS.createDirAll parentDir
   IO.FS.writeFile outputPath jsonStr
-  IO.println s!"Wrote proofs to {outputPath}"
-
+  IO.println s!"Wrote {unifiedAtoms.size} unified atoms to {outputPath}"
   return 0
 
 end ProbeLean

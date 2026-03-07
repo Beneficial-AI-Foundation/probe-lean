@@ -15,28 +15,17 @@ def unwrapEnvelope (json : Json) : Json :=
   | .ok (.str _), .ok data => data
   | _, _ => json
 
-/-- Load atoms.json, handling both bare-dict and enveloped formats. -/
+/-- Load atoms from a JSON file, handling both bare-dict and enveloped formats. -/
 def loadAtoms (path : System.FilePath) : IO (Except String AtomsOutput) := do
   if !(← path.pathExists) then
-    return .error s!"atoms.json not found at {path}. Run 'probe-lean atomize' first."
+    return .error s!"Atoms file not found at {path}. Run 'probe-lean verify' first."
   let content ← IO.FS.readFile path
   match Json.parse content with
-  | .error err => return .error s!"Failed to parse atoms.json: {err}"
+  | .error err => return .error s!"Failed to parse atoms file: {err}"
   | .ok json =>
     let data := unwrapEnvelope json
     match FromJson.fromJson? data with
-    | .error err => return .error s!"Invalid atoms.json format: {err}"
+    | .error err => return .error s!"Invalid atoms file format: {err}"
     | .ok atoms => return .ok atoms
-
-/-- Load atoms.json and return filtered atoms for stubify (not hidden, not extraction artifact,
-    is relevant, code-path ends with Funs.lean). -/
-def loadFilteredAtoms (path : System.FilePath) : IO (Except String (Array Atom)) := do
-  match ← loadAtoms path with
-  | .error e => return .error e
-  | .ok atomsOutput =>
-    let filtered := atomsOutput.atoms.filter fun atom =>
-      !atom.isHidden && !atom.isExtractionArtifact && atom.isRelevant
-        && atom.codePath.endsWith "Funs.lean"
-    return .ok filtered
 
 end ProbeLean

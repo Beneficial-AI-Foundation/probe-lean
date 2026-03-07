@@ -1,19 +1,18 @@
 /-
-  Stubify command implementation.
-  Generates stubs.json from atoms.json, filtering out hidden and extraction artifact atoms.
+  View command: reads verify output, filters atoms, produces molecules for the web UI.
+  Schema: probe-lean/view
 -/
 import Lean
 import ProbeLean.Types
 import ProbeLean.Loader
 import ProbeLean.Metadata
-import ProbeLean.Atomize
 
 namespace ProbeLean
 
 open Lean
 
-/-- Configuration for the stubify command -/
-structure StubifyConfig where
+/-- Configuration for the view command -/
+structure ViewConfig where
   projectPath : System.FilePath
   atomsPath : Option System.FilePath
   outputPath : Option System.FilePath
@@ -52,6 +51,12 @@ def parseLines (lines : String) : CodeTextInfo :=
       { linesStart := n, linesEnd := n }
     | _ => { linesStart := 0, linesEnd := 0 }
 
+/-- Filter atoms for the view: not hidden, not extraction artifact, relevant, Funs.lean -/
+def filterAtomsForView (atoms : Array Atom) : Array Atom :=
+  atoms.filter fun atom =>
+    !atom.isHidden && !atom.isExtractionArtifact && atom.isRelevant
+      && atom.codePath.endsWith "Funs.lean"
+
 /-- Generate unique keys for atoms, using short form when possible, full name when clashes occur -/
 def generateUniqueKeys (atoms : Array Atom) : Array (String × Atom) := Id.run do
   let mut shortKeyCounts : List (String × Nat) := []
@@ -74,8 +79,8 @@ def generateUniqueKeys (atoms : Array Atom) : Array (String × Atom) := Id.run d
     result := result.push (key, atom)
   result
 
-/-- Generate stubs as a typed StubsOutput -/
-def generateStubsOutput (atoms : Array Atom) : StubsOutput :=
+/-- Generate molecules output from filtered atoms -/
+def generateMoleculesOutput (atoms : Array Atom) : MoleculesOutput :=
   let keysAndAtoms := generateUniqueKeys atoms
   { entries := keysAndAtoms.map fun (key, atom) =>
       let entry : StubEntry := {
@@ -91,36 +96,49 @@ def generateStubsOutput (atoms : Array Atom) : StubsOutput :=
       }
       (key, entry) }
 
-/-- Run the stubify command -/
-def runStubifyInProject (config : StubifyConfig) : IO UInt32 := do
-  let pm ← gatherMetadata config.projectPath
+/-- Run the view command -/
+def runViewInProject (config : ViewConfig) : IO UInt32 := do
+  let source ← collectSourceInfo config.projectPath
+
   let atomsPath ← match config.atomsPath with
     | some p => pure p
     | none => do
-      let (path, usedFallback) ← findDefaultAtomsPath config.projectPath pm
+      let (path, usedFallback) ← findDefaultAtomsPath config.projectPath source
       if usedFallback then
-        IO.println "NOTE: Using atoms from a different version. Re-run 'probe-lean atomize' for accurate results."
+        IO.println "NOTE: Using probes from a different version. Re-run 'probe-lean verify' for accurate results."
       pure path
 
   IO.println s!"Loading atoms from {atomsPath}..."
 
-  let atoms ← match ← loadFilteredAtoms atomsPath with
+  let atoms ← match ← loadAtoms atomsPath with
     | .error msg =>
       IO.eprintln s!"Error: {msg}"
       return 1
     | .ok atoms => pure atoms
 
-  IO.println s!"Found {atoms.size} atoms (excluding hidden, extraction artifacts, and irrelevant)"
+  IO.println s!"Loaded {atoms.atoms.size} atoms"
 
-  let output := generateStubsOutput atoms
-  let envelope := wrapInEnvelopeWith "probe-lean/stubs" "stubify" (Lean.toJson output) pm
-  let jsonStr := envelope.pretty
+  let filtered := filterAtomsForView atoms.atoms
+  IO.println s!"Filtered to {filtered.size} atoms (excluding hidden, extraction artifacts, irrelevant, non-Funs.lean)"
 
-  let outputPath := config.outputPath.getD (getDefaultOutputPath config.projectPath pm "_stubs")
+  let output := generateMoleculesOutput filtered
+  let timestamp ← getCurrentTimestamp
+
+  let envelope : Envelope MoleculesOutput := {
+    schema := Constants.schemaView
+    tool := { command := "view" }
+    source := source
+    timestamp := timestamp
+    data := output
+  }
+  let json := Lean.toJson envelope
+  let jsonStr := json.pretty
+
+  let outputPath := config.outputPath.getD (buildViewsOutputPath config.projectPath)
   if let some parentDir := outputPath.parent then
     IO.FS.createDirAll parentDir
   IO.FS.writeFile outputPath jsonStr
-  IO.println s!"Wrote {atoms.size} stubs to {outputPath}"
+  IO.println s!"Wrote {filtered.size} molecules to {outputPath}"
 
   return 0
 

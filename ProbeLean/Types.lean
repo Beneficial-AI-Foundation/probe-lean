@@ -8,13 +8,29 @@ import Lean.Data.Json
 namespace ProbeLean
 
 -- ============================================================
+-- Constants
+-- ============================================================
+
+namespace Constants
+  def verilibDir : String := ".verilib"
+  def probesDir : String := "probes"
+  def viewsDir : String := "views"
+  def mapsDir : String := "maps"
+  def toolName : String := "probe-lean"
+  def toolVersion : String := "0.1.0"
+  def schemaVersion : String := "2.0"
+  def schemaVerify : String := "probe-lean/verify"
+  def schemaView : String := "probe-lean/view"
+end Constants
+
+-- ============================================================
 -- Schema 2.0 envelope types
 -- ============================================================
 
 /-- Tool metadata for the Schema 2.0 envelope -/
 structure ToolInfo where
-  name : String
-  version : String
+  name : String := Constants.toolName
+  version : String := Constants.toolVersion
   command : String
   deriving Repr, BEq
 
@@ -32,11 +48,13 @@ instance : Lean.FromJson ToolInfo where
     let command ← json.getObjValAs? String "command"
     return { name, version, command }
 
-/-- Source metadata for the Schema 2.0 envelope -/
+/-- Source metadata for the Schema 2.0 envelope.
+    `repo` and `commit` are non-optional String (empty when unavailable)
+    to conform to the probe repo JSON Schema which declares them required. -/
 structure SourceInfo where
   repo : String
   commit : String
-  language : String
+  language : String := "lean"
   package : String
   packageVersion : String
   deriving Repr, BEq
@@ -54,10 +72,52 @@ instance : Lean.FromJson SourceInfo where
   fromJson? json := do
     let repo ← json.getObjValAs? String "repo"
     let commit ← json.getObjValAs? String "commit"
-    let language ← json.getObjValAs? String "language"
+    let language ← json.getObjValAs? String "language" <|> pure "lean"
     let package ← json.getObjValAs? String "package"
     let packageVersion ← json.getObjValAs? String "package-version"
     return { repo, commit, language, package, packageVersion }
+
+/-- Typed envelope wrapper for all Schema 2.0 outputs -/
+structure Envelope (α : Type) where
+  schema : String
+  schemaVersion : String := Constants.schemaVersion
+  tool : ToolInfo
+  source : SourceInfo
+  timestamp : String
+  data : α
+  deriving Repr
+
+instance [Lean.ToJson α] : Lean.ToJson (Envelope α) where
+  toJson env := Lean.Json.mkObj [
+    ("schema", Lean.toJson env.schema),
+    ("schema-version", Lean.toJson env.schemaVersion),
+    ("tool", Lean.toJson env.tool),
+    ("source", Lean.toJson env.source),
+    ("timestamp", Lean.toJson env.timestamp),
+    ("data", Lean.toJson env.data)
+  ]
+
+instance [Lean.FromJson α] : Lean.FromJson (Envelope α) where
+  fromJson? json := do
+    let schema ← json.getObjValAs? String "schema"
+    let schemaVersion ← json.getObjValAs? String "schema-version"
+    let tool ← json.getObjValAs? ToolInfo "tool"
+    let source ← json.getObjValAs? SourceInfo "source"
+    let timestamp ← json.getObjValAs? String "timestamp"
+    let data ← json.getObjValAs? α "data"
+    return { schema, schemaVersion, tool, source, timestamp, data }
+
+-- ============================================================
+-- Shared utilities
+-- ============================================================
+
+/-- Add probe: prefix to a name -/
+def addProbePrefix (name : String) : String :=
+  s!"probe:{name}"
+
+/-- Strip the probe: prefix from a name, or return unchanged if no prefix -/
+def stripProbePrefix (name : String) : String :=
+  if name.startsWith "probe:" then (name.drop 6).toString else name
 
 -- ============================================================
 -- Core types
@@ -69,7 +129,6 @@ structure CodeTextInfo where
   linesEnd : Nat
   deriving Repr, BEq
 
-/-- Custom JSON serialization for CodeTextInfo with hyphenated field names -/
 instance : Lean.ToJson CodeTextInfo where
   toJson info := Lean.Json.mkObj [
     ("lines-start", Lean.toJson info.linesStart),
@@ -130,36 +189,21 @@ instance : Inhabited DeclKind where
 
 /-- An atom representing a declaration in the dependency graph -/
 structure Atom where
-  /-- Full qualified name -/
   name : String
-  /-- Display name (last component) -/
   displayName : String
-  /-- Names of declarations this depends on -/
   dependencies : Array String
-  /-- Module name containing this declaration -/
   codeModule : String
-  /-- File path to source -/
   codePath : String
-  /-- Source location info -/
   codeText : Option CodeTextInfo
-  /-- Declaration kind -/
   kind : DeclKind
-  /-- Source language of this atom -/
   language : String := "lean"
-  /-- Whether this atom is hidden (from config.json's user/is-hidden list) -/
   isHidden : Bool := false
-  /-- Whether this atom is an extraction artifact (suffix matches config.json's user/extraction-artifact-suffixes) -/
   isExtractionArtifact : Bool := false
-  /-- Whether this atom is ignored (from config.json's user/is-ignored list) -/
   isIgnored : Bool := false
-  /-- Whether this atom is relevant (from crate source, not stdlib/external deps) -/
   isRelevant : Bool := true
-  /-- Rust source path from Aeneas docstring (e.g., "curve25519-dalek/src/field.rs") -/
   rustSource : Option String := none
   deriving Repr, BEq, Inhabited
 
-/-- Custom JSON serialization for Atom with hyphenated field names.
-    Note: The "name" field is not included here as it becomes the key in atoms.json -/
 instance : Lean.ToJson Atom where
   toJson atom := Lean.Json.mkObj [
     ("display-name", Lean.toJson atom.displayName),
@@ -193,12 +237,11 @@ instance : Lean.FromJson Atom where
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
 
-/-- Output format for atoms.json - an object keyed by atom name -/
+/-- Output format for atoms - an object keyed by atom name -/
 structure AtomsOutput where
   atoms : Array Atom
   deriving Repr
 
-/-- Serialize atoms as an object with atom names as keys -/
 instance : Lean.ToJson AtomsOutput where
   toJson output :=
     let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
@@ -224,13 +267,10 @@ instance : Lean.FromJson AtomsOutput where
       atoms := atoms.push { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
     return { atoms }
 
-/-- A spec entry for specs.json output -/
+/-- A spec entry for specs output -/
 structure SpecEntry where
-  /-- Whether the declaration has a complete specification -/
   specified : Bool
-  /-- File path to source -/
   codePath : String
-  /-- Source location info -/
   specText : Option CodeTextInfo
   deriving Repr, BEq
 
@@ -268,9 +308,9 @@ instance : Lean.FromJson SorryInfo where
 
 /-- Verification status -/
 inductive VerifyStatus where
-  | success   -- Proof is complete, no sorry
-  | sorries   -- Proof contains sorry
-  | failure   -- Compilation/type error
+  | success
+  | sorries
+  | failure
   deriving Repr, BEq
 
 instance : Lean.ToJson VerifyStatus where
@@ -288,17 +328,12 @@ instance : Lean.FromJson VerifyStatus where
     | "failure" => return .failure
     | _ => throw s!"Unknown VerifyStatus: {s}"
 
-/-- A proof entry for proofs.json output -/
+/-- A proof entry for proofs output -/
 structure ProofEntry where
-  /-- Whether the declaration is verified (no sorries) -/
   verified : Bool
-  /-- Verification status -/
   status : VerifyStatus
-  /-- File path to source -/
   codePath : String
-  /-- Line number of declaration -/
   codeLine : Nat
-  /-- List of sorries found (if any) -/
   sorries : Array SorryInfo
   deriving Repr, BEq
 
@@ -336,8 +371,8 @@ instance : Lean.ToJson WebVerificationStatus where
     | .failed => "failed"
     | .unverified => "unverified"
 
-/-- An enriched atom combining declaration info with verification and specification status -/
-structure EnrichedAtom where
+/-- A unified atom combining all atom fields with verification and specification status -/
+structure UnifiedAtom where
   name : String
   displayName : String
   dependencies : Array String
@@ -346,11 +381,16 @@ structure EnrichedAtom where
   codeText : Option CodeTextInfo
   kind : DeclKind
   language : String := "lean"
+  isHidden : Bool := false
+  isExtractionArtifact : Bool := false
+  isIgnored : Bool := false
+  isRelevant : Bool := true
+  rustSource : Option String := none
   verificationStatus : Option WebVerificationStatus
   specified : Option Bool
   deriving Repr, BEq
 
-instance : Lean.ToJson EnrichedAtom where
+instance : Lean.ToJson UnifiedAtom where
   toJson atom :=
     let base := [
       ("display-name", Lean.toJson atom.displayName),
@@ -359,7 +399,12 @@ instance : Lean.ToJson EnrichedAtom where
       ("code-path", Lean.toJson atom.codePath),
       ("code-text", Lean.toJson atom.codeText),
       ("kind", Lean.toJson atom.kind),
-      ("language", Lean.toJson atom.language)
+      ("language", Lean.toJson atom.language),
+      ("is-hidden", Lean.toJson atom.isHidden),
+      ("is-extraction-artifact", Lean.toJson atom.isExtractionArtifact),
+      ("is-ignored", Lean.toJson atom.isIgnored),
+      ("is-relevant", Lean.toJson atom.isRelevant),
+      ("rust-source", Lean.toJson atom.rustSource)
     ]
     let withVerification := match atom.verificationStatus with
       | some status => base ++ [("verification-status", Lean.toJson status)]
@@ -369,35 +414,26 @@ instance : Lean.ToJson EnrichedAtom where
       | none => withVerification
     Lean.Json.mkObj withSpecified
 
-/-- Output format for enriched atoms - an object keyed by atom name -/
-structure EnrichedAtomsOutput where
-  atoms : Array EnrichedAtom
+/-- Output format for unified atoms - an object keyed by atom name -/
+structure UnifiedAtomsOutput where
+  atoms : Array UnifiedAtom
   deriving Repr
 
-instance : Lean.ToJson EnrichedAtomsOutput where
+instance : Lean.ToJson UnifiedAtomsOutput where
   toJson output :=
     let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
 
-/-- A stub entry for stubs.json output -/
+/-- A stub/molecule entry for view output -/
 structure StubEntry where
-  /-- Code (Lean) file path -/
   codePath : Option String
-  /-- Code (Lean) line info -/
   codeLines : Option String
-  /-- Code (Lean) name with probe: prefix -/
   codeName : String
-  /-- Rust source file path -/
   rustPath : String
-  /-- Rust line range -/
   rustLines : CodeTextInfo
-  /-- Rust function name -/
   rustName : String
-  /-- Spec file path or null -/
   specPath : Option String
-  /-- Spec line info (placeholder, always null) -/
   specLines : Option String
-  /-- Spec name or null -/
   specName : Option String
   deriving Repr, BEq
 
@@ -431,7 +467,7 @@ instance : Lean.FromJson StubEntry where
 -- Typed output wrappers (keyed-dict serialization)
 -- ============================================================
 
-/-- Output format for specs.json - an object keyed by atom name -/
+/-- Output format for specs - an object keyed by atom name -/
 structure SpecsOutput where
   entries : Array (String × SpecEntry)
   deriving Repr
@@ -450,7 +486,7 @@ instance : Lean.FromJson SpecsOutput where
       entries := entries.push (name, entry)
     return { entries }
 
-/-- Output format for proofs.json - an object keyed by atom name -/
+/-- Output format for proofs - an object keyed by atom name -/
 structure ProofsOutput where
   entries : Array (String × ProofEntry)
   deriving Repr
@@ -469,17 +505,17 @@ instance : Lean.FromJson ProofsOutput where
       entries := entries.push (name, entry)
     return { entries }
 
-/-- Output format for stubs.json - an object keyed by stub key -/
-structure StubsOutput where
+/-- Output format for molecules (view) - an object keyed by stub key -/
+structure MoleculesOutput where
   entries : Array (String × StubEntry)
   deriving Repr
 
-instance : Lean.ToJson StubsOutput where
+instance : Lean.ToJson MoleculesOutput where
   toJson output :=
     let pairs := output.entries.map fun (key, entry) => (key, Lean.toJson entry)
     Lean.Json.mkObj pairs.toList
 
-instance : Lean.FromJson StubsOutput where
+instance : Lean.FromJson MoleculesOutput where
   fromJson? json := do
     let obj ← json.getObj?
     let mut entries : Array (String × StubEntry) := #[]

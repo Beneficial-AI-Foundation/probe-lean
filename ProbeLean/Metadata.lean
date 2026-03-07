@@ -1,6 +1,7 @@
 /-
-  Schema 2.0 metadata gathering and envelope construction.
-  Reads git info and lakefile to populate the envelope fields.
+  Schema 2.0 metadata gathering and output path construction.
+  Reads git info and lakefile to populate envelope fields.
+  Callers construct typed `Envelope α` directly rather than using generic wrappers.
 -/
 import Lean
 import ProbeLean.Types
@@ -9,8 +10,6 @@ import ProbeLean.Environment
 namespace ProbeLean
 
 open Lean
-
-def probeVersion : String := "0.1.0"
 
 /-- Run a command and return trimmed stdout, or a fallback on failure. -/
 private def runCmdOrDefault (cmd : String) (args : Array String)
@@ -22,46 +21,55 @@ private def runCmdOrDefault (cmd : String) (args : Array String)
   catch _ => return default
 
 def getGitCommit (projectPath : System.FilePath) : IO String :=
-  runCmdOrDefault "git" #["rev-parse", "HEAD"] (some projectPath) ""
+  runCmdOrDefault "git" #["rev-parse", "--short", "HEAD"] (some projectPath) ""
 
 def getGitRemoteUrl (projectPath : System.FilePath) : IO String :=
   runCmdOrDefault "git" #["remote", "get-url", "origin"] (some projectPath) ""
 
-def getTimestamp : IO String :=
+def getCurrentTimestamp : IO String :=
   runCmdOrDefault "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"] none "1970-01-01T00:00:00Z"
 
-/-- Try to extract `name = "value"` from a TOML line. -/
-private def extractTomlString (line : String) (key : String) : Option String := do
-  let trimmed := line.trimAscii.toString
-  if !trimmed.startsWith key then none
-  else
-    let rest := (trimmed.drop key.length).toString.trimAscii.toString
-    if !rest.startsWith "=" then none
-    else
-      let afterEq := (rest.drop 1).toString.trimAscii.toString
-      if afterEq.startsWith "\"" && afterEq.endsWith "\"" then
-        let stripped := (afterEq.drop 1).toString
-        some (stripped.take (stripped.length - 1)).toString
-      else none
+/-- Parse `name = "value"` from a TOML line. -/
+def parsePackageNameFromToml (content : String) : Option String := do
+  for line in content.splitOn "\n" do
+    let trimmed := line.trimAscii.toString
+    if trimmed.startsWith "[" then break
+    if trimmed.startsWith "name" then
+      let parts := trimmed.splitOn "="
+      if parts.length >= 2 then
+        let valuePart := (String.intercalate "=" (parts.drop 1)).trimAscii.toString
+        if valuePart.startsWith "\"" && valuePart.endsWith "\"" then
+          let stripped := valuePart.drop 1
+          return (stripped.dropEnd 1).toString
+  none
 
-/-- Read package name and version from lakefile.toml via string matching.
-    Falls back to lake-manifest.json for name, and short git commit for version. -/
-def getPackageNameAndVersion (projectPath : System.FilePath) (commit : String) : IO (String × String) := do
+/-- Parse `version = "value"` from a TOML line. -/
+def parsePackageVersionFromToml (content : String) : Option String := do
+  for line in content.splitOn "\n" do
+    let trimmed := line.trimAscii.toString
+    if trimmed.startsWith "[" then break
+    if trimmed.startsWith "version" then
+      let parts := trimmed.splitOn "="
+      if parts.length >= 2 then
+        let valuePart := (String.intercalate "=" (parts.drop 1)).trimAscii.toString
+        if valuePart.startsWith "\"" && valuePart.endsWith "\"" then
+          let stripped := valuePart.drop 1
+          return (stripped.dropEnd 1).toString
+  none
+
+/-- Get package name and version from lakefile.toml / lakefile.lean / lake-manifest.json.
+    Falls back to directory name for name and short git commit for version. -/
+def getPackageInfo (projectPath : System.FilePath) (commit : String) : IO (String × String) := do
   let mut name := ""
   let mut version := ""
 
   let tomlPath := projectPath / "lakefile.toml"
   if ← tomlPath.pathExists then
     let content ← IO.FS.readFile tomlPath
-    for line in content.splitOn "\n" do
-      let trimmed := line.trimAscii.toString
-      if trimmed.startsWith "[" then break
-      if name.isEmpty then
-        if let some v := extractTomlString line "name" then
-          name := v
-      if version.isEmpty then
-        if let some v := extractTomlString line "version" then
-          version := v
+    if let some n := parsePackageNameFromToml content then
+      name := n
+    if let some v := parsePackageVersionFromToml content then
+      version := v
 
   if name.isEmpty then
     let manifestPath := projectPath / "lake-manifest.json"
@@ -71,71 +79,66 @@ def getPackageNameAndVersion (projectPath : System.FilePath) (commit : String) :
         if let .ok n := json.getObjValAs? String "name" then
           name := n.replace "«" "" |>.replace "»" ""
 
+  if name.isEmpty then
+    name := (projectPath.fileName.getD "unknown-package")
+
   if version.isEmpty then
     if commit.length >= 7 then
       version := (commit.take 7).toString
     else
-      version := "unknown"
+      version := "0.0.0"
 
   return (name, version)
 
-/-- Gathered metadata for the project, used by both envelope wrapping and output path generation. -/
-structure ProjectMetadata where
-  commit : String
-  repo : String
-  timestamp : String
-  pkgName : String
-  pkgVersion : String
-  deriving Repr
-
-/-- Gather all project metadata in one pass (git info, package name/version, timestamp). -/
-def gatherMetadata (projectPath : System.FilePath) : IO ProjectMetadata := do
-  let commit ← getGitCommit projectPath
+/-- Collect all source metadata into a SourceInfo.
+    Returns non-optional strings (empty when unavailable) to conform to the
+    probe repo JSON schema which declares repo/commit as required fields. -/
+def collectSourceInfo (projectPath : System.FilePath) : IO SourceInfo := do
   let repo ← getGitRemoteUrl projectPath
-  let timestamp ← getTimestamp
-  let (pkgName', pkgVersion) ← getPackageNameAndVersion projectPath commit
-  let pkgName ← if pkgName'.isEmpty then do
-    IO.eprintln "Warning: could not determine package name; using 'unknown-package'"
-    pure "unknown-package"
-  else pure pkgName'
-  return { commit, repo, timestamp, pkgName, pkgVersion }
+  let commit ← getGitCommit projectPath
+  let (pkgName, pkgVersion) ← getPackageInfo projectPath commit
+  return {
+    repo := repo
+    commit := commit
+    language := "lean"
+    package := pkgName
+    packageVersion := pkgVersion
+  }
 
-/-- Compute the default output path for a probe-lean command.
-    Format: `.verilib/probes/lean_<pkg>_<ver><suffix>.json`
-    Pass `suffix = ""` for atoms, `"_specs"` for specs, etc. -/
-def getDefaultOutputPath (projectPath : System.FilePath) (pm : ProjectMetadata) (suffix : String)
-    : System.FilePath :=
-  let filename := s!"lean_{pm.pkgName}_{pm.pkgVersion}{suffix}.json"
-  projectPath / ".verilib" / "probes" / filename
+/-- Generate output filename: `lean_<package>_<version>.json`
+    Replaces dashes and dots with underscores for filesystem safety. -/
+def generateOutputFilename (source : SourceInfo) : String :=
+  let safePackage := source.package.replace "-" "_"
+  let safeVersion := source.packageVersion.replace "." "_"
+  s!"lean_{safePackage}_{safeVersion}.json"
 
-/-- Check if a filename matches the atoms file pattern `lean_<pkg>_<version>.json`.
-    Uses positive matching: the version portion (between prefix and `.json`) must be
-    non-empty and contain no underscores (git hashes are hex-only, semver uses
-    dots/hyphens), which distinguishes atoms files from derived outputs like
-    `lean_<pkg>_<ver>_specs.json`. -/
+/-- Build path to probes output: `.verilib/probes/lean_<pkg>_<ver>.json` -/
+def buildProbesOutputPath (projectPath : System.FilePath) (source : SourceInfo) : System.FilePath :=
+  projectPath / Constants.verilibDir / Constants.probesDir / generateOutputFilename source
+
+/-- Build path to views output: `.verilib/views/molecules_all.json` -/
+def buildViewsOutputPath (projectPath : System.FilePath) : System.FilePath :=
+  projectPath / Constants.verilibDir / Constants.viewsDir / "molecules_all.json"
+
+/-- Check if a filename matches the probes file pattern `lean_<prefix>*.json`.
+    Simplified: just checks prefix and suffix. -/
 def isAtomsFileName (name : String) (pkgNamePrefix : String) : Bool :=
-  name.startsWith pkgNamePrefix && name.endsWith ".json" &&
-    let afterPrefix := (name.drop pkgNamePrefix.length).toString
-    let versionPart := (afterPrefix.take (afterPrefix.length - ".json".length)).toString
-    !versionPart.isEmpty && (versionPart.splitOn "_").length == 1
+  name.startsWith pkgNamePrefix && name.endsWith ".json"
 
-/-- Find the default atoms input path. Tries the exact computed path first;
-    if it doesn't exist, searches .verilib/probes/ for a matching atoms file
+/-- Find the default probes input path. Tries the exact computed path first;
+    if it doesn't exist, searches .verilib/probes/ for a matching file
     (picking the most recently modified one). Emits a warning when falling back.
-    Returns `(path, usedFallback)` where `usedFallback = true` when the exact
-    path was not found and an alternative was used instead.
-    This handles the case where the git commit changed between atomize and
-    downstream commands (specify/verify/stubify). -/
-def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
+    Returns `(path, usedFallback)`. -/
+def findDefaultAtomsPath (projectPath : System.FilePath) (source : SourceInfo)
     : IO (System.FilePath × Bool) := do
-  let exactPath := getDefaultOutputPath projectPath pm ""
+  let exactPath := buildProbesOutputPath projectPath source
   if ← exactPath.pathExists then return (exactPath, false)
-  let probesDir := projectPath / ".verilib" / "probes"
+  let probesDir := projectPath / Constants.verilibDir / Constants.probesDir
   if !(← probesDir.pathExists) then
-    IO.eprintln s!"Warning: atoms file not found at {exactPath} and {probesDir} does not exist"
+    IO.eprintln s!"Warning: probes file not found at {exactPath} and {probesDir} does not exist"
     return (exactPath, false)
   let entries ← probesDir.readDir
-  let namePrefix := s!"lean_{pm.pkgName}_"
+  let namePrefix := s!"lean_{source.package.replace "-" "_"}_"
   let mut candidates : Array (System.FilePath × IO.FS.SystemTime) := #[]
   for entry in entries do
     if isAtomsFileName entry.fileName namePrefix then
@@ -144,43 +147,15 @@ def findDefaultAtomsPath (projectPath : System.FilePath) (pm : ProjectMetadata)
         candidates := candidates.push (entry.path, fileMeta.modified)
       catch _ => pure ()
   if candidates.isEmpty then
-    IO.eprintln s!"Warning: atoms file not found at {exactPath} and no alternatives found in {probesDir}"
+    IO.eprintln s!"Warning: probes file not found at {exactPath} and no alternatives found in {probesDir}"
     return (exactPath, false)
   let sorted := candidates.qsort fun (_, t1) (_, t2) => t1 > t2
   match sorted[0]? with
   | some (chosen, _) =>
-    IO.eprintln s!"Warning: exact atoms path {exactPath} not found; using {chosen} (from a different version)"
+    IO.eprintln s!"Warning: exact probes path {exactPath} not found; using {chosen} (from a different version)"
     return (chosen, true)
   | none =>
-    IO.eprintln s!"Warning: atoms file not found at {exactPath} and no alternatives found in {probesDir}"
+    IO.eprintln s!"Warning: probes file not found at {exactPath} and no alternatives found in {probesDir}"
     return (exactPath, false)
-
-/-- Wrap a JSON payload in a Schema 2.0 envelope using pre-gathered metadata. -/
-def wrapInEnvelopeWith (schema command : String) (data : Json) (pm : ProjectMetadata) : Json :=
-  let tool : ToolInfo := {
-    name := "probe-lean"
-    version := probeVersion
-    command := command
-  }
-  let source : SourceInfo := {
-    repo := pm.repo
-    commit := pm.commit
-    language := "lean"
-    package := pm.pkgName
-    packageVersion := pm.pkgVersion
-  }
-  Json.mkObj [
-    ("schema", toJson schema),
-    ("schema-version", toJson "2.0"),
-    ("tool", toJson tool),
-    ("source", toJson source),
-    ("timestamp", toJson pm.timestamp),
-    ("data", data)
-  ]
-
-/-- Wrap a JSON payload in a Schema 2.0 envelope (convenience that gathers metadata). -/
-def wrapInEnvelope (schema command : String) (data : Json) (projectPath : System.FilePath) : IO Json := do
-  let pm ← gatherMetadata projectPath
-  return wrapInEnvelopeWith schema command data pm
 
 end ProbeLean

@@ -28,6 +28,26 @@ def test (name : String) (condition : Bool) (result : TestResult) : IO TestResul
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
 
+  -- ============================================================
+  -- Constants
+  -- ============================================================
+
+  IO.println "Testing Constants..."
+  result ← test "verilibDir" (Constants.verilibDir == ".verilib") result
+  result ← test "probesDir" (Constants.probesDir == "probes") result
+  result ← test "viewsDir" (Constants.viewsDir == "views") result
+  result ← test "mapsDir" (Constants.mapsDir == "maps") result
+  result ← test "toolName" (Constants.toolName == "probe-lean") result
+  result ← test "toolVersion" (Constants.toolVersion == "0.1.0") result
+  result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
+  result ← test "schemaVerify" (Constants.schemaVerify == "probe-lean/verify") result
+  result ← test "schemaView" (Constants.schemaView == "probe-lean/view") result
+
+  -- ============================================================
+  -- Analysis helpers
+  -- ============================================================
+
+  IO.println ""
   IO.println "Testing isInternalName..."
   result ← test "underscore prefix" (isInternalName `_private) result
   result ← test "internal marker" (isInternalName `Foo._bar) result
@@ -67,6 +87,10 @@ def main : IO UInt32 := do
   result ← test "no strip needed" (stripLeadingDotSlash "test.lean" == "test.lean") result
   result ← test "no strip absolute" (stripLeadingDotSlash "/tmp/test.lean" == "/tmp/test.lean") result
 
+  -- ============================================================
+  -- Shared utilities (Types.lean)
+  -- ============================================================
+
   IO.println ""
   IO.println "Testing addProbePrefix..."
   result ← test "add probe prefix" (addProbePrefix "Test.foo" == "probe:Test.foo") result
@@ -78,11 +102,117 @@ def main : IO UInt32 := do
   result ← test "strip probe prefix simple" (stripProbePrefix "probe:foo" == "foo") result
   result ← test "strip probe prefix no prefix" (stripProbePrefix "Test.foo" == "Test.foo") result
 
+  -- ============================================================
+  -- Type JSON serialization
+  -- ============================================================
+
   IO.println ""
   IO.println "Testing DeclKind JSON serialization..."
   result ← test "def toJson" (Lean.toJson DeclKind.def == "def") result
   result ← test "theorem toJson" (Lean.toJson DeclKind.theorem == "theorem") result
   result ← test "structure toJson" (Lean.toJson DeclKind.structure == "structure") result
+
+  IO.println ""
+  IO.println "Testing ToolInfo JSON serialization..."
+  let toolInfo : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "verify" }
+  let toolJson := Lean.toJson toolInfo
+  let toolNameOk := match toolJson.getObjValAs? String "name" with
+    | .ok "probe-lean" => true | _ => false
+  let toolVersionOk := match toolJson.getObjValAs? String "version" with
+    | .ok "0.1.0" => true | _ => false
+  let toolCommandOk := match toolJson.getObjValAs? String "command" with
+    | .ok "verify" => true | _ => false
+  result ← test "toolInfo name" toolNameOk result
+  result ← test "toolInfo version" toolVersionOk result
+  result ← test "toolInfo command" toolCommandOk result
+
+  IO.println ""
+  IO.println "Testing ToolInfo FromJson round-trip..."
+  let toolRt := match Lean.FromJson.fromJson? (Lean.toJson toolInfo) (α := ToolInfo) with
+    | .ok ti => ti.name == "probe-lean" && ti.version == "0.1.0" && ti.command == "verify"
+    | .error _ => false
+  result ← test "toolInfo round-trips through JSON" toolRt result
+
+  IO.println ""
+  IO.println "Testing SourceInfo JSON serialization..."
+  let sourceInfo : SourceInfo := {
+    repo := "https://github.com/org/project"
+    commit := "abc123def456"
+    language := "lean"
+    package := "MyProject"
+    packageVersion := "0.1.0"
+  }
+  let sourceJson := Lean.toJson sourceInfo
+  let srcRepoOk := match sourceJson.getObjValAs? String "repo" with
+    | .ok "https://github.com/org/project" => true | _ => false
+  let srcLangOk := match sourceJson.getObjValAs? String "language" with
+    | .ok "lean" => true | _ => false
+  let srcPkgVerOk := match sourceJson.getObjValAs? String "package-version" with
+    | .ok "0.1.0" => true | _ => false
+  result ← test "sourceInfo repo" srcRepoOk result
+  result ← test "sourceInfo language" srcLangOk result
+  result ← test "sourceInfo package-version" srcPkgVerOk result
+
+  IO.println ""
+  IO.println "Testing SourceInfo empty fields..."
+  let emptySource : SourceInfo := {
+    repo := ""
+    commit := ""
+    package := "test"
+    packageVersion := "0.0.0"
+  }
+  let emptySourceJson := Lean.toJson emptySource
+  let emptyRepoOk := match emptySourceJson.getObjValAs? String "repo" with
+    | .ok "" => true | _ => false
+  result ← test "sourceInfo empty repo is empty string" emptyRepoOk result
+
+  IO.println ""
+  IO.println "Testing SourceInfo FromJson round-trip..."
+  let srcRt := match Lean.FromJson.fromJson? (Lean.toJson sourceInfo) (α := SourceInfo) with
+    | .ok si => si.repo == "https://github.com/org/project" && si.package == "MyProject"
+      && si.packageVersion == "0.1.0"
+    | .error _ => false
+  result ← test "sourceInfo round-trips through JSON" srcRt result
+
+  IO.println ""
+  IO.println "Testing Envelope JSON serialization..."
+  let envelope : Envelope AtomsOutput := {
+    schema := Constants.schemaVerify
+    tool := { command := "verify" }
+    source := sourceInfo
+    timestamp := "2025-01-01T00:00:00Z"
+    data := { atoms := #[] }
+  }
+  let envJson := Lean.toJson envelope
+  let hasSchema := match envJson.getObjValAs? String "schema" with
+    | .ok "probe-lean/verify" => true | _ => false
+  let hasSchemaVer := match envJson.getObjValAs? String "schema-version" with
+    | .ok "2.0" => true | _ => false
+  let hasTool := match envJson.getObjVal? "tool" with
+    | .ok _ => true | _ => false
+  let hasSource := match envJson.getObjVal? "source" with
+    | .ok _ => true | _ => false
+  let hasTimestamp := match envJson.getObjValAs? String "timestamp" with
+    | .ok "2025-01-01T00:00:00Z" => true | _ => false
+  let hasData := match envJson.getObjVal? "data" with
+    | .ok _ => true | _ => false
+  result ← test "envelope has schema" hasSchema result
+  result ← test "envelope has schema-version" hasSchemaVer result
+  result ← test "envelope has tool" hasTool result
+  result ← test "envelope has source" hasSource result
+  result ← test "envelope has timestamp" hasTimestamp result
+  result ← test "envelope has data" hasData result
+
+  IO.println ""
+  IO.println "Testing Envelope FromJson round-trip..."
+  let envRt := match Lean.FromJson.fromJson? (Lean.toJson envelope) (α := Envelope AtomsOutput) with
+    | .ok e => e.schema == Constants.schemaVerify && e.timestamp == "2025-01-01T00:00:00Z"
+    | .error _ => false
+  result ← test "envelope round-trips through JSON" envRt result
+
+  -- ============================================================
+  -- Specify
+  -- ============================================================
 
   IO.println ""
   IO.println "Testing isAlwaysSpecified..."
@@ -92,6 +222,10 @@ def main : IO UInt32 := do
   result ← test "class is specified" (isAlwaysSpecified DeclKind.class) result
   result ← test "inductive is specified" (isAlwaysSpecified DeclKind.inductive) result
   result ← test "instance is specified" (isAlwaysSpecified DeclKind.instance) result
+
+  -- ============================================================
+  -- Atomize (config helpers)
+  -- ============================================================
 
   IO.println ""
   IO.println "Testing hasAnySuffix..."
@@ -165,6 +299,10 @@ def main : IO UInt32 := do
   result ← test "ignored atom is ignored" markedAtoms[3]!.isIgnored result
   result ← test "non-ignored atom is not ignored" (!markedAtoms[0]!.isIgnored) result
 
+  -- ============================================================
+  -- atomToSpecEntry
+  -- ============================================================
+
   IO.println ""
   IO.println "Testing atomToSpecEntry..."
   let testAtom : Atom := {
@@ -181,90 +319,139 @@ def main : IO UInt32 := do
   result ← test "specEntry codePath" (specEntry.codePath == "Test.lean") result
   result ← test "specEntry specText" (specEntry.specText == some { linesStart := 10, linesEnd := 15 }) result
 
+  -- ============================================================
+  -- AtomsOutput JSON
+  -- ============================================================
+
   IO.println ""
   IO.println "Testing AtomsOutput JSON serialization..."
   let atomsOutput : AtomsOutput := { atoms := #[testAtom] }
   let atomsJson := Lean.toJson atomsOutput
-  -- Check that the JSON is an object keyed by atom name
   let hasProbeKey := match atomsJson.getObjVal? "probe:Test.foo" with
-    | .ok _ => true
-    | _ => false
+    | .ok _ => true | _ => false
   result ← test "atoms keyed by probe: name" hasProbeKey result
-  -- Check that the atom value has the expected fields
   let hasDeps := match atomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? (Array String) "dependencies" with
       | .ok deps => deps.size == 1 && deps[0]! == "probe:Test.helper"
       | _ => false
     | _ => false
   result ← test "atom has probe: prefixed dependencies" hasDeps result
-  -- Check is-hidden field
   let hasIsHidden := match atomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-hidden" with
-      | .ok false => true  -- default value
-      | _ => false
+      | .ok false => true | _ => false
     | _ => false
   result ← test "atom has is-hidden field" hasIsHidden result
 
-  -- Test is-hidden true
   let hiddenAtom : Atom := { testAtom with isHidden := true }
   let hiddenAtomsOutput : AtomsOutput := { atoms := #[hiddenAtom] }
   let hiddenAtomsJson := Lean.toJson hiddenAtomsOutput
   let hasIsHiddenTrue := match hiddenAtomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-hidden" with
-      | .ok true => true
-      | _ => false
+      | .ok true => true | _ => false
     | _ => false
   result ← test "atom has is-hidden true" hasIsHiddenTrue result
 
-  -- Check is-extraction-artifact field
   let hasIsExtractionArtifact := match atomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-extraction-artifact" with
-      | .ok false => true  -- default value
-      | _ => false
+      | .ok false => true | _ => false
     | _ => false
   result ← test "atom has is-extraction-artifact field" hasIsExtractionArtifact result
 
-  -- Test is-extraction-artifact true
   let artifactAtom : Atom := { testAtom with isExtractionArtifact := true }
   let artifactAtomsOutput : AtomsOutput := { atoms := #[artifactAtom] }
   let artifactAtomsJson := Lean.toJson artifactAtomsOutput
   let hasIsExtractionArtifactTrue := match artifactAtomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-extraction-artifact" with
-      | .ok true => true
-      | _ => false
+      | .ok true => true | _ => false
     | _ => false
   result ← test "atom has is-extraction-artifact true" hasIsExtractionArtifactTrue result
 
-  -- Check is-ignored field
   let hasIsIgnored := match atomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-ignored" with
-      | .ok false => true  -- default value
-      | _ => false
+      | .ok false => true | _ => false
     | _ => false
   result ← test "atom has is-ignored field" hasIsIgnored result
 
-  -- Test is-ignored true
   let ignoredAtom : Atom := { testAtom with isIgnored := true }
   let ignoredAtomsOutput : AtomsOutput := { atoms := #[ignoredAtom] }
   let ignoredAtomsJson := Lean.toJson ignoredAtomsOutput
   let hasIsIgnoredTrue := match ignoredAtomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-ignored" with
-      | .ok true => true
-      | _ => false
+      | .ok true => true | _ => false
     | _ => false
   result ← test "atom has is-ignored true" hasIsIgnoredTrue result
+
+  -- ============================================================
+  -- Atom language field
+  -- ============================================================
+
+  IO.println ""
+  IO.println "Testing Atom language field..."
+  let langAtom : Atom := {
+    name := "probe:Test.foo"
+    displayName := "foo"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  result ← test "atom default language is lean" (langAtom.language == "lean") result
+  let langJson := Lean.toJson langAtom
+  let hasLanguage := match langJson.getObjValAs? String "language" with
+    | .ok "lean" => true | _ => false
+  result ← test "atom toJson has language field" hasLanguage result
+
+  let langAtomsOutput : AtomsOutput := { atoms := #[langAtom] }
+  let langAtomsJson := Lean.toJson langAtomsOutput
+  let atomValHasLang := match langAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? String "language" with
+      | .ok "lean" => true | _ => false
+    | _ => false
+  result ← test "atoms output includes language per atom" atomValHasLang result
+
+  -- ============================================================
+  -- SpecEntry JSON
+  -- ============================================================
 
   IO.println ""
   IO.println "Testing SpecEntry JSON serialization..."
   let specJson := Lean.toJson specEntry
   let hasSpecified := match specJson.getObjValAs? Bool "specified" with
-    | .ok true => true
-    | _ => false
+    | .ok true => true | _ => false
   let hasCodePath := match specJson.getObjValAs? String "code-path" with
-    | .ok "Test.lean" => true
-    | _ => false
+    | .ok "Test.lean" => true | _ => false
   result ← test "specEntry toJson has specified" hasSpecified result
   result ← test "specEntry toJson has code-path" hasCodePath result
+
+  -- ============================================================
+  -- SpecsOutput JSON
+  -- ============================================================
+
+  IO.println ""
+  IO.println "Testing SpecsOutput JSON serialization..."
+  let specsOutput : SpecsOutput := {
+    entries := #[("probe:Test.foo", { specified := true, codePath := "Test.lean", specText := none })]
+  }
+  let specsJson := Lean.toJson specsOutput
+  let specsKeyOk := match specsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "specified" with
+      | .ok true => true | _ => false
+    | _ => false
+  result ← test "specsOutput keyed dict format" specsKeyOk result
+
+  IO.println ""
+  IO.println "Testing SpecsOutput FromJson round-trip..."
+  let specsRt := match Lean.FromJson.fromJson? (Lean.toJson specsOutput) (α := SpecsOutput) with
+    | .ok so => match so.entries.toList with
+      | [(n, e)] => n == "probe:Test.foo" && e.specified == true
+      | _ => false
+    | .error _ => false
+  result ← test "specsOutput round-trips through JSON" specsRt result
+
+  -- ============================================================
+  -- Sorry detection (VerifyInternal)
+  -- ============================================================
 
   IO.println ""
   IO.println "Testing parseSorryWarning..."
@@ -314,6 +501,38 @@ def main : IO UInt32 := do
   result ← test "verifiedEntry verified" verifiedEntry.verified result
   result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
 
+  -- ============================================================
+  -- ProofsOutput JSON
+  -- ============================================================
+
+  IO.println ""
+  IO.println "Testing ProofsOutput JSON serialization..."
+  let proofsOutput : ProofsOutput := {
+    entries := #[("probe:Test.foo", {
+      verified := true, status := .success,
+      codePath := "Test.lean", codeLine := 10, sorries := #[]
+    })]
+  }
+  let proofsJson := Lean.toJson proofsOutput
+  let proofsKeyOk := match proofsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "verified" with
+      | .ok true => true | _ => false
+    | _ => false
+  result ← test "proofsOutput keyed dict format" proofsKeyOk result
+
+  IO.println ""
+  IO.println "Testing ProofsOutput FromJson round-trip..."
+  let proofsRt := match Lean.FromJson.fromJson? (Lean.toJson proofsOutput) (α := ProofsOutput) with
+    | .ok po => match po.entries.toList with
+      | [(n, e)] => n == "probe:Test.foo" && e.verified == true
+      | _ => false
+    | .error _ => false
+  result ← test "proofsOutput round-trips through JSON" proofsRt result
+
+  -- ============================================================
+  -- View helpers
+  -- ============================================================
+
   IO.println ""
   IO.println "Testing getLastNamePart..."
   result ← test "last part simple" (getLastNamePart "foo" == "foo") result
@@ -334,6 +553,10 @@ def main : IO UInt32 := do
   result ← test "parse lines L-prefix" (parseLines "L230-L238" == { linesStart := 230, linesEnd := 238 }) result
   result ← test "parse lines mixed prefix" (parseLines "L100-200" == { linesStart := 100, linesEnd := 200 }) result
 
+  -- ============================================================
+  -- StubEntry JSON
+  -- ============================================================
+
   IO.println ""
   IO.println "Testing StubEntry JSON serialization..."
   let stubEntry : StubEntry := {
@@ -349,20 +572,16 @@ def main : IO UInt32 := do
   }
   let stubJson := Lean.toJson stubEntry
   let hasCodeName := match stubJson.getObjValAs? String "code-name" with
-    | .ok "probe:Test.foo" => true
-    | _ => false
+    | .ok "probe:Test.foo" => true | _ => false
   result ← test "stubEntry toJson has code-name" hasCodeName result
   let hasRustPath := match stubJson.getObjValAs? String "rust-path" with
-    | .ok "src/test.rs" => true
-    | _ => false
+    | .ok "src/test.rs" => true | _ => false
   result ← test "stubEntry toJson has rust-path" hasRustPath result
   let hasSpecName := match stubJson.getObjValAs? (Option String) "spec-name" with
-    | .ok (some "probe:Test.foo_spec") => true
-    | _ => false
+    | .ok (some "probe:Test.foo_spec") => true | _ => false
   result ← test "stubEntry toJson has spec-name" hasSpecName result
   let hasNullCodePath := match stubJson.getObjValAs? (Option String) "code-path" with
-    | .ok none => true
-    | _ => false
+    | .ok none => true | _ => false
   result ← test "stubEntry toJson has null code-path" hasNullCodePath result
 
   IO.println ""
@@ -380,113 +599,41 @@ def main : IO UInt32 := do
   }
   let stubJsonNoSpec := Lean.toJson stubEntryNoSpec
   let hasNullSpecPath := match stubJsonNoSpec.getObjValAs? (Option String) "spec-path" with
-    | .ok none => true
-    | _ => false
+    | .ok none => true | _ => false
   result ← test "stubEntry without spec has null spec-path" hasNullSpecPath result
 
-  IO.println ""
-  IO.println "Testing Atom language field..."
-  let langAtom : Atom := {
-    name := "probe:Test.foo"
-    displayName := "foo"
-    dependencies := #[]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := none
-    kind := .def
-  }
-  result ← test "atom default language is lean" (langAtom.language == "lean") result
-  let langJson := Lean.toJson langAtom
-  let hasLanguage := match langJson.getObjValAs? String "language" with
-    | .ok "lean" => true
-    | _ => false
-  result ← test "atom toJson has language field" hasLanguage result
-
-  let langAtomsOutput : AtomsOutput := { atoms := #[langAtom] }
-  let langAtomsJson := Lean.toJson langAtomsOutput
-  let atomValHasLang := match langAtomsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? String "language" with
-      | .ok "lean" => true
-      | _ => false
-    | _ => false
-  result ← test "atoms output includes language per atom" atomValHasLang result
+  -- ============================================================
+  -- MoleculesOutput JSON
+  -- ============================================================
 
   IO.println ""
-  IO.println "Testing ToolInfo JSON serialization..."
-  let toolInfo : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "atomize" }
-  let toolJson := Lean.toJson toolInfo
-  let toolNameOk := match toolJson.getObjValAs? String "name" with
-    | .ok "probe-lean" => true | _ => false
-  let toolVersionOk := match toolJson.getObjValAs? String "version" with
-    | .ok "0.1.0" => true | _ => false
-  let toolCommandOk := match toolJson.getObjValAs? String "command" with
-    | .ok "atomize" => true | _ => false
-  result ← test "toolInfo name" toolNameOk result
-  result ← test "toolInfo version" toolVersionOk result
-  result ← test "toolInfo command" toolCommandOk result
-
-  IO.println ""
-  IO.println "Testing SourceInfo JSON serialization..."
-  let sourceInfo : SourceInfo := {
-    repo := "https://github.com/org/project"
-    commit := "abc123def456"
-    language := "lean"
-    package := "MyProject"
-    packageVersion := "0.1.0"
-  }
-  let sourceJson := Lean.toJson sourceInfo
-  let srcRepoOk := match sourceJson.getObjValAs? String "repo" with
-    | .ok "https://github.com/org/project" => true | _ => false
-  let srcLangOk := match sourceJson.getObjValAs? String "language" with
-    | .ok "lean" => true | _ => false
-  let srcPkgVerOk := match sourceJson.getObjValAs? String "package-version" with
-    | .ok "0.1.0" => true | _ => false
-  result ← test "sourceInfo repo" srcRepoOk result
-  result ← test "sourceInfo language" srcLangOk result
-  result ← test "sourceInfo package-version" srcPkgVerOk result
-
-  IO.println ""
-  IO.println "Testing SpecsOutput JSON serialization..."
-  let specsOutput : SpecsOutput := {
-    entries := #[("probe:Test.foo", { specified := true, codePath := "Test.lean", specText := none })]
-  }
-  let specsJson := Lean.toJson specsOutput
-  let specsKeyOk := match specsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? Bool "specified" with
-      | .ok true => true | _ => false
-    | _ => false
-  result ← test "specsOutput keyed dict format" specsKeyOk result
-
-  IO.println ""
-  IO.println "Testing ProofsOutput JSON serialization..."
-  let proofsOutput : ProofsOutput := {
-    entries := #[("probe:Test.foo", {
-      verified := true, status := .success,
-      codePath := "Test.lean", codeLine := 10, sorries := #[]
-    })]
-  }
-  let proofsJson := Lean.toJson proofsOutput
-  let proofsKeyOk := match proofsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? Bool "verified" with
-      | .ok true => true | _ => false
-    | _ => false
-  result ← test "proofsOutput keyed dict format" proofsKeyOk result
-
-  IO.println ""
-  IO.println "Testing StubsOutput JSON serialization..."
-  let stubsOutput : StubsOutput := {
+  IO.println "Testing MoleculesOutput JSON serialization..."
+  let moleculesOutput : MoleculesOutput := {
     entries := #[("key/foo", {
       codePath := some "Test.lean", codeLines := some "10-20",
       codeName := "probe:Test.foo", rustPath := "", rustLines := { linesStart := 0, linesEnd := 0 },
       rustName := "", specPath := none, specLines := none, specName := none
     })]
   }
-  let stubsJson := Lean.toJson stubsOutput
-  let stubsKeyOk := match stubsJson.getObjVal? "key/foo" with
+  let moleculesJson := Lean.toJson moleculesOutput
+  let moleculesKeyOk := match moleculesJson.getObjVal? "key/foo" with
     | .ok v => match v.getObjValAs? String "code-name" with
       | .ok "probe:Test.foo" => true | _ => false
     | _ => false
-  result ← test "stubsOutput keyed dict format" stubsKeyOk result
+  result ← test "moleculesOutput keyed dict format" moleculesKeyOk result
+
+  IO.println ""
+  IO.println "Testing MoleculesOutput FromJson round-trip..."
+  let moleculesRt := match Lean.FromJson.fromJson? (Lean.toJson moleculesOutput) (α := MoleculesOutput) with
+    | .ok mo => match mo.entries.toList with
+      | [(k, e)] => k == "key/foo" && e.codeName == "probe:Test.foo"
+      | _ => false
+    | .error _ => false
+  result ← test "moleculesOutput round-trips through JSON" moleculesRt result
+
+  -- ============================================================
+  -- Envelope-aware loading (Loader)
+  -- ============================================================
 
   IO.println ""
   IO.println "Testing envelope-aware loading (unwrapEnvelope)..."
@@ -507,7 +654,7 @@ def main : IO UInt32 := do
     ])
   ]
   let enveloped := Lean.Json.mkObj [
-    ("schema", Lean.toJson "probe-lean/atoms"),
+    ("schema", Lean.toJson "probe-lean/verify"),
     ("schema-version", Lean.toJson "2.0"),
     ("data", bareDict)
   ]
@@ -596,139 +743,90 @@ def main : IO UInt32 := do
   IO.FS.removeFile tmpBarePath
   IO.FS.removeFile tmpEnvPath
 
-  IO.println ""
-  IO.println "Testing probeVersion consistency..."
-  result ← test "probeVersion matches lakefile" (probeVersion == "0.1.0") result
+  -- ============================================================
+  -- Metadata helpers
+  -- ============================================================
 
   IO.println ""
-  IO.println "Testing ToolInfo FromJson round-trip..."
-  let toolInfo2 : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "atomize" }
-  let toolRt := match Lean.FromJson.fromJson? (Lean.toJson toolInfo2) (α := ToolInfo) with
-    | .ok ti => ti.name == "probe-lean" && ti.version == "0.1.0" && ti.command == "atomize"
-    | .error _ => false
-  result ← test "toolInfo round-trips through JSON" toolRt result
+  IO.println "Testing parsePackageNameFromToml..."
+  let tomlContent := "name = \"my-package\"\nversion = \"1.0.0\""
+  result ← test "parse name from toml" (parsePackageNameFromToml tomlContent == some "my-package") result
+  result ← test "parse name from empty toml" (parsePackageNameFromToml "" == none) result
+  result ← test "parse name from toml without name" (parsePackageNameFromToml "version = \"1.0.0\"" == none) result
 
   IO.println ""
-  IO.println "Testing SourceInfo FromJson round-trip..."
-  let sourceInfo2 : SourceInfo := {
-    repo := "https://github.com/org/project"
-    commit := "abc123"
-    language := "lean"
-    package := "MyProject"
-    packageVersion := "0.1.0"
+  IO.println "Testing parsePackageVersionFromToml..."
+  result ← test "parse version from toml" (parsePackageVersionFromToml tomlContent == some "1.0.0") result
+  result ← test "parse version from empty toml" (parsePackageVersionFromToml "" == none) result
+  result ← test "parse version from toml without version" (parsePackageVersionFromToml "name = \"my-package\"" == none) result
+
+  IO.println ""
+  IO.println "Testing generateOutputFilename..."
+  let testSource : SourceInfo := {
+    repo := ""
+    commit := ""
+    package := "my-package"
+    packageVersion := "1.0.0"
   }
-  let srcRt := match Lean.FromJson.fromJson? (Lean.toJson sourceInfo2) (α := SourceInfo) with
-    | .ok si => si.repo == "https://github.com/org/project" && si.package == "MyProject"
-      && si.packageVersion == "0.1.0"
-    | .error _ => false
-  result ← test "sourceInfo round-trips through JSON" srcRt result
-
-  IO.println ""
-  IO.println "Testing SpecsOutput FromJson round-trip..."
-  let specsOutput2 : SpecsOutput := {
-    entries := #[("probe:Test.foo", { specified := true, codePath := "Test.lean", specText := none })]
-  }
-  let specsRt := match Lean.FromJson.fromJson? (Lean.toJson specsOutput2) (α := SpecsOutput) with
-    | .ok so => match so.entries.toList with
-      | [(n, e)] => n == "probe:Test.foo" && e.specified == true
-      | _ => false
-    | .error _ => false
-  result ← test "specsOutput round-trips through JSON" specsRt result
-
-  IO.println ""
-  IO.println "Testing ProofsOutput FromJson round-trip..."
-  let proofsOutput2 : ProofsOutput := {
-    entries := #[("probe:Test.foo", {
-      verified := true, status := .success,
-      codePath := "Test.lean", codeLine := 10, sorries := #[]
-    })]
-  }
-  let proofsRt := match Lean.FromJson.fromJson? (Lean.toJson proofsOutput2) (α := ProofsOutput) with
-    | .ok po => match po.entries.toList with
-      | [(n, e)] => n == "probe:Test.foo" && e.verified == true
-      | _ => false
-    | .error _ => false
-  result ← test "proofsOutput round-trips through JSON" proofsRt result
-
-  IO.println ""
-  IO.println "Testing StubsOutput FromJson round-trip..."
-  let stubsOutput2 : StubsOutput := {
-    entries := #[("key/foo", {
-      codePath := some "Test.lean", codeLines := some "10-20",
-      codeName := "probe:Test.foo", rustPath := "", rustLines := { linesStart := 0, linesEnd := 0 },
-      rustName := "", specPath := none, specLines := none, specName := none
-    })]
-  }
-  let stubsRt := match Lean.FromJson.fromJson? (Lean.toJson stubsOutput2) (α := StubsOutput) with
-    | .ok so => match so.entries.toList with
-      | [(k, e)] => k == "key/foo" && e.codeName == "probe:Test.foo"
-      | _ => false
-    | .error _ => false
-  result ← test "stubsOutput round-trips through JSON" stubsRt result
+  result ← test "generate output filename" (generateOutputFilename testSource == "lean_my_package_1_0_0.json") result
+  let testSource2 : SourceInfo := { testSource with package := "foo-bar", packageVersion := "2.3.4" }
+  result ← test "generate output filename with dashes" (generateOutputFilename testSource2 == "lean_foo_bar_2_3_4.json") result
 
   IO.println ""
   IO.println "Testing isAtomsFileName..."
   let prefix1 := "lean_foo_"
   result ← test "atoms file matches" (isAtomsFileName "lean_foo_abc1234.json" prefix1) result
-  result ← test "specs file excluded" (!isAtomsFileName "lean_foo_abc1234_specs.json" prefix1) result
-  result ← test "proofs file excluded" (!isAtomsFileName "lean_foo_abc1234_proofs.json" prefix1) result
-  result ← test "stubs file excluded" (!isAtomsFileName "lean_foo_abc1234_stubs.json" prefix1) result
-  result ← test "graph file excluded" (!isAtomsFileName "lean_foo_abc1234_graph.json" prefix1) result
   result ← test "non-json excluded" (!isAtomsFileName "lean_foo_abc1234.txt" prefix1) result
   result ← test "wrong prefix excluded" (!isAtomsFileName "lean_bar_abc1234.json" prefix1) result
   result ← test "semver version matches" (isAtomsFileName "lean_foo_1.0.0.json" prefix1) result
   result ← test "unknown version matches" (isAtomsFileName "lean_foo_unknown.json" prefix1) result
-  result ← test "empty version excluded" (!isAtomsFileName "lean_foo_.json" prefix1) result
-  result ← test "future suffix excluded" (!isAtomsFileName "lean_foo_abc1234_metrics.json" prefix1) result
 
   IO.println ""
   IO.println "Testing findDefaultAtomsPath..."
   let tmpBase : System.FilePath := "/tmp/probe-lean-test-" ++ toString (← IO.monoNanosNow)
   let probesDir := tmpBase / ".verilib" / "probes"
   IO.FS.createDirAll probesDir
-  let testPm : ProjectMetadata := {
-    commit := "abcdef1234567890", repo := "", timestamp := "",
-    pkgName := "testpkg", pkgVersion := "abcdef1"
+  let testSourceForPath : SourceInfo := {
+    repo := "", commit := "",
+    package := "testpkg", packageVersion := "abcdef1"
   }
 
   -- Case 1: exact path exists
   let exactPath := probesDir / "lean_testpkg_abcdef1.json"
   IO.FS.writeFile exactPath "{}"
-  let (found1, fb1) ← findDefaultAtomsPath tmpBase testPm
+  let (found1, fb1) ← findDefaultAtomsPath tmpBase testSourceForPath
   result ← test "exact path returned when it exists" (found1.toString == exactPath.toString && !fb1) result
   IO.FS.removeFile exactPath
 
   -- Case 2: exact path missing, fallback finds an alternative
   let altPath := probesDir / "lean_testpkg_old1234.json"
   IO.FS.writeFile altPath "{}"
-  let (found2, fb2) ← findDefaultAtomsPath tmpBase testPm
+  let (found2, fb2) ← findDefaultAtomsPath tmpBase testSourceForPath
   result ← test "fallback finds alternative atoms file" (found2.toString == altPath.toString && fb2) result
 
   -- Case 3: multiple alternatives, newest is picked
   let _ ← IO.Process.run { cmd := "sleep", args := #["0.05"] }
   let newerPath := probesDir / "lean_testpkg_new5678.json"
   IO.FS.writeFile newerPath "{}"
-  let (found3, fb3) ← findDefaultAtomsPath tmpBase testPm
+  let (found3, fb3) ← findDefaultAtomsPath tmpBase testSourceForPath
   result ← test "newest alternative picked when multiple exist" (found3.toString == newerPath.toString && fb3) result
 
-  -- Case 4: derived files are not picked
+  -- Cleanup
   IO.FS.removeFile altPath
   IO.FS.removeFile newerPath
-  let specsOnly := probesDir / "lean_testpkg_xyz_specs.json"
-  IO.FS.writeFile specsOnly "{}"
-  let (found4, fb4) ← findDefaultAtomsPath tmpBase testPm
-  result ← test "derived files not picked as atoms" (found4.toString == exactPath.toString && !fb4) result
-  IO.FS.removeFile specsOnly
 
-  -- Case 5: no probes dir at all
+  -- Case 4: no probes dir at all
   let emptyBase := tmpBase / "empty"
   IO.FS.createDirAll emptyBase
-  let (found5, fb5) ← findDefaultAtomsPath emptyBase testPm
+  let (found4, fb4) ← findDefaultAtomsPath emptyBase testSourceForPath
   let expectedEmpty := emptyBase / ".verilib" / "probes" / "lean_testpkg_abcdef1.json"
-  result ← test "returns exact path when probes dir missing" (found5.toString == expectedEmpty.toString && !fb5) result
+  result ← test "returns exact path when probes dir missing" (found4.toString == expectedEmpty.toString && !fb4) result
 
-  -- Cleanup
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
+
+  -- ============================================================
+  -- Summary
+  -- ============================================================
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
