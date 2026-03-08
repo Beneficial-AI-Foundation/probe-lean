@@ -29,11 +29,11 @@ All output files are wrapped in a Schema 2.0 metadata envelope:
 
 | Envelope field | Description |
 |---|---|
-| `schema` | Identifies tool and data type (`probe-lean/verify`, `probe-lean/view`) |
+| `schema` | Identifies tool and data type (`probe-lean/verify`, `probe-lean/viewify`) |
 | `schema-version` | Always `"2.0"` |
 | `tool.name` | `"probe-lean"` |
 | `tool.version` | Tool version string |
-| `tool.command` | The command that produced this output (`verify`, `view`) |
+| `tool.command` | The command that produced this output (`verify`, `viewify`) |
 | `source.repo` | Git remote URL of the analyzed project (empty string if unavailable) |
 | `source.commit` | Short Git commit hash (empty string if unavailable) |
 | `source.language` | `"lean"` |
@@ -79,7 +79,7 @@ probe-lean outputs are organized under `.verilib/`:
 ├── probes/
 │   └── lean_<pkg>_<ver>.json     # verify output (unified atoms)
 └── views/
-    └── molecules_all.json         # view output (filtered molecules)
+    └── molecules_all.json         # viewify output (filtered molecules)
 ```
 
 ## Commands
@@ -140,7 +140,7 @@ The `verification-status` field maps sorry detection results to the web viewer's
 | Build failure | `"failed"` | Compilation error |
 | (skipped) | absent | Verification was skipped |
 
-### view
+### viewify
 
 Generate molecules output from verify results, filtering for the web UI. Reads the verify output from `.verilib/probes/` and filters atoms to include only those where:
 - `is-hidden` is `false`
@@ -149,7 +149,7 @@ Generate molecules output from verify results, filtering for the web UI. Reads t
 - `code-path` ends with `Funs.lean`
 
 ```bash
-probe-lean view <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
+probe-lean viewify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
@@ -159,7 +159,7 @@ probe-lean view <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 **Example:**
 ```bash
 probe-lean verify ./my-lean-project
-probe-lean view ./my-lean-project
+probe-lean viewify ./my-lean-project
 ```
 
 **Output format (`data` payload):**
@@ -228,7 +228,7 @@ Example config:
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
 | `specified` | bool or absent | Whether the declaration has a specification |
 
-### view output (molecules)
+### viewify output (molecules)
 
 | Field | Type | Description |
 |-------|------|-------------|

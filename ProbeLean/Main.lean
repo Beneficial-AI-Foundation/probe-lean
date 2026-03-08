@@ -1,6 +1,6 @@
 /-
   CLI entry point for probe-lean.
-  Two commands: verify (combined atomize+specify+sorry detection) and view (molecules output).
+  Two commands: verify (combined atomize+specify+sorry detection) and viewify (molecules output).
 -/
 import Cli
 import ProbeLean.Verify
@@ -45,7 +45,7 @@ def verifyCmd : Cmd := `[Cli|
     projectPath : String; "Path to the Lean 4 project to analyze"
 ]
 
-/-- Run the view command -/
+/-- Run the viewify command -/
 def runView (parsed : Parsed) : IO UInt32 := do
   let projectPath := parsed.positionalArg! "projectPath" |>.as! String
   let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
@@ -59,9 +59,9 @@ def runView (parsed : Parsed) : IO UInt32 := do
 
   runViewInProject config
 
-/-- The view subcommand -/
+/-- The viewify subcommand -/
 def viewCmd : Cmd := `[Cli|
-  view VIA runView; ["0.1.0"]
+  viewify VIA runView; ["0.1.0"]
   "Generate molecules output from verify results, filtering for the web UI"
 
   FLAGS:

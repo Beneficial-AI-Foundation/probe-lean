@@ -41,7 +41,7 @@ def main : IO UInt32 := do
   result ← test "toolVersion" (Constants.toolVersion == "0.1.0") result
   result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
   result ← test "schemaVerify" (Constants.schemaVerify == "probe-lean/verify") result
-  result ← test "schemaView" (Constants.schemaView == "probe-lean/view") result
+  result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
 
   -- ============================================================
   -- Analysis helpers

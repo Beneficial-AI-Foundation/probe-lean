@@ -1,6 +1,6 @@
 /-
-  View command: reads verify output, filters atoms, produces molecules for the web UI.
-  Schema: probe-lean/view
+  Viewify command: reads verify output, filters atoms, produces molecules for the web UI.
+  Schema: probe-lean/viewify
 -/
 import Lean
 import ProbeLean.Types
@@ -11,7 +11,7 @@ namespace ProbeLean
 
 open Lean
 
-/-- Configuration for the view command -/
+/-- Configuration for the viewify command -/
 structure ViewConfig where
   projectPath : System.FilePath
   atomsPath : Option System.FilePath
@@ -90,7 +90,7 @@ def generateMoleculesOutput (atoms : Array Atom) : MoleculesOutput :=
       }
       (key, entry) }
 
-/-- Run the view command -/
+/-- Run the viewify command -/
 def runViewInProject (config : ViewConfig) : IO UInt32 := do
   let source ← collectSourceInfo config.projectPath
 
@@ -120,7 +120,7 @@ def runViewInProject (config : ViewConfig) : IO UInt32 := do
 
   let envelope : Envelope MoleculesOutput := {
     schema := Constants.schemaView
-    tool := { command := "view" }
+    tool := { command := "viewify" }
     source := source
     timestamp := timestamp
     data := output

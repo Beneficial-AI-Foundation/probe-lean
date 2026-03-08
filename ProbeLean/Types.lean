@@ -20,7 +20,7 @@ namespace Constants
   def toolVersion : String := "0.1.0"
   def schemaVersion : String := "2.0"
   def schemaVerify : String := "probe-lean/verify"
-  def schemaView : String := "probe-lean/view"
+  def schemaView : String := "probe-lean/viewify"
 end Constants
 
 -- ============================================================

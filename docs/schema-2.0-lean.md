@@ -60,7 +60,7 @@ probe-lean registers the following `schema` values:
 | schema | Command | Description |
 |--------|---------|-------------|
 | `probe-lean/verify` | `verify` | Unified atoms with verification and specification status |
-| `probe-lean/view` | `view` | Filtered molecules for the web UI |
+| `probe-lean/viewify` | `viewify` | Filtered molecules for the web UI |
 
 ## CLI Commands
 
@@ -68,7 +68,7 @@ probe-lean exposes two commands:
 
 - **`verify`**: The primary command. Combines atom extraction, specification status computation,
   and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
-- **`view`**: Reads verify output, filters atoms (not hidden, not extraction artifact,
+- **`viewify`**: Reads verify output, filters atoms (not hidden, not extraction artifact,
   is relevant, code-path ends with `Funs.lean`), and outputs molecules to `.verilib/views/`.
 
 ## Package Versioning for Lean
@@ -220,9 +220,9 @@ Each value contains all atom fields plus verification and specification status:
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
 | `specified` | bool or absent | Whether the declaration has a specification |
 
-### `probe-lean/view` (molecules)
+### `probe-lean/viewify` (molecules)
 
-Produced by the `view` command (`tool.command: "view"`). Dictionary keyed by
+Produced by the `viewify` command (`tool.command: "viewify"`). Dictionary keyed by
 `<code-path>/<name_last>` (or full name on collision). Each value:
 
 | Field | Type | Description |
@@ -250,9 +250,9 @@ Key changes:
 3. **Output path**: Default output moves from `.verilib/atoms.json` to
    `.verilib/probes/lean_<package>_<version>.json`.
 4. **CLI simplification**: The five old commands (`atomize`, `specify`, `verify`, `pipeline`,
-   `stubify`) are replaced by two: `verify` (combined pipeline) and `view` (filtered output).
+   `stubify`) are replaced by two: `verify` (combined pipeline) and `viewify` (filtered output).
 5. **Schema identifiers**: Changed from per-step schemas (`probe-lean/atoms`, `probe-lean/specs`,
-   etc.) to per-command schemas (`probe-lean/verify`, `probe-lean/view`).
+   etc.) to per-command schemas (`probe-lean/verify`, `probe-lean/viewify`).
 6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`.
 7. **Bug fix**: `markAtomFlags` is now correctly called in the combined pipeline (was
    previously missing from the old `pipeline` command).

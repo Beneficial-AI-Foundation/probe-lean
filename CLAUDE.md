@@ -41,7 +41,7 @@ lake build                 # Build the project
 lake build tests           # Build tests
 .lake/build/bin/tests      # Run tests
 probe-lean verify <PATH>   # Combined atomize+specify+sorry detection → unified atoms
-probe-lean view <PATH>     # Filter verify output → molecules for web UI
+probe-lean viewify <PATH>  # Filter verify output → molecules for web UI
 ```
 
 ## Testing

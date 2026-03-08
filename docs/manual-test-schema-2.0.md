@@ -11,7 +11,7 @@ Validate the two manual test plan items from PR #3 (post CLI-simplification):
 1. Run `probe-lean verify` on a Lean project, verify output has envelope with
    correct `schema`, `tool`, `source`, `timestamp`, and `data` fields, and that
    unified atoms include `verification-status` and `specified`.
-2. Run `probe-lean view` on verify output, confirm `schema` is `probe-lean/view`
+2. Run `probe-lean viewify` on verify output, confirm `schema` is `probe-lean/viewify`
    and atoms are filtered correctly.
 
 Additionally, compare results against the previous 5-command run (`.verilib-old/`)
@@ -83,7 +83,7 @@ lake build tests && .lake/build/bin/tests
 ## Test Execution
 
 For each project, two commands are run: `verify` (combined atomize + specify +
-sorry detection) and `view` (filter atoms for web UI).
+sorry detection) and `viewify` (filter atoms for web UI).
 
 ### Validation method
 
@@ -150,16 +150,16 @@ Envelope validation:
 - Sample atom has `language: "lean"` -- PASS
 - Sample atom has `verification-status: "verified"` and `specified: true` -- PASS
 
-#### view
+#### viewify
 
 ```bash
-~/.local/bin/probe-lean-v4.28.0-rc1 view /home/lacra/git_repos/baif/curve25519-dalek-lean-verify
+~/.local/bin/probe-lean-v4.28.0-rc1 viewify /home/lacra/git_repos/baif/curve25519-dalek-lean-verify
 ```
 
 Output: `.verilib/views/molecules_all.json`
 
 - Loaded 1361 atoms from verify output -- PASS
-- `schema`: `"probe-lean/view"`, `tool.command`: `"view"` -- PASS
+- `schema`: `"probe-lean/viewify"`, `tool.command`: `"viewify"` -- PASS
 - `data`: 0 molecules (expected -- no `.verilib/config.json` with `relevant-crate`) -- PASS
 
 #### Comparison with old 5-command run
@@ -211,15 +211,15 @@ Envelope validation:
 - `source.commit`: 40-char hash -- PASS
 - `data`: 4024 unified atoms -- PASS
 
-#### view
+#### viewify
 
 ```bash
-~/.local/bin/probe-lean-v4.28.0 view /home/lacra/git_repos/baif/ArkLib
+~/.local/bin/probe-lean-v4.28.0 viewify /home/lacra/git_repos/baif/ArkLib
 ```
 
 Output: `.verilib/views/molecules_all.json`
 
-- `schema`: `"probe-lean/view"`, `tool.command`: `"view"` -- PASS
+- `schema`: `"probe-lean/viewify"`, `tool.command`: `"viewify"` -- PASS
 - `data`: 0 molecules (expected) -- PASS
 
 #### Comparison with old 5-command run
@@ -269,15 +269,15 @@ Envelope validation:
 - `source.commit`: 40-char hash -- PASS
 - `data`: 1992 unified atoms -- PASS
 
-#### view
+#### viewify
 
 ```bash
-~/.local/bin/probe-lean-v4.28.0 view /home/lacra/git_repos/baif/VCV-io
+~/.local/bin/probe-lean-v4.28.0 viewify /home/lacra/git_repos/baif/VCV-io
 ```
 
 Output: `.verilib/views/molecules_all.json`
 
-- `schema`: `"probe-lean/view"`, `tool.command`: `"view"` -- PASS
+- `schema`: `"probe-lean/viewify"`, `tool.command`: `"viewify"` -- PASS
 - `data`: 0 molecules (expected) -- PASS
 
 #### Comparison with old 5-command run
@@ -298,7 +298,7 @@ All 6 command runs (2 commands x 3 projects) passed.
 | Command | curve25519-dalek | ArkLib | VCV-io |
 |---------|-----------------|--------|--------|
 | verify | PASS (1361 atoms, 1286 verified) | PASS (4024 atoms, 3654 verified) | PASS (1992 atoms, 1992 verified) |
-| view | PASS (0 molecules) | PASS (0 molecules) | PASS (0 molecules) |
+| viewify | PASS (0 molecules) | PASS (0 molecules) | PASS (0 molecules) |
 
 ### Consistency with old 5-command run
 
@@ -323,7 +323,7 @@ CLI (atomize, pipeline, specify, verify, stubify). Key consistency findings:
 | `probe-lean/specs` | (subsumed by verify) | No separate specify output |
 | `probe-lean/proofs` | (subsumed by verify) | No separate verify-only output |
 | `probe-lean/enriched-atoms` | `probe-lean/verify` | Combined command, unified atoms |
-| `probe-lean/stubs` | `probe-lean/view` | Renamed, output in `.verilib/views/` |
+| `probe-lean/stubs` | `probe-lean/viewify` | Renamed, output in `.verilib/views/` |
 
 ### Output filename changes
 
@@ -335,18 +335,18 @@ Dots in version strings are now replaced with underscores for filesystem safety:
 
 | Field | Expected | Actual |
 |-------|----------|--------|
-| `schema` | `"probe-lean/verify"` or `"probe-lean/view"` | Correct |
+| `schema` | `"probe-lean/verify"` or `"probe-lean/viewify"` | Correct |
 | `schema-version` | `"2.0"` | Correct |
 | `tool.name` | `"probe-lean"` | Correct |
 | `tool.version` | `"0.1.0"` | Correct |
-| `tool.command` | `"verify"` or `"view"` | Correct |
+| `tool.command` | `"verify"` or `"viewify"` | Correct |
 | `source.language` | `"lean"` | Correct |
 | `source.package` | From lakefile.toml or lake-manifest.json | Correct |
 | `source.package-version` | From lakefile.toml version or 7-char git hash | Correct |
 | `source.repo` | Git remote URL | Correct |
 | `source.commit` | 40-char git hash | Correct |
 | `timestamp` | ISO 8601 UTC | Correct |
-| `data` | Non-empty dict (except view without config) | Correct |
+| `data` | Non-empty dict (except viewify without config) | Correct |
 | Per-atom `language` | `"lean"` | Present in all atoms |
 
 ### Package versioning strategy validated
@@ -406,7 +406,7 @@ for proj_bin in \
   bin=$(echo $proj_bin | cut -d' ' -f2)
   echo "=== Testing $proj ==="
   $bin verify "$proj"
-  $bin view "$proj"
+  $bin viewify "$proj"
 done
 
 # 5. Validate envelopes

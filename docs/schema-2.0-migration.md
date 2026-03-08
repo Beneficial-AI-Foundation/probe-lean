@@ -16,7 +16,7 @@ probe-lean stubify <PATH>   # → stubs.json  (depends on atomize output)
 
 ```bash
 probe-lean verify <PATH>    # → .verilib/probes/lean_<pkg>_<ver>.json  (unified atoms)
-probe-lean view <PATH>      # → .verilib/views/molecules_all.json      (filtered molecules)
+probe-lean viewify <PATH>   # → .verilib/views/molecules_all.json      (filtered molecules)
 ```
 
 ## Command Mapping
@@ -27,7 +27,7 @@ probe-lean view <PATH>      # → .verilib/views/molecules_all.json      (filter
 | `specify` | `verify` | Specification status is computed inline |
 | `verify` (old) | `verify` | Sorry detection is the final step of `verify` |
 | `pipeline` | `verify` | Direct replacement; same combined pipeline logic |
-| `stubify` | `view` | Same filtering logic, renamed output format |
+| `stubify` | `viewify` | Same filtering logic, renamed output format |
 
 ## Schema Identifier Changes
 
@@ -37,7 +37,7 @@ probe-lean view <PATH>      # → .verilib/views/molecules_all.json      (filter
 | `probe-lean/specs` | (internal to `verify`) |
 | `probe-lean/proofs` | (internal to `verify`) |
 | `probe-lean/enriched-atoms` | `probe-lean/verify` |
-| `probe-lean/stubs` | `probe-lean/view` |
+| `probe-lean/stubs` | `probe-lean/viewify` |
 
 ## Output Path Changes
 
