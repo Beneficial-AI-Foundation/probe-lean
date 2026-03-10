@@ -1,132 +1,16 @@
 /-
   CLI entry point for probe-lean.
+  Two commands: verify (combined atomize+specify+sorry detection) and viewify (molecules output).
 -/
 import Cli
-import ProbeLean.Atomize
-import ProbeLean.Specify
 import ProbeLean.Verify
-import ProbeLean.Stubify
-import ProbeLean.Pipeline
+import ProbeLean.View
 
 open Cli
 open ProbeLean
 
-/-- Run the atomize command -/
-def runAtomize (parsed : Parsed) : IO UInt32 := do
-  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
-  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
-  let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
-
-  let config : AtomizeConfig := {
-    projectPath := projectPath
-    outputPath := outputPath
-    moduleFilter := moduleFilter
-  }
-
-  runAtomizeInProject config
-
-/-- The atomize subcommand -/
-def atomizeCmd : Cmd := `[Cli|
-  atomize VIA runAtomize; ["0.1.0"]
-  "Analyze a Lean 4 project and output atoms.json dependency graph"
-
-  FLAGS:
-    o, output : String; "Output file path (default: PROJECT_PATH/atoms.json)"
-    m, module : String; "Filter to specific module prefix"
-
-  ARGS:
-    projectPath : String; "Path to the Lean 4 project to analyze"
-]
-
-/-- Run the specify command -/
-def runSpecify (parsed : Parsed) : IO UInt32 := do
-  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
-  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
-  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
-
-  let config : SpecifyConfig := {
-    projectPath := projectPath
-    atomsPath := atomsPath
-    outputPath := outputPath
-  }
-
-  runSpecifyInProject config
-
-/-- The specify subcommand -/
-def specifyCmd : Cmd := `[Cli|
-  specify VIA runSpecify; ["0.1.0"]
-  "Extract specification status from atoms.json"
-
-  FLAGS:
-    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)"
-    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/specs.json)"
-
-  ARGS:
-    projectPath : String; "Path to the Lean 4 project"
-]
-
 /-- Run the verify command -/
 def runVerify (parsed : Parsed) : IO UInt32 := do
-  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
-  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
-  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
-  let noCache := parsed.hasFlag "no-cache"
-  let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
-
-  let config : VerifyConfig := {
-    projectPath := projectPath
-    atomsPath := atomsPath
-    outputPath := outputPath
-    noCache := noCache
-    fromFile := fromFile
-  }
-
-  runVerifyInProject config
-
-/-- The verify subcommand -/
-def verifyCmd : Cmd := `[Cli|
-  verify VIA runVerify; ["0.1.0"]
-  "Check proof completeness by detecting sorry"
-
-  FLAGS:
-    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)"
-    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/proofs.json)"
-    "no-cache"; "Don't cache verification output"
-    "from-file" : String; "Analyze existing build output instead of running lake"
-
-  ARGS:
-    projectPath : String; "Path to the Lean 4 project"
-]
-
-/-- Run the stubify command -/
-def runStubify (parsed : Parsed) : IO UInt32 := do
-  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
-  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
-  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
-
-  let config : StubifyConfig := {
-    projectPath := projectPath
-    atomsPath := atomsPath
-    outputPath := outputPath
-  }
-
-  runStubifyInProject config
-
-/-- The stubify subcommand -/
-def stubifyCmd : Cmd := `[Cli|
-  stubify VIA runStubify; ["0.1.0"]
-  "Generate stubs.json from atoms.json, filtering out hidden and extraction artifacts"
-
-  FLAGS:
-    a, "with-atoms" : String; "Path to atoms.json (default: PROJECT_PATH/.verilib/atoms.json)"
-    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/stubs.json)"
-
-  ARGS:
-    projectPath : String; "Path to the Lean 4 project"
-]
-
-/-- Run the pipeline command -/
-def runPipeline (parsed : Parsed) : IO UInt32 := do
   let projectPath := parsed.positionalArg! "projectPath" |>.as! String
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
@@ -134,7 +18,7 @@ def runPipeline (parsed : Parsed) : IO UInt32 := do
   let skipBuild := parsed.hasFlag "skip-build"
   let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
 
-  let config : PipelineConfig := {
+  let config : VerifyConfig := {
     projectPath := projectPath
     outputPath := outputPath
     moduleFilter := moduleFilter
@@ -143,22 +27,49 @@ def runPipeline (parsed : Parsed) : IO UInt32 := do
     fromFile := fromFile
   }
 
-  runPipelineInProject config
+  runVerifyInProject config
 
-/-- The pipeline subcommand -/
-def pipelineCmd : Cmd := `[Cli|
-  pipeline VIA runPipeline; ["0.1.0"]
-  "Run atomize + specify + verify and produce an enriched atom dict with verification status"
+/-- The verify subcommand -/
+def verifyCmd : Cmd := `[Cli|
+  verify VIA runVerify; ["0.1.0"]
+  "Analyze a Lean 4 project: extract atoms, compute specs, detect sorries, and produce unified output"
 
   FLAGS:
-    o, output : String; "Output file path (default: PROJECT_PATH/.verilib/graph.json)"
+    o, output : String; "Output file path (default: .verilib/probes/lean_<pkg>_<ver>.json)"
     m, module : String; "Filter to specific module prefix"
-    "skip-verify"; "Skip the verification step"
+    "skip-verify"; "Skip the sorry detection step"
     "skip-build"; "Skip the lake build step (assumes .olean files already exist)"
-    "from-file" : String; "Use existing build output for verification instead of running lake"
+    "from-file" : String; "Use existing build output for sorry detection instead of running lake"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to analyze"
+]
+
+/-- Run the viewify command -/
+def runView (parsed : Parsed) : IO UInt32 := do
+  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
+  let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
+
+  let config : ViewConfig := {
+    projectPath := projectPath
+    atomsPath := atomsPath
+    outputPath := outputPath
+  }
+
+  runViewInProject config
+
+/-- The viewify subcommand -/
+def viewCmd : Cmd := `[Cli|
+  viewify VIA runView; ["0.1.0"]
+  "Generate molecules output from verify results, filtering for the web UI"
+
+  FLAGS:
+    a, "with-atoms" : String; "Path to verify output (default: auto-detect from .verilib/probes/)"
+    o, output : String; "Output file path (default: .verilib/views/molecules_all.json)"
+
+  ARGS:
+    projectPath : String; "Path to the Lean 4 project"
 ]
 
 /-- Run the root command -/
@@ -173,11 +84,8 @@ def probeleanCmd : Cmd := `[Cli|
   "A tool for analyzing Lean 4 projects"
 
   SUBCOMMANDS:
-    atomizeCmd;
-    specifyCmd;
     verifyCmd;
-    stubifyCmd;
-    pipelineCmd
+    viewCmd
 ]
 
 /-- Entry point -/

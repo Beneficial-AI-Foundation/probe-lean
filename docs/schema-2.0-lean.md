@@ -1,7 +1,7 @@
 # Schema 2.0: Lean Instantiation
 
-Version: draft
-Date: 2026-03-05
+Version: 2.0
+Date: 2026-03-07
 Parent document: [probes/docs/envelope-rationale.md](https://github.com/Beneficial-AI-Foundation/probe/blob/main/docs/envelope-rationale.md)
 
 This document defines the Lean-specific details for Schema 2.0 as produced by `probe-lean`.
@@ -10,20 +10,20 @@ declaration kinds, code-name URIs, versioning, and field mappings.
 
 ## Envelope Example
 
-A complete probe-lean atoms output with the Schema 2.0 envelope:
+A complete probe-lean verify output with the Schema 2.0 envelope:
 
 ```json
 {
-  "schema": "probe-lean/atoms",
+  "schema": "probe-lean/verify",
   "schema-version": "2.0",
   "tool": {
     "name": "probe-lean",
-    "version": "1.0.0",
-    "command": "atomize"
+    "version": "0.1.0",
+    "command": "verify"
   },
   "source": {
     "repo": "https://github.com/Verified-zkEVM/ArkLib",
-    "commit": "f6e5d4c3b2a19876543210abcdef",
+    "commit": "f6e5d4c",
     "language": "lean",
     "package": "Arklib",
     "package-version": "f6e5d4c"
@@ -40,7 +40,14 @@ A complete probe-lean atoms output with the Schema 2.0 envelope:
       "code-path": "ArkLib/SumCheck/Protocol.lean",
       "code-text": { "lines-start": 42, "lines-end": 67 },
       "kind": "def",
-      "language": "lean"
+      "language": "lean",
+      "is-hidden": false,
+      "is-extraction-artifact": false,
+      "is-ignored": false,
+      "is-relevant": true,
+      "rust-source": null,
+      "verification-status": "verified",
+      "specified": true
     }
   }
 }
@@ -50,12 +57,19 @@ A complete probe-lean atoms output with the Schema 2.0 envelope:
 
 probe-lean registers the following `schema` values:
 
-| schema | Description |
-|--------|-------------|
-| `probe-lean/atoms` | Lean call graph atoms (dependency graph) |
-| `probe-lean/specs` | Lean specification status |
-| `probe-lean/proofs` | Lean verification results (sorry detection) |
-| `probe-lean/enriched-atoms` | Atoms + specs + proofs combined (produced by `pipeline`) |
+| schema | Command | Description |
+|--------|---------|-------------|
+| `probe-lean/verify` | `verify` | Unified atoms with verification and specification status |
+| `probe-lean/viewify` | `viewify` | Filtered molecules for the web UI |
+
+## CLI Commands
+
+probe-lean exposes two commands:
+
+- **`verify`**: The primary command. Combines atom extraction, specification status computation,
+  and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
+- **`viewify`**: Reads verify output, filters atoms (not hidden, not extraction artifact,
+  is relevant, code-path ends with `Funs.lean`), and outputs molecules to `.verilib/views/`.
 
 ## Package Versioning for Lean
 
@@ -75,8 +89,9 @@ Surveyed projects:
 
 **Strategy:**
 
-1. Read `version` from `lakefile.toml` or `lakefile.lean` if present.
-2. Otherwise, use the 7-character short git commit hash.
+1. Read `version` from `lakefile.toml` if present.
+2. Otherwise, use the short git commit hash.
+3. Fall back to `"0.0.0"` if neither is available.
 
 This means `source.package-version` is always non-empty, but consumers should treat it
 as an opaque identifier and not assume semver.
@@ -86,9 +101,9 @@ Examples:
 - Versioned: `"package-version": "0.1.0"`
 - Unversioned: `"package-version": "a1b2c3d"`
 
-The probe filename convention follows the same pattern:
+The probe filename convention uses underscores for filesystem safety:
 
-- `lean_Curve25519Dalek_0.1.0.json`
+- `lean_Curve25519Dalek_0_1_0.json`
 - `lean_Arklib_a1b2c3d.json`
 
 ## Code-Name URI Format
@@ -171,9 +186,9 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | Field | Type | Description |
 |-------|------|-------------|
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
-| `is-hidden` | bool | From `.verilib/config.json` `user.is-hidden` list |
-| `is-extraction-artifact` | bool | Name ends with suffix from `user.extraction-artifact-suffixes` |
-| `is-ignored` | bool | From `.verilib/config.json` `user.is-ignored` list |
+| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list |
+| `is-extraction-artifact` | bool | Name ends with suffix from `extraction-artifact-suffixes` |
+| `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
 | `is-relevant` | bool | Rust source is from the target crate (Aeneas projects only) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 
@@ -183,49 +198,44 @@ do not recognize them must ignore them.
 
 ## Output Types
 
-### `probe-lean/atoms` (atoms output)
+### `probe-lean/verify` (unified atoms)
 
-Dictionary keyed by code-name. Each value contains all core fields plus Lean-specific
-extensions.
-
-### `probe-lean/specs` (specification status)
-
-Dictionary keyed by code-name. Each value:
+Produced by the `verify` command (`tool.command: "verify"`). Dictionary keyed by code-name.
+Each value contains all atom fields plus verification and specification status:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `specified` | bool | Whether the declaration has a type signature (always true for theorems) |
+| `display-name` | string | Last component of the name |
+| `kind` | string | Declaration kind |
+| `language` | string | Always `"lean"` |
+| `dependencies` | array | `probe:`-prefixed names this declaration depends on |
+| `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file |
-| `spec-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
-
-### `probe-lean/proofs` (verification results)
-
-Dictionary keyed by code-name. Each value:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `verified` | bool | No `sorry` in this declaration |
-| `status` | string | `"success"`, `"sorries"`, or `"failure"` |
-| `code-path` | string | Relative path to source file |
-| `code-line` | number | Line number of declaration |
-| `sorries` | array | Sorry locations (only if status is `"sorries"`) |
-
-Each entry in `sorries`:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `line` | number | Source line of the sorry |
-| `message` | string | Compiler message |
-
-### `probe-lean/enriched-atoms` (pipeline output)
-
-Produced by the `pipeline` command (`tool.command: "pipeline"`). Dictionary keyed by
-code-name. Each value contains all atom fields plus:
-
-| Field | Type | Description |
-|-------|------|-------------|
+| `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
+| `is-hidden` | bool | From config's hidden list |
+| `is-extraction-artifact` | bool | From config's artifact suffixes |
+| `is-ignored` | bool | From config's ignored list |
+| `is-relevant` | bool | Rust source is from the target crate |
+| `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
-| `specified` | bool or absent | From specs output |
+| `specified` | bool or absent | Whether the declaration has a specification |
+
+### `probe-lean/viewify` (molecules)
+
+Produced by the `viewify` command (`tool.command: "viewify"`). Dictionary keyed by
+`<code-path>/<name_last>` (or full name on collision). Each value:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code-path` | string or null | Source file path |
+| `code-lines` | string or null | Line range as string |
+| `code-name` | string | Atom name with `probe:` prefix |
+| `rust-path` | string | Rust source path (empty for pure Lean) |
+| `rust-lines` | object | `{ "lines-start": N, "lines-end": N }` |
+| `rust-name` | string | Rust function name (empty for pure Lean) |
+| `spec-path` | string or null | Specification file path |
+| `spec-lines` | string or null | Specification line range |
+| `spec-name` | string or null | Specification atom name |
 
 ## Changes from Schema 1.x
 
@@ -239,3 +249,10 @@ Key changes:
 2. **New per-atom field**: `language: "lean"` is added for merged-file compatibility.
 3. **Output path**: Default output moves from `.verilib/atoms.json` to
    `.verilib/probes/lean_<package>_<version>.json`.
+4. **CLI simplification**: The five old commands (`atomize`, `specify`, `verify`, `pipeline`,
+   `stubify`) are replaced by two: `verify` (combined pipeline) and `viewify` (filtered output).
+5. **Schema identifiers**: Changed from per-step schemas (`probe-lean/atoms`, `probe-lean/specs`,
+   etc.) to per-command schemas (`probe-lean/verify`, `probe-lean/viewify`).
+6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`.
+7. **Bug fix**: `markAtomFlags` is now correctly called in the combined pipeline (was
+   previously missing from the old `pipeline` command).

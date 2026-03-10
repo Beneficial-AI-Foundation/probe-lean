@@ -208,10 +208,6 @@ def stripLeadingDotSlash (path : String) : String :=
   let path := path.replace "././" ""
   if path.startsWith "./" then (path.drop 2).toString else path
 
-/-- Add "probe:" prefix to a name -/
-def addProbePrefix (name : String) : String :=
-  s!"probe:{name}"
-
 /-- Convert a DeclInfo to an Atom -/
 def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (crate : String) (info : DeclInfo) : IO Atom := do
   let sourcePath ← getModuleSourcePath env projectPath info.moduleName
