@@ -184,26 +184,24 @@ Keys use `<code-path>/<name_last>` format where `<name_last>` is the last dot-se
 
 ## Configuration
 
-Atom filtering flags are populated from the project's `.verilib/config.json`:
+Atom filtering flags are populated from the project's `.verilib/probes/config.json`:
 
-- `is-hidden`: `true` if the atom name (without `probe:` prefix) appears in `user.is-hidden`
-- `is-extraction-artifact`: `true` if the atom name ends with any suffix in `user.extraction-artifact-suffixes`
-- `is-ignored`: `true` if the atom name appears in `user.is-ignored`
+- `is-hidden`: `true` if the atom name (without `probe:` prefix) appears in `is-hidden`
+- `is-extraction-artifact`: `true` if the atom name ends with any suffix in `extraction-artifact-suffixes`
+- `is-ignored`: `true` if the atom name appears in `is-ignored`
 
-The `is-relevant` field is computed from `user.relevant-crate` and the `rust-source` field:
+The `is-relevant` field is computed from `relevant-crate` and the `rust-source` field:
 - If `rust-source` exists: `true` if it contains the crate name AND doesn't start with `/` AND doesn't contain `/cargo/registry/`
 - If no `rust-source`: `false`
 
-Example config:
+Example config (`.verilib/probes/config.json`):
 
 ```json
 {
-  "user": {
-    "is-hidden": ["MyModule.internalHelper", "MyModule.derivedInstance"],
-    "extraction-artifact-suffixes": ["_body", "_loop", "_loop0", "_loop1"],
-    "is-ignored": ["MyModule.testHelper", "MyModule.debugFunction"],
-    "relevant-crate": "my-crate-name"
-  }
+  "relevant-crate": "my-crate-name",
+  "extraction-artifact-suffixes": ["_body", "_loop", "_loop0", "_loop1"],
+  "is-hidden": ["MyModule.internalHelper", "MyModule.derivedInstance"],
+  "is-ignored": ["MyModule.testHelper", "MyModule.debugFunction"]
 }
 ```
 

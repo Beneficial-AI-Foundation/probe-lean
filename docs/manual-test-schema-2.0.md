@@ -160,7 +160,7 @@ Output: `.verilib/views/molecules_all.json`
 
 - Loaded 1361 atoms from verify output -- PASS
 - `schema`: `"probe-lean/viewify"`, `tool.command`: `"viewify"` -- PASS
-- `data`: 0 molecules (expected -- no `.verilib/config.json` with `relevant-crate`) -- PASS
+- `data`: 0 molecules (expected -- no `.verilib/probes/config.json` with `relevant-crate`) -- PASS
 
 #### Comparison with old 5-command run
 

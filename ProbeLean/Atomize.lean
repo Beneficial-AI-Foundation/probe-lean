@@ -11,20 +11,17 @@ namespace ProbeLean
 
 open Lean
 
-/-- Load user config from .verilib/config.json -/
+/-- Load probes config from .verilib/probes/config.json -/
 def loadUserConfig (projectPath : System.FilePath) : IO (Option Lean.Json) := do
-  let configPath := projectPath / ".verilib" / "config.json"
+  let configPath := projectPath / ".verilib" / "probes" / "config.json"
   if !(← configPath.pathExists) then
     return none
   let content ← IO.FS.readFile configPath
   match Lean.Json.parse content with
   | .error _ => return none
-  | .ok json =>
-    match json.getObjVal? "user" with
-    | .error _ => return none
-    | .ok userObj => return some userObj
+  | .ok json => return some json
 
-/-- Load the is-hidden list from .verilib/config.json -/
+/-- Load the is-hidden list from .verilib/probes/config.json -/
 def loadIsHiddenList (userConfig : Option Lean.Json) : Array String :=
   match userConfig with
   | none => #[]
@@ -33,7 +30,7 @@ def loadIsHiddenList (userConfig : Option Lean.Json) : Array String :=
     | .error _ => #[]
     | .ok arr => arr
 
-/-- Load the extraction-artifact-suffixes list from .verilib/config.json -/
+/-- Load the extraction-artifact-suffixes list from .verilib/probes/config.json -/
 def loadExtractionArtifactSuffixes (userConfig : Option Lean.Json) : Array String :=
   match userConfig with
   | none => #[]
@@ -42,7 +39,7 @@ def loadExtractionArtifactSuffixes (userConfig : Option Lean.Json) : Array Strin
     | .error _ => #[]
     | .ok arr => arr
 
-/-- Load the is-ignored list from .verilib/config.json -/
+/-- Load the is-ignored list from .verilib/probes/config.json -/
 def loadIsIgnoredList (userConfig : Option Lean.Json) : Array String :=
   match userConfig with
   | none => #[]
@@ -51,7 +48,7 @@ def loadIsIgnoredList (userConfig : Option Lean.Json) : Array String :=
     | .error _ => #[]
     | .ok arr => arr
 
-/-- Load the relevant-crate from .verilib/config.json -/
+/-- Load the relevant-crate from .verilib/probes/config.json -/
 def loadRelevantCrate (userConfig : Option Lean.Json) : String :=
   match userConfig with
   | none => ""

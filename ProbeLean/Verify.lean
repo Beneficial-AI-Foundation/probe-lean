@@ -106,7 +106,7 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
 
   IO.println s!"Found {atoms.size} atoms"
 
-  -- Mark filtering flags from .verilib/config.json (bug fix: was missing in old pipeline)
+  -- Mark filtering flags from .verilib/probes/config.json (bug fix: was missing in old pipeline)
   let hiddenList := loadIsHiddenList userConfig
   let artifactSuffixes := loadExtractionArtifactSuffixes userConfig
   let ignoredList := loadIsIgnoredList userConfig

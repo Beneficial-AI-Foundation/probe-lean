@@ -186,9 +186,9 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | Field | Type | Description |
 |-------|------|-------------|
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
-| `is-hidden` | bool | From `.verilib/config.json` `user.is-hidden` list |
-| `is-extraction-artifact` | bool | Name ends with suffix from `user.extraction-artifact-suffixes` |
-| `is-ignored` | bool | From `.verilib/config.json` `user.is-ignored` list |
+| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list |
+| `is-extraction-artifact` | bool | Name ends with suffix from `extraction-artifact-suffixes` |
+| `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
 | `is-relevant` | bool | Rust source is from the target crate (Aeneas projects only) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 
