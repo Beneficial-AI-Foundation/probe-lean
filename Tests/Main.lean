@@ -851,9 +851,9 @@ def main : IO UInt32 := do
     package := "my-package"
     packageVersion := "1.0.0"
   }
-  result ← test "generate output filename" (generateOutputFilename testSource == "lean_my_package_1_0_0.json") result
+  result ← test "generate output filename" (generateOutputFilename testSource == "lean_my_package_1.0.0.json") result
   let testSource2 : SourceInfo := { testSource with package := "foo-bar", packageVersion := "2.3.4" }
-  result ← test "generate output filename with dashes" (generateOutputFilename testSource2 == "lean_foo_bar_2_3_4.json") result
+  result ← test "generate output filename with dashes" (generateOutputFilename testSource2 == "lean_foo_bar_2.3.4.json") result
 
   IO.println ""
   IO.println "Testing isAtomsFileName..."

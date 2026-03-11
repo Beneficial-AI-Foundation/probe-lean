@@ -121,7 +121,7 @@ Binary: `~/.local/bin/probe-lean-v4.28.0-rc1`
 ~/.local/bin/probe-lean-v4.28.0-rc1 verify /home/lacra/git_repos/baif/curve25519-dalek-lean-verify
 ```
 
-Output: `.verilib/probes/lean_Curve25519Dalek_0_1_0.json`
+Output: `.verilib/probes/lean_Curve25519Dalek_0.1.0.json`
 
 ```
 Building project at /home/lacra/git_repos/baif/curve25519-dalek-lean-verify...
@@ -327,9 +327,9 @@ CLI (atomize, pipeline, specify, verify, stubify). Key consistency findings:
 
 ### Output filename changes
 
-Dots in version strings are now replaced with underscores for filesystem safety:
-- Old: `lean_Curve25519Dalek_0.1.0.json`
-- New: `lean_Curve25519Dalek_0_1_0.json`
+Dashes in package names are replaced with underscores. Dots in version strings
+are preserved as-is:
+- Example: `lean_Curve25519Dalek_0.1.0.json`
 
 ### Envelope fields verified across all outputs
 

@@ -106,11 +106,10 @@ def collectSourceInfo (projectPath : System.FilePath) : IO SourceInfo := do
   }
 
 /-- Generate output filename: `lean_<package>_<version>.json`
-    Replaces dashes and dots with underscores for filesystem safety. -/
+    Replaces dashes with underscores in the package name. -/
 def generateOutputFilename (source : SourceInfo) : String :=
   let safePackage := source.package.replace "-" "_"
-  let safeVersion := source.packageVersion.replace "." "_"
-  s!"lean_{safePackage}_{safeVersion}.json"
+  s!"lean_{safePackage}_{source.packageVersion}.json"
 
 /-- Build path to probes output: `.verilib/probes/lean_<pkg>_<ver>.json` -/
 def buildProbesOutputPath (projectPath : System.FilePath) (source : SourceInfo) : System.FilePath :=
