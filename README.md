@@ -8,12 +8,12 @@ All output files are wrapped in a Schema 2.0 metadata envelope:
 
 ```json
 {
-  "schema": "probe-lean/verify",
+  "schema": "probe-lean/extract",
   "schema-version": "2.0",
   "tool": {
     "name": "probe-lean",
     "version": "0.1.0",
-    "command": "verify"
+    "command": "extract"
   },
   "source": {
     "repo": "https://github.com/org/project",
@@ -29,11 +29,11 @@ All output files are wrapped in a Schema 2.0 metadata envelope:
 
 | Envelope field | Description |
 |---|---|
-| `schema` | Identifies tool and data type (`probe-lean/verify`, `probe-lean/viewify`) |
+| `schema` | Identifies tool and data type (`probe-lean/extract`, `probe-lean/viewify`) |
 | `schema-version` | Always `"2.0"` |
 | `tool.name` | `"probe-lean"` |
 | `tool.version` | Tool version string |
-| `tool.command` | The command that produced this output (`verify`, `viewify`) |
+| `tool.command` | The command that produced this output (`extract`, `viewify`) |
 | `source.repo` | Git remote URL of the analyzed project (empty string if unavailable) |
 | `source.commit` | Short Git commit hash (empty string if unavailable) |
 | `source.language` | `"lean"` |
@@ -77,19 +77,19 @@ probe-lean outputs are organized under `.verilib/`:
 ```
 .verilib/
 ├── probes/
-│   └── lean_<pkg>_<ver>.json     # verify output (unified atoms)
+│   └── lean_<pkg>_<ver>.json     # extract output (unified atoms)
 └── views/
     └── molecules_all.json         # viewify output (filtered molecules)
 ```
 
 ## Commands
 
-### verify
+### extract
 
 Analyze a Lean 4 project: extract atoms, compute specification status, detect sorries, and produce unified output. This is the primary command that combines the former `atomize`, `specify`, and `verify` steps into a single pass.
 
 ```bash
-probe-lean verify <PROJECT_PATH> [-o OUTPUT] [-m MODULE] [--skip-verify] [--skip-build] [--from-file FILE]
+probe-lean extract <PROJECT_PATH> [-o OUTPUT] [-m MODULE] [--skip-verify] [--skip-build] [--from-file FILE]
 ```
 
 **Options:**
@@ -101,9 +101,9 @@ probe-lean verify <PROJECT_PATH> [-o OUTPUT] [-m MODULE] [--skip-verify] [--skip
 
 **Example:**
 ```bash
-probe-lean verify ./my-lean-project
-probe-lean verify ./my-lean-project --skip-verify
-probe-lean verify ./my-lean-project -o output.json
+probe-lean extract ./my-lean-project
+probe-lean extract ./my-lean-project --skip-verify
+probe-lean extract ./my-lean-project -o output.json
 ```
 
 **Output format (`data` payload):**
@@ -142,7 +142,7 @@ The `verification-status` field maps sorry detection results to the web viewer's
 
 ### viewify
 
-Generate molecules output from verify results, filtering for the web UI. Reads the verify output from `.verilib/probes/` and filters atoms to include only those where:
+Generate molecules output from extract results, filtering for the web UI. Reads the extract output from `.verilib/probes/` and filters atoms to include only those where:
 - `is-hidden` is `false`
 - `is-extraction-artifact` is `false`
 - `is-relevant` is `true`
@@ -153,12 +153,12 @@ probe-lean viewify <PROJECT_PATH> [-a ATOMS] [-o OUTPUT]
 ```
 
 **Options:**
-- `-a, --with-atoms` - Path to verify output (default: auto-detect from `.verilib/probes/`)
+- `-a, --with-atoms` - Path to extract output (default: auto-detect from `.verilib/probes/`)
 - `-o, --output` - Output file path (default: `.verilib/views/molecules_all.json`)
 
 **Example:**
 ```bash
-probe-lean verify ./my-lean-project
+probe-lean extract ./my-lean-project
 probe-lean viewify ./my-lean-project
 ```
 
@@ -207,7 +207,7 @@ Example config (`.verilib/probes/config.json`):
 
 ## Output Fields
 
-### verify output (unified atoms)
+### extract output (unified atoms)
 
 | Field | Type | Description |
 |-------|------|-------------|

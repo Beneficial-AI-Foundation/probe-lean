@@ -40,7 +40,7 @@ def main : IO UInt32 := do
   result ← test "toolName" (Constants.toolName == "probe-lean") result
   result ← test "toolVersion" (Constants.toolVersion == "0.1.0") result
   result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
-  result ← test "schemaVerify" (Constants.schemaVerify == "probe-lean/verify") result
+  result ← test "schemaExtract" (Constants.schemaExtract == "probe-lean/extract") result
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
 
   -- ============================================================
@@ -114,14 +114,14 @@ def main : IO UInt32 := do
 
   IO.println ""
   IO.println "Testing ToolInfo JSON serialization..."
-  let toolInfo : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "verify" }
+  let toolInfo : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "extract" }
   let toolJson := Lean.toJson toolInfo
   let toolNameOk := match toolJson.getObjValAs? String "name" with
     | .ok "probe-lean" => true | _ => false
   let toolVersionOk := match toolJson.getObjValAs? String "version" with
     | .ok "0.1.0" => true | _ => false
   let toolCommandOk := match toolJson.getObjValAs? String "command" with
-    | .ok "verify" => true | _ => false
+    | .ok "extract" => true | _ => false
   result ← test "toolInfo name" toolNameOk result
   result ← test "toolInfo version" toolVersionOk result
   result ← test "toolInfo command" toolCommandOk result
@@ -129,7 +129,7 @@ def main : IO UInt32 := do
   IO.println ""
   IO.println "Testing ToolInfo FromJson round-trip..."
   let toolRt := match Lean.FromJson.fromJson? (Lean.toJson toolInfo) (α := ToolInfo) with
-    | .ok ti => ti.name == "probe-lean" && ti.version == "0.1.0" && ti.command == "verify"
+    | .ok ti => ti.name == "probe-lean" && ti.version == "0.1.0" && ti.command == "extract"
     | .error _ => false
   result ← test "toolInfo round-trips through JSON" toolRt result
 
@@ -177,15 +177,15 @@ def main : IO UInt32 := do
   IO.println ""
   IO.println "Testing Envelope JSON serialization..."
   let envelope : Envelope AtomsOutput := {
-    schema := Constants.schemaVerify
-    tool := { command := "verify" }
+    schema := Constants.schemaExtract
+    tool := { command := "extract" }
     source := sourceInfo
     timestamp := "2025-01-01T00:00:00Z"
     data := { atoms := #[] }
   }
   let envJson := Lean.toJson envelope
   let hasSchema := match envJson.getObjValAs? String "schema" with
-    | .ok "probe-lean/verify" => true | _ => false
+    | .ok "probe-lean/extract" => true | _ => false
   let hasSchemaVer := match envJson.getObjValAs? String "schema-version" with
     | .ok "2.0" => true | _ => false
   let hasTool := match envJson.getObjVal? "tool" with
@@ -206,7 +206,7 @@ def main : IO UInt32 := do
   IO.println ""
   IO.println "Testing Envelope FromJson round-trip..."
   let envRt := match Lean.FromJson.fromJson? (Lean.toJson envelope) (α := Envelope AtomsOutput) with
-    | .ok e => e.schema == Constants.schemaVerify && e.timestamp == "2025-01-01T00:00:00Z"
+    | .ok e => e.schema == Constants.schemaExtract && e.timestamp == "2025-01-01T00:00:00Z"
     | .error _ => false
   result ← test "envelope round-trips through JSON" envRt result
 
@@ -737,7 +737,7 @@ def main : IO UInt32 := do
     ])
   ]
   let enveloped := Lean.Json.mkObj [
-    ("schema", Lean.toJson "probe-lean/verify"),
+    ("schema", Lean.toJson "probe-lean/extract"),
     ("schema-version", Lean.toJson "2.0"),
     ("data", bareDict)
   ]

@@ -10,16 +10,16 @@ declaration kinds, code-name URIs, versioning, and field mappings.
 
 ## Envelope Example
 
-A complete probe-lean verify output with the Schema 2.0 envelope:
+A complete probe-lean extract output with the Schema 2.0 envelope:
 
 ```json
 {
-  "schema": "probe-lean/verify",
+  "schema": "probe-lean/extract",
   "schema-version": "2.0",
   "tool": {
     "name": "probe-lean",
     "version": "0.1.0",
-    "command": "verify"
+    "command": "extract"
   },
   "source": {
     "repo": "https://github.com/Verified-zkEVM/ArkLib",
@@ -59,16 +59,16 @@ probe-lean registers the following `schema` values:
 
 | schema | Command | Description |
 |--------|---------|-------------|
-| `probe-lean/verify` | `verify` | Unified atoms with verification and specification status |
+| `probe-lean/extract` | `extract` | Unified atoms with verification and specification status |
 | `probe-lean/viewify` | `viewify` | Filtered molecules for the web UI |
 
 ## CLI Commands
 
 probe-lean exposes two commands:
 
-- **`verify`**: The primary command. Combines atom extraction, specification status computation,
+- **`extract`**: The primary command. Combines atom extraction, specification status computation,
   and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
-- **`viewify`**: Reads verify output, filters atoms (not hidden, not extraction artifact,
+- **`viewify`**: Reads extract output, filters atoms (not hidden, not extraction artifact,
   is relevant, code-path ends with `Funs.lean`), and outputs molecules to `.verilib/views/`.
 
 ## Package Versioning for Lean
@@ -198,9 +198,9 @@ do not recognize them must ignore them.
 
 ## Output Types
 
-### `probe-lean/verify` (unified atoms)
+### `probe-lean/extract` (unified atoms)
 
-Produced by the `verify` command (`tool.command: "verify"`). Dictionary keyed by code-name.
+Produced by the `extract` command (`tool.command: "extract"`). Dictionary keyed by code-name.
 Each value contains all atom fields plus verification and specification status:
 
 | Field | Type | Description |
@@ -250,9 +250,9 @@ Key changes:
 3. **Output path**: Default output moves from `.verilib/atoms.json` to
    `.verilib/probes/lean_<package>_<version>.json`.
 4. **CLI simplification**: The five old commands (`atomize`, `specify`, `verify`, `pipeline`,
-   `stubify`) are replaced by two: `verify` (combined pipeline) and `viewify` (filtered output).
+   `stubify`) are replaced by two: `extract` (combined pipeline) and `viewify` (filtered output).
 5. **Schema identifiers**: Changed from per-step schemas (`probe-lean/atoms`, `probe-lean/specs`,
-   etc.) to per-command schemas (`probe-lean/verify`, `probe-lean/viewify`).
+   etc.) to per-command schemas (`probe-lean/extract`, `probe-lean/viewify`).
 6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`.
 7. **Bug fix**: `markAtomFlags` is now correctly called in the combined pipeline (was
    previously missing from the old `pipeline` command).

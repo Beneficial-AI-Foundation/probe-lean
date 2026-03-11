@@ -1,8 +1,8 @@
-# Feature: verify
+# Feature: extract
 
 ## Summary
 
-The `verify` command checks proof completeness in a Lean 4 project by detecting declarations that contain `sorry` (incomplete proofs). It builds the project with Lean and analyzes compiler output for sorry warnings, then outputs a JSON file mapping declaration names to their verification status. The output format is compatible with probe-verus.
+The `extract` command checks proof completeness in a Lean 4 project by detecting declarations that contain `sorry` (incomplete proofs). It builds the project with Lean and analyzes compiler output for sorry warnings, then outputs a JSON file mapping declaration names to their verification status. The output format is compatible with probe-verus.
 
 ## Requirements
 
@@ -18,7 +18,7 @@ The `verify` command checks proof completeness in a Lean 4 project by detecting 
 ## API / Interface Design
 
 ```bash
-probe-lean verify <PROJECT_PATH> [OPTIONS]
+probe-lean extract <PROJECT_PATH> [OPTIONS]
 
 Arguments:
   PROJECT_PATH    Path to the Lean 4 project
@@ -63,7 +63,7 @@ Options:
 ## Behavior
 
 ### Normal Operation
-1. Load atoms.json from the specified path (or default location)
+1. Load atoms from the specified path (or default location)
 2. Run `lake build` on the project (or use cached/provided output)
 3. Parse compiler output for sorry-related warnings:
    - Look for "declaration uses 'sorry'" messages
@@ -81,7 +81,7 @@ Lean outputs warnings like:
 MyModule.lean:42:0: warning: declaration uses 'sorry'
 ```
 
-The verify command parses these warnings to identify incomplete proofs.
+The extract command parses these warnings to identify incomplete proofs.
 
 ### Matching Sorries to Declarations
 1. Parse warning to extract file path and line number
@@ -117,7 +117,7 @@ The verify command parses these warnings to identify incomplete proofs.
 
 ## Acceptance Criteria
 
-- [ ] `probe-lean verify ./project` produces valid proofs.json
+- [ ] `probe-lean extract ./project` produces valid proofs.json
 - [ ] Correctly detects sorry in theorem proofs
 - [ ] Correctly reports verified theorems without sorry
 - [ ] Output format matches probe-verus proofs.json structure

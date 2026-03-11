@@ -77,7 +77,7 @@ Options:
 
 ## Non-Goals
 
-- Does NOT verify proof completeness (that's `verify`)
+- Does NOT verify proof completeness (that's `extract`)
 - Does NOT run the Lean compiler
 - Does NOT check for `sorry` in proofs
 - Does NOT parse Lean source files directly (uses atoms.json)

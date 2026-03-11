@@ -1,7 +1,7 @@
 /-
-  Verify command: combined atomize + specify + sorry detection.
+  Extract command: combined atomize + specify + sorry detection.
   Produces unified atoms with verification and specification status.
-  Schema: probe-lean/verify
+  Schema: probe-lean/extract
 -/
 import Lean
 import ProbeLean.Types
@@ -15,8 +15,8 @@ namespace ProbeLean
 
 open Lean
 
-/-- Configuration for the verify command -/
-structure VerifyConfig where
+/-- Configuration for the extract command -/
+structure ExtractConfig where
   projectPath : System.FilePath
   outputPath : Option System.FilePath
   moduleFilter : Option String
@@ -53,8 +53,8 @@ def unifyAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option 
     specified := specEntry.map fun s => s.specified
   }
 
-/-- Run the combined verify pipeline: build → atomize → markAtomFlags → specify → sorry detection → merge → envelope → write -/
-def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
+/-- Run the combined extract pipeline: build → atomize → markAtomFlags → specify → sorry detection → merge → envelope → write -/
+def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if !(← isLakeProject config.projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
     return 1
@@ -154,8 +154,8 @@ def runVerifyInProject (config : VerifyConfig) : IO UInt32 := do
 
   let output : UnifiedAtomsOutput := { atoms := unifiedAtoms }
   let envelope : Envelope UnifiedAtomsOutput := {
-    schema := Constants.schemaVerify
-    tool := { command := "verify" }
+    schema := Constants.schemaExtract
+    tool := { command := "extract" }
     source := source
     timestamp := timestamp
     data := output

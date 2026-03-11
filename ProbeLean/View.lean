@@ -1,5 +1,5 @@
 /-
-  Viewify command: reads verify output, filters atoms, produces molecules for the web UI.
+  Viewify command: reads extract output, filters atoms, produces molecules for the web UI.
   Schema: probe-lean/viewify
 -/
 import Lean
@@ -99,7 +99,7 @@ def runViewInProject (config : ViewConfig) : IO UInt32 := do
     | none => do
       let (path, usedFallback) ← findDefaultAtomsPath config.projectPath source
       if usedFallback then
-        IO.println "NOTE: Using probes from a different version. Re-run 'probe-lean verify' for accurate results."
+        IO.println "NOTE: Using probes from a different version. Re-run 'probe-lean extract' for accurate results."
       pure path
 
   IO.println s!"Loading atoms from {atomsPath}..."

@@ -1,16 +1,16 @@
 /-
   CLI entry point for probe-lean.
-  Two commands: verify (combined atomize+specify+sorry detection) and viewify (molecules output).
+  Two commands: extract (combined atomize+specify+sorry detection) and viewify (molecules output).
 -/
 import Cli
-import ProbeLean.Verify
+import ProbeLean.Extract
 import ProbeLean.View
 
 open Cli
 open ProbeLean
 
-/-- Run the verify command -/
-def runVerify (parsed : Parsed) : IO UInt32 := do
+/-- Run the extract command -/
+def runExtract (parsed : Parsed) : IO UInt32 := do
   let projectPath := parsed.positionalArg! "projectPath" |>.as! String
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
@@ -18,7 +18,7 @@ def runVerify (parsed : Parsed) : IO UInt32 := do
   let skipBuild := parsed.hasFlag "skip-build"
   let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
 
-  let config : VerifyConfig := {
+  let config : ExtractConfig := {
     projectPath := projectPath
     outputPath := outputPath
     moduleFilter := moduleFilter
@@ -27,11 +27,11 @@ def runVerify (parsed : Parsed) : IO UInt32 := do
     fromFile := fromFile
   }
 
-  runVerifyInProject config
+  runExtractInProject config
 
-/-- The verify subcommand -/
-def verifyCmd : Cmd := `[Cli|
-  verify VIA runVerify; ["0.1.0"]
+/-- The extract subcommand -/
+def extractCmd : Cmd := `[Cli|
+  extract VIA runExtract; ["0.1.0"]
   "Analyze a Lean 4 project: extract atoms, compute specs, detect sorries, and produce unified output"
 
   FLAGS:
@@ -62,10 +62,10 @@ def runView (parsed : Parsed) : IO UInt32 := do
 /-- The viewify subcommand -/
 def viewCmd : Cmd := `[Cli|
   viewify VIA runView; ["0.1.0"]
-  "Generate molecules output from verify results, filtering for the web UI"
+  "Generate molecules output from extract results, filtering for the web UI"
 
   FLAGS:
-    a, "with-atoms" : String; "Path to verify output (default: auto-detect from .verilib/probes/)"
+    a, "with-atoms" : String; "Path to extract output (default: auto-detect from .verilib/probes/)"
     o, output : String; "Output file path (default: .verilib/views/molecules_all.json)"
 
   ARGS:
@@ -84,7 +84,7 @@ def probeleanCmd : Cmd := `[Cli|
   "A tool for analyzing Lean 4 projects"
 
   SUBCOMMANDS:
-    verifyCmd;
+    extractCmd;
     viewCmd
 ]
 

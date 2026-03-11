@@ -15,7 +15,7 @@ probe-lean stubify <PATH>   # → stubs.json  (depends on atomize output)
 ### After (Schema 2.0)
 
 ```bash
-probe-lean verify <PATH>    # → .verilib/probes/lean_<pkg>_<ver>.json  (unified atoms)
+probe-lean extract <PATH>   # → .verilib/probes/lean_<pkg>_<ver>.json  (unified atoms)
 probe-lean viewify <PATH>   # → .verilib/views/molecules_all.json      (filtered molecules)
 ```
 
@@ -23,20 +23,20 @@ probe-lean viewify <PATH>   # → .verilib/views/molecules_all.json      (filter
 
 | Old command | New equivalent | Notes |
 |-------------|---------------|-------|
-| `atomize` | `verify` | Atom extraction is the first step of `verify` |
-| `specify` | `verify` | Specification status is computed inline |
-| `verify` (old) | `verify` | Sorry detection is the final step of `verify` |
-| `pipeline` | `verify` | Direct replacement; same combined pipeline logic |
+| `atomize` | `extract` | Atom extraction is the first step of `extract` |
+| `specify` | `extract` | Specification status is computed inline |
+| `verify` (old) | `extract` | Sorry detection is the final step of `extract` |
+| `pipeline` | `extract` | Direct replacement; same combined pipeline logic |
 | `stubify` | `viewify` | Same filtering logic, renamed output format |
 
 ## Schema Identifier Changes
 
 | Old schema | New schema |
 |------------|-----------|
-| `probe-lean/atoms` | `probe-lean/verify` |
-| `probe-lean/specs` | (internal to `verify`) |
-| `probe-lean/proofs` | (internal to `verify`) |
-| `probe-lean/enriched-atoms` | `probe-lean/verify` |
+| `probe-lean/atoms` | `probe-lean/extract` |
+| `probe-lean/specs` | (internal to `extract`) |
+| `probe-lean/proofs` | (internal to `extract`) |
+| `probe-lean/enriched-atoms` | `probe-lean/extract` |
 | `probe-lean/stubs` | `probe-lean/viewify` |
 
 ## Output Path Changes
@@ -44,8 +44,8 @@ probe-lean viewify <PATH>   # → .verilib/views/molecules_all.json      (filter
 | Old default path | New default path |
 |-----------------|-----------------|
 | `.verilib/probes/lean_<pkg>_<ver>.json` | `.verilib/probes/lean_<pkg>_<ver>.json` (same) |
-| `.verilib/probes/lean_<pkg>_<ver>_specs.json` | (internal to verify) |
-| `.verilib/probes/lean_<pkg>_<ver>_proofs.json` | (internal to verify) |
+| `.verilib/probes/lean_<pkg>_<ver>_specs.json` | (internal to extract) |
+| `.verilib/probes/lean_<pkg>_<ver>_proofs.json` | (internal to extract) |
 | `.verilib/probes/lean_<pkg>_<ver>_graph.json` | `.verilib/probes/lean_<pkg>_<ver>.json` |
 | `.verilib/probes/lean_<pkg>_<ver>_stubs.json` | `.verilib/views/molecules_all.json` |
 
@@ -68,5 +68,5 @@ which declares these fields as required.
 
 - **`markAtomFlags` now called in the combined pipeline**: The old `pipeline` command
   skipped the `markAtomFlags` step, so `is-hidden`, `is-extraction-artifact`, and
-  `is-ignored` were always `false` in pipeline output. The new `verify` command correctly
+  `is-ignored` were always `false` in pipeline output. The new `extract` command correctly
   applies these flags.

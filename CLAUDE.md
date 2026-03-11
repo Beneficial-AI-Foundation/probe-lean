@@ -40,8 +40,8 @@ This project uses spec-driven development. Follow this workflow:
 lake build                 # Build the project
 lake build tests           # Build tests
 .lake/build/bin/tests      # Run tests
-probe-lean verify <PATH>   # Combined atomize+specify+sorry detection → unified atoms
-probe-lean viewify <PATH>  # Filter verify output → molecules for web UI
+probe-lean extract <PATH>  # Combined atomize+specify+sorry detection → unified atoms
+probe-lean viewify <PATH>  # Filter extract output → molecules for web UI
 ```
 
 ## Testing

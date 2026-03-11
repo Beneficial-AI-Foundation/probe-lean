@@ -6,5 +6,5 @@ import ProbeLean.Metadata
 import ProbeLean.Atomize
 import ProbeLean.Specify
 import ProbeLean.VerifyInternal
-import ProbeLean.Verify
+import ProbeLean.Extract
 import ProbeLean.View

@@ -18,7 +18,7 @@ def unwrapEnvelope (json : Json) : Json :=
 /-- Load atoms from a JSON file, handling both bare-dict and enveloped formats. -/
 def loadAtoms (path : System.FilePath) : IO (Except String AtomsOutput) := do
   if !(← path.pathExists) then
-    return .error s!"Atoms file not found at {path}. Run 'probe-lean verify' first."
+    return .error s!"Atoms file not found at {path}. Run 'probe-lean extract' first."
   let content ← IO.FS.readFile path
   match Json.parse content with
   | .error err => return .error s!"Failed to parse atoms file: {err}"

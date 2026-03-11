@@ -1,7 +1,7 @@
 # Lean 4 Test Projects for probe-lean
 
 Curated list of open-source Lean 4 projects suitable for testing probe-lean commands
-(`atomize`, `specify`, `verify`, `pipeline`, `stubify`).
+(`atomize`, `specify`, `extract`, `pipeline`, `stubify`).
 
 probe-lean toolchain: **v4.29.0-rc3**. Must be recompiled per target toolchain (see notes below).
 
@@ -10,7 +10,7 @@ probe-lean toolchain: **v4.29.0-rc3**. Must be recompiled per target toolchain (
 - Lean 4 Lake project (with `lakefile.lean` or `lakefile.toml`)
 - Builds with `lake build`
 - 3+ modules with a mix of `def`, `theorem`, `structure`, `inductive`, `class`, `instance`
-- Some `sorry` usage is ideal for testing `verify`
+- Some `sorry` usage is ideal for testing `extract`
 - Smaller projects preferred for fast iteration (dalek-lean takes ~2h for `atomize`)
 - Lean version close to v4.29.0-rc3 avoids compat fixes when rebuilding probe-lean
 
@@ -93,7 +93,7 @@ relevant for `stubify` testing (Lean<->Rust mappings).
 
 ## Test results
 
-| Project | Lean | atomize | specify | verify | pipeline | stubify | Notes |
+| Project | Lean | atomize | specify | extract | pipeline | stubify | Notes |
 |---------|------|---------|---------|--------|----------|---------|-------|
-| katydid/proofs | v4.22.0 | 589 atoms, 28 modules, 8s | 589 specs | 573/589 verified, 16 sorry | N/A | N/A | Depends on mathlib4. Build ~3.5min. Required probe-lean compat fixes for 4.22.0 (trimAscii, dropPrefix, toString). Default atoms.json path mismatch between atomize (.verilib/) and specify/verify (project root) -- needs `-a` flag. |
+| katydid/proofs | v4.22.0 | 589 atoms, 28 modules, 8s | 589 specs | 573/589 verified, 16 sorry | N/A | N/A | Depends on mathlib4. Build ~3.5min. Required probe-lean compat fixes for 4.22.0 (trimAscii, dropPrefix, toString). Default atoms.json path mismatch between atomize (.verilib/) and specify/extract (project root) -- needs `-a` flag. |
 | Verified-zkEVM/ArkLib | v4.28.0 | 4024 atoms, 162 modules | 4024 specs | 3654/4024 verified, 370 sorry | 4024 enriched atoms, 3654 verified / 370 unverified | N/A | Depends on mathlib. Build ~4.5min with cache. Pipeline tested locally end-to-end. |
