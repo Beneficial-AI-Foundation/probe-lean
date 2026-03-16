@@ -17,7 +17,7 @@ namespace Constants
   def viewsDir : String := "views"
   def mapsDir : String := "maps"
   def toolName : String := "probe-lean"
-  def toolVersion : String := "0.1.0"
+  def toolVersion : String := "0.2.0"
   def schemaVersion : String := "2.0"
   def schemaExtract : String := "probe-lean/extract"
   def schemaView : String := "probe-lean/viewify"
@@ -202,24 +202,29 @@ structure Atom where
   isIgnored : Bool := false
   isRelevant : Bool := true
   rustSource : Option String := none
+  specs : Array String := #[]
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson Atom where
-  toJson atom := Lean.Json.mkObj [
-    ("name", Lean.toJson atom.name),
-    ("display-name", Lean.toJson atom.displayName),
-    ("dependencies", Lean.toJson atom.dependencies),
-    ("code-module", Lean.toJson atom.codeModule),
-    ("code-path", Lean.toJson atom.codePath),
-    ("code-text", Lean.toJson atom.codeText),
-    ("kind", Lean.toJson atom.kind),
-    ("language", Lean.toJson atom.language),
-    ("is-hidden", Lean.toJson atom.isHidden),
-    ("is-extraction-artifact", Lean.toJson atom.isExtractionArtifact),
-    ("is-ignored", Lean.toJson atom.isIgnored),
-    ("is-relevant", Lean.toJson atom.isRelevant),
-    ("rust-source", Lean.toJson atom.rustSource)
-  ]
+  toJson atom :=
+    let base := [
+      ("name", Lean.toJson atom.name),
+      ("display-name", Lean.toJson atom.displayName),
+      ("dependencies", Lean.toJson atom.dependencies),
+      ("code-module", Lean.toJson atom.codeModule),
+      ("code-path", Lean.toJson atom.codePath),
+      ("code-text", Lean.toJson atom.codeText),
+      ("kind", Lean.toJson atom.kind),
+      ("language", Lean.toJson atom.language),
+      ("is-hidden", Lean.toJson atom.isHidden),
+      ("is-extraction-artifact", Lean.toJson atom.isExtractionArtifact),
+      ("is-ignored", Lean.toJson atom.isIgnored),
+      ("is-relevant", Lean.toJson atom.isRelevant),
+      ("rust-source", Lean.toJson atom.rustSource)
+    ]
+    let withSpecs := if atom.specs.isEmpty then base
+      else base ++ [("specs", Lean.toJson atom.specs)]
+    Lean.Json.mkObj withSpecs
 
 instance : Lean.FromJson Atom where
   fromJson? json := do
@@ -236,7 +241,8 @@ instance : Lean.FromJson Atom where
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
-    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource }
+    let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
+    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs }
 
 /-- Output format for atoms - an object keyed by atom name -/
 structure AtomsOutput where
@@ -386,6 +392,7 @@ structure UnifiedAtom where
   isIgnored : Bool := false
   isRelevant : Bool := true
   rustSource : Option String := none
+  specs : Array String := #[]
   verificationStatus : Option WebVerificationStatus
   specified : Option Bool
   deriving Repr, BEq, Inhabited
@@ -407,9 +414,11 @@ instance : Lean.ToJson UnifiedAtom where
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
+    let withSpecs := if atom.specs.isEmpty then base
+      else base ++ [("specs", Lean.toJson atom.specs)]
     let withVerification := match atom.verificationStatus with
-      | some status => base ++ [("verification-status", Lean.toJson status)]
-      | none => base
+      | some status => withSpecs ++ [("verification-status", Lean.toJson status)]
+      | none => withSpecs
     let withSpecified := match atom.specified with
       | some spec => withVerification ++ [("specified", Lean.toJson spec)]
       | none => withVerification
@@ -430,9 +439,10 @@ instance : Lean.FromJson UnifiedAtom where
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
+    let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
     let specified ← json.getObjValAs? (Option Bool) "specified" <|> pure none
-    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, verificationStatus, specified }
+    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, verificationStatus, specified }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

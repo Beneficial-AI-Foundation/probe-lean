@@ -70,6 +70,28 @@ def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (artifactSuff
     let isIgnored := ignoredList.contains nameWithoutPrefix
     { atom with isHidden := isHidden, isExtractionArtifact := isExtractionArtifact, isIgnored := isIgnored }
 
+/-- Compute reverse edges: for each theorem atom, add its name to the `specs`
+    list of every non-theorem dependency. Single pass over atoms + dependencies. -/
+def computeSpecs (atoms : Array Atom) : Array Atom :=
+  let kindMap : Lean.RBMap String DeclKind compare :=
+    atoms.foldl (init := .empty) fun m a => m.insert a.name a.kind
+  let specsMap : Lean.RBMap String (Array String) compare :=
+    atoms.foldl (init := .empty) fun m a =>
+      if a.kind == DeclKind.theorem then
+        a.dependencies.foldl (init := m) fun m dep =>
+          match kindMap.find? dep with
+          | some k =>
+            if k == DeclKind.theorem then m
+            else
+              let cur := (m.find? dep).getD #[]
+              m.insert dep (cur.push a.name)
+          | none => m
+      else m
+  atoms.map fun a =>
+    match specsMap.find? a.name with
+    | some specs => { a with specs := specs }
+    | none => a
+
 /-- Resolve a potentially relative path against a base directory -/
 def resolvePath (basePath : System.FilePath) (path : System.FilePath) : IO System.FilePath := do
   let pathStr := path.toString

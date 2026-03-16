@@ -49,6 +49,7 @@ def unifyAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option 
     isIgnored := atom.isIgnored
     isRelevant := atom.isRelevant
     rustSource := atom.rustSource
+    specs := atom.specs
     verificationStatus := proofEntry.map fun p => mapVerifyStatus p.status
     specified := specEntry.map fun s => s.specified
   }
@@ -111,6 +112,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let artifactSuffixes := loadExtractionArtifactSuffixes userConfig
   let ignoredList := loadIsIgnoredList userConfig
   let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
+  let atoms := computeSpecs atoms
 
   -- === Step 2: Specify ===
   IO.println "=== Step 2/3: Specify ==="

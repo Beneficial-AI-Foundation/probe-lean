@@ -217,6 +217,7 @@ Each value contains all atom fields plus verification and specification status:
 | `is-ignored` | bool | From config's ignored list |
 | `is-relevant` | bool | Rust source is from the target crate |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
+| `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
 | `specified` | bool or absent | Whether the declaration has a specification |
 

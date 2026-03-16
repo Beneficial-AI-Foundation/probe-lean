@@ -38,7 +38,7 @@ def main : IO UInt32 := do
   result ← test "viewsDir" (Constants.viewsDir == "views") result
   result ← test "mapsDir" (Constants.mapsDir == "maps") result
   result ← test "toolName" (Constants.toolName == "probe-lean") result
-  result ← test "toolVersion" (Constants.toolVersion == "0.1.0") result
+  result ← test "toolVersion" (Constants.toolVersion == "0.2.0") result
   result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
   result ← test "schemaExtract" (Constants.schemaExtract == "probe-lean/extract") result
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
@@ -300,6 +300,92 @@ def main : IO UInt32 := do
   result ← test "non-ignored atom is not ignored" (!markedAtoms[0]!.isIgnored) result
 
   -- ============================================================
+  -- computeSpecs
+  -- ============================================================
+
+  IO.println ""
+  IO.println "Testing computeSpecs..."
+  let defAtom : Atom := {
+    name := "probe:Test.add_assign"
+    displayName := "add_assign"
+    dependencies := #["probe:Test.helper"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := some { linesStart := 10, linesEnd := 20 }
+    kind := .def
+  }
+  let thmAtom : Atom := {
+    name := "probe:Test.add_assign_spec"
+    displayName := "add_assign_spec"
+    dependencies := #["probe:Test.add_assign", "probe:Test.helper"]
+    codeModule := "Test"
+    codePath := "Specs/Test.lean"
+    codeText := some { linesStart := 50, linesEnd := 60 }
+    kind := .theorem
+  }
+  let helperAtom : Atom := {
+    name := "probe:Test.helper"
+    displayName := "helper"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  let specsResult := computeSpecs #[defAtom, thmAtom, helperAtom]
+  let defResult := specsResult.find? fun a => a.name == "probe:Test.add_assign"
+  let helperResult := specsResult.find? fun a => a.name == "probe:Test.helper"
+  let thmResult := specsResult.find? fun a => a.name == "probe:Test.add_assign_spec"
+  result ← test "def gets spec from theorem" (match defResult with
+    | some a => a.specs.size == 1 && a.specs[0]! == "probe:Test.add_assign_spec"
+    | none => false) result
+  result ← test "helper also gets spec from theorem" (match helperResult with
+    | some a => a.specs.size == 1 && a.specs[0]! == "probe:Test.add_assign_spec"
+    | none => false) result
+  result ← test "theorem does not get specs" (match thmResult with
+    | some a => a.specs.isEmpty
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing computeSpecs with no theorems..."
+  let noThmResult := computeSpecs #[defAtom, helperAtom]
+  result ← test "no specs when no theorems" (noThmResult.all fun a => a.specs.isEmpty) result
+
+  IO.println ""
+  IO.println "Testing computeSpecs with multiple specs..."
+  let thmAtom2 : Atom := {
+    name := "probe:Test.add_assign_loop_spec"
+    displayName := "add_assign_loop_spec"
+    dependencies := #["probe:Test.add_assign"]
+    codeModule := "Test"
+    codePath := "Specs/Test.lean"
+    codeText := none
+    kind := .theorem
+  }
+  let multiResult := computeSpecs #[defAtom, thmAtom, thmAtom2, helperAtom]
+  let defMulti := multiResult.find? fun a => a.name == "probe:Test.add_assign"
+  result ← test "def gets multiple specs" (match defMulti with
+    | some a => a.specs.size == 2
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing computeSpecs skips theorem-to-theorem..."
+  let metaThmAtom : Atom := {
+    name := "probe:Test.meta_spec"
+    displayName := "meta_spec"
+    dependencies := #["probe:Test.add_assign_spec"]
+    codeModule := "Test"
+    codePath := "Specs/Test.lean"
+    codeText := none
+    kind := .theorem
+  }
+  let metaResult := computeSpecs #[defAtom, thmAtom, metaThmAtom]
+  let thmWithMeta := metaResult.find? fun a => a.name == "probe:Test.add_assign_spec"
+  result ← test "theorem-to-theorem dep not added as spec" (match thmWithMeta with
+    | some a => a.specs.isEmpty
+    | none => false) result
+
+  -- ============================================================
   -- atomToSpecEntry
   -- ============================================================
 
@@ -380,6 +466,45 @@ def main : IO UInt32 := do
       | .ok true => true | _ => false
     | _ => false
   result ← test "atom has is-ignored true" hasIsIgnoredTrue result
+
+  -- ============================================================
+  -- Atom specs JSON serialization
+  -- ============================================================
+
+  IO.println ""
+  IO.println "Testing Atom specs JSON serialization..."
+  let atomNoSpecs : Atom := {
+    name := "probe:Test.nospec"
+    displayName := "nospec"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  let noSpecsJson := Lean.toJson atomNoSpecs
+  let specsAbsent := match noSpecsJson.getObjVal? "specs" with
+    | .ok _ => false | _ => true
+  result ← test "specs absent from JSON when empty" specsAbsent result
+
+  let atomWithSpecs : Atom := { atomNoSpecs with specs := #["probe:Test.foo_spec"] }
+  let withSpecsJson := Lean.toJson atomWithSpecs
+  let specsPresent := match withSpecsJson.getObjValAs? (Array String) "specs" with
+    | .ok arr => arr.size == 1 && arr[0]! == "probe:Test.foo_spec"
+    | _ => false
+  result ← test "specs present in JSON when non-empty" specsPresent result
+
+  IO.println ""
+  IO.println "Testing Atom specs FromJson round-trip..."
+  let specsRtOk := match Lean.FromJson.fromJson? withSpecsJson (α := Atom) with
+    | .ok a => a.specs.size == 1 && a.specs[0]! == "probe:Test.foo_spec"
+    | .error _ => false
+  result ← test "Atom specs round-trips through JSON" specsRtOk result
+
+  let noSpecsRtOk := match Lean.FromJson.fromJson? noSpecsJson (α := Atom) with
+    | .ok a => a.specs.isEmpty
+    | .error _ => false
+  result ← test "Atom empty specs round-trips through JSON" noSpecsRtOk result
 
   -- ============================================================
   -- Atom language field
@@ -613,10 +738,40 @@ def main : IO UInt32 := do
   let uaoNoneRt := match Lean.FromJson.fromJson? (Lean.toJson uaoNoneFields) (α := UnifiedAtomsOutput) with
     | .ok uo => match uo.atoms[0]? with
       | some a => a.verificationStatus == none && a.specified == none
-        && a.rustSource == none && a.isHidden == false
+        && a.rustSource == none && a.isHidden == false && a.specs.isEmpty
       | none => false
     | .error _ => false
   result ← test "UnifiedAtomsOutput round-trip preserves none fields" uaoNoneRt result
+
+  IO.println ""
+  IO.println "Testing UnifiedAtom specs serialization..."
+  let unifiedWithSpecs : UnifiedAtom := {
+    name := "probe:Test.with_specs"
+    displayName := "with_specs"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+    specs := #["probe:Test.spec1", "probe:Test.spec2"]
+    verificationStatus := some .verified
+    specified := some true
+  }
+  let uwsJson := Lean.toJson unifiedWithSpecs
+  let uwsSpecsOk := match uwsJson.getObjValAs? (Array String) "specs" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.spec1"
+    | _ => false
+  result ← test "UnifiedAtom specs present in JSON" uwsSpecsOk result
+  let uwsRtOk := match Lean.FromJson.fromJson? uwsJson (α := UnifiedAtom) with
+    | .ok a => a.specs.size == 2 && a.specs[1]! == "probe:Test.spec2"
+    | .error _ => false
+  result ← test "UnifiedAtom specs round-trips" uwsRtOk result
+
+  let unifiedNoSpecs : UnifiedAtom := { unifiedWithSpecs with specs := #[] }
+  let unsJson := Lean.toJson unifiedNoSpecs
+  let unsAbsent := match unsJson.getObjVal? "specs" with
+    | .ok _ => false | _ => true
+  result ← test "UnifiedAtom specs absent when empty" unsAbsent result
 
   -- ============================================================
   -- View helpers
