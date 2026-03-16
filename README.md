@@ -116,7 +116,9 @@ Each atom includes all fields plus `verification-status` and `specified`:
     "display-name": "myTheorem",
     "kind": "theorem",
     "language": "lean",
-    "dependencies": ["probe:MyModule.helper"],
+    "dependencies": ["probe:MyModule.helper", "probe:MyModule.MyType"],
+    "type-dependencies": ["probe:MyModule.MyType"],
+    "term-dependencies": ["probe:MyModule.helper"],
     "code-module": "MyModule",
     "code-path": "MyModule.lean",
     "code-text": { "lines-start": 10, "lines-end": 15 },
@@ -214,7 +216,9 @@ Example config (`.verilib/probes/config.json`):
 | `display-name` | string | Last component of the name |
 | `kind` | string | `def`, `theorem`, `abbrev`, `class`, `structure`, `inductive`, `instance`, `axiom`, `opaque` |
 | `language` | string | Always `"lean"` |
-| `dependencies` | array | `probe:`-prefixed names this declaration depends on |
+| `dependencies` | array | `probe:`-prefixed names this declaration depends on (union of type + term) |
+| `type-dependencies` | array | `probe:`-prefixed names referenced in the declaration's type signature |
+| `term-dependencies` | array | `probe:`-prefixed names referenced in the declaration's body/proof |
 | `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file from project root |
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |

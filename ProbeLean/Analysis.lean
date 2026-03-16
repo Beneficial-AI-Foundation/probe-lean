@@ -81,15 +81,22 @@ def getDeclKind (env : Environment) (name : Name) (info : ConstantInfo) : DeclKi
   | .ctorInfo _ => .def  -- Constructors are treated as defs
   | .recInfo _ => .def   -- Recursors are treated as defs
 
-/-- Get the dependencies of a constant -/
-def getDependencies (info : ConstantInfo) : Array Name :=
+/-- Separated type-level and term-level dependencies of a constant -/
+structure DependencyInfo where
+  typeDeps : Array Name
+  termDeps : Array Name
+  all : Array Name
+
+/-- Get the dependencies of a constant, separated into type and term -/
+def getDependencies (info : ConstantInfo) : DependencyInfo :=
   let type := info.type
   let value := info.value?
   let typeConsts := type.getUsedConstants
   let valueConsts := match value with
     | some v => v.getUsedConstants
     | none => #[]
-  (typeConsts ++ valueConsts).toList.eraseDups.toArray
+  let all := (typeConsts ++ valueConsts).toList.eraseDups.toArray
+  { typeDeps := typeConsts, termDeps := valueConsts, all }
 
 /-- Get source file path for a module (relative to project root) -/
 def getModuleSourcePath (_env : Environment) (projectPath : System.FilePath) (modName : Name) : IO (Option String) := do
@@ -172,6 +179,8 @@ structure DeclInfo where
   moduleName : Name
   kind : DeclKind
   dependencies : Array Name
+  typeDependencies : Array Name
+  termDependencies : Array Name
   sourceInfo : Option CodeTextInfo
 
 /-- Analyze a single declaration -/
@@ -181,7 +190,11 @@ def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo) : DeclIn
   let kind := getDeclKind env name info
   let deps := getDependencies info
   let sourceInfo := getDeclSourceLoc env name
-  { name, displayName, moduleName, kind, dependencies := deps, sourceInfo }
+  { name, displayName, moduleName, kind,
+    dependencies := deps.all,
+    typeDependencies := deps.typeDeps,
+    termDependencies := deps.termDeps,
+    sourceInfo }
 
 /-- Get all project declarations from an environment -/
 def getProjectDecls (env : Environment) (projectModules : Array Name) : Array DeclInfo := Id.run do
@@ -215,11 +228,13 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     | some p => stripLeadingDotSlash p
     | none => ""
 
-  -- Filter dependencies to only include project declarations
-  let projDeps := info.dependencies.filter fun dep =>
+  let isProjectDep (dep : Name) : Bool :=
     !isInternalName dep && isProjectDecl env projectModules dep
 
-  -- Get Rust source from docstring and compute relevance
+  let projDeps := info.dependencies.filter isProjectDep
+  let projTypeDeps := info.typeDependencies.filter isProjectDep
+  let projTermDeps := info.termDependencies.filter isProjectDep
+
   let rustSource ← getDeclRustSource env info.name
   let isRelevant := isRelevantSource rustSource crate
 
@@ -227,6 +242,8 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     name := addProbePrefix info.name.toString
     displayName := info.displayName
     dependencies := projDeps.map fun dep => addProbePrefix dep.toString
+    typeDependencies := projTypeDeps.map fun dep => addProbePrefix dep.toString
+    termDependencies := projTermDeps.map fun dep => addProbePrefix dep.toString
     codeModule := info.moduleName.toString
     codePath := sourcePathStr
     codeText := info.sourceInfo

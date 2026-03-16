@@ -36,6 +36,13 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
         "probe:ArkLib.SumCheck.Protocol.Prover.computeRoundPoly",
         "probe:ArkLib.SumCheck.Protocol.Verifier.verify"
       ],
+      "type-dependencies": [
+        "probe:ArkLib.SumCheck.Protocol.Verifier.verify"
+      ],
+      "term-dependencies": [
+        "probe:ArkLib.SumCheck.Protocol.Prover.computeRoundPoly",
+        "probe:ArkLib.SumCheck.Protocol.Verifier.verify"
+      ],
       "code-module": "ArkLib.SumCheck.Protocol",
       "code-path": "ArkLib/SumCheck/Protocol.lean",
       "code-text": { "lines-start": 42, "lines-end": 67 },
@@ -208,7 +215,9 @@ Each value contains all atom fields plus verification and specification status:
 | `display-name` | string | Last component of the name |
 | `kind` | string | Declaration kind |
 | `language` | string | Always `"lean"` |
-| `dependencies` | array | `probe:`-prefixed names this declaration depends on |
+| `dependencies` | array | `probe:`-prefixed names this declaration depends on (union of type + term) |
+| `type-dependencies` | array | `probe:`-prefixed names referenced in the declaration's type signature |
+| `term-dependencies` | array | `probe:`-prefixed names referenced in the declaration's body/proof |
 | `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file |
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
@@ -257,3 +266,6 @@ Key changes:
 6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`.
 7. **Bug fix**: `markAtomFlags` is now correctly called in the combined pipeline (was
    previously missing from the old `pipeline` command).
+8. **New per-atom fields**: `type-dependencies` and `term-dependencies` split the flat
+   `dependencies` array into constants from the type signature vs the body/proof.
+   The `dependencies` field is preserved as the deduplicated union for backward compatibility.

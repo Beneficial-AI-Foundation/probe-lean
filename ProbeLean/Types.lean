@@ -192,6 +192,8 @@ structure Atom where
   name : String
   displayName : String
   dependencies : Array String
+  typeDependencies : Array String := #[]
+  termDependencies : Array String := #[]
   codeModule : String
   codePath : String
   codeText : Option CodeTextInfo
@@ -211,6 +213,8 @@ instance : Lean.ToJson Atom where
       ("name", Lean.toJson atom.name),
       ("display-name", Lean.toJson atom.displayName),
       ("dependencies", Lean.toJson atom.dependencies),
+      ("type-dependencies", Lean.toJson atom.typeDependencies),
+      ("term-dependencies", Lean.toJson atom.termDependencies),
       ("code-module", Lean.toJson atom.codeModule),
       ("code-path", Lean.toJson atom.codePath),
       ("code-text", Lean.toJson atom.codeText),
@@ -231,6 +235,8 @@ instance : Lean.FromJson Atom where
     let name ← json.getObjValAs? String "name" <|> pure ""
     let displayName ← json.getObjValAs? String "display-name"
     let dependencies ← json.getObjValAs? (Array String) "dependencies"
+    let typeDependencies ← json.getObjValAs? (Array String) "type-dependencies" <|> pure #[]
+    let termDependencies ← json.getObjValAs? (Array String) "term-dependencies" <|> pure #[]
     let codeModule ← json.getObjValAs? String "code-module"
     let codePath ← json.getObjValAs? String "code-path"
     let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
@@ -242,7 +248,7 @@ instance : Lean.FromJson Atom where
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
-    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs }
 
 /-- Output format for atoms - an object keyed by atom name -/
 structure AtomsOutput where
@@ -382,6 +388,8 @@ structure UnifiedAtom where
   name : String
   displayName : String
   dependencies : Array String
+  typeDependencies : Array String := #[]
+  termDependencies : Array String := #[]
   codeModule : String
   codePath : String
   codeText : Option CodeTextInfo
@@ -403,6 +411,8 @@ instance : Lean.ToJson UnifiedAtom where
       ("name", Lean.toJson atom.name),
       ("display-name", Lean.toJson atom.displayName),
       ("dependencies", Lean.toJson atom.dependencies),
+      ("type-dependencies", Lean.toJson atom.typeDependencies),
+      ("term-dependencies", Lean.toJson atom.termDependencies),
       ("code-module", Lean.toJson atom.codeModule),
       ("code-path", Lean.toJson atom.codePath),
       ("code-text", Lean.toJson atom.codeText),
@@ -429,6 +439,8 @@ instance : Lean.FromJson UnifiedAtom where
     let name ← json.getObjValAs? String "name" <|> pure ""
     let displayName ← json.getObjValAs? String "display-name"
     let dependencies ← json.getObjValAs? (Array String) "dependencies"
+    let typeDependencies ← json.getObjValAs? (Array String) "type-dependencies" <|> pure #[]
+    let termDependencies ← json.getObjValAs? (Array String) "term-dependencies" <|> pure #[]
     let codeModule ← json.getObjValAs? String "code-module"
     let codePath ← json.getObjValAs? String "code-path"
     let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
@@ -442,7 +454,7 @@ instance : Lean.FromJson UnifiedAtom where
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
     let specified ← json.getObjValAs? (Option Bool) "specified" <|> pure none
-    return { name, displayName, dependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, verificationStatus, specified }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, verificationStatus, specified }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

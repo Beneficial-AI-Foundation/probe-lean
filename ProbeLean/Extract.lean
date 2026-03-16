@@ -39,6 +39,8 @@ def unifyAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option 
     name := atom.name
     displayName := atom.displayName
     dependencies := atom.dependencies
+    typeDependencies := atom.typeDependencies
+    termDependencies := atom.termDependencies
     codeModule := atom.codeModule
     codePath := atom.codePath
     codeText := atom.codeText

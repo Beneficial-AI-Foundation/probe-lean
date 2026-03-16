@@ -25,6 +25,119 @@ def test (name : String) (condition : Bool) (result : TestResult) : IO TestResul
     IO.println s!"  ✗ {name}"
     return result.add false
 
+/-- Tests for type-dependencies and term-dependencies fields -/
+def testTypedDependencies (result : TestResult) : IO TestResult := do
+  let mut result := result
+
+  IO.println ""
+  IO.println "Testing Atom typed dependencies JSON serialization..."
+  let typedDepAtom : Atom := {
+    name := "probe:Test.myThm"
+    displayName := "myThm"
+    dependencies := #["probe:Test.typeOnly", "probe:Test.termOnly", "probe:Test.both"]
+    typeDependencies := #["probe:Test.typeOnly", "probe:Test.both"]
+    termDependencies := #["probe:Test.termOnly", "probe:Test.both"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := some { linesStart := 10, linesEnd := 20 }
+    kind := .theorem
+  }
+  let typedDepJson := Lean.toJson typedDepAtom
+  let hasTypeDeps := match typedDepJson.getObjValAs? (Array String) "type-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.typeOnly" && arr[1]! == "probe:Test.both"
+    | _ => false
+  result ← test "atom has type-dependencies" hasTypeDeps result
+  let hasTermDeps := match typedDepJson.getObjValAs? (Array String) "term-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.termOnly" && arr[1]! == "probe:Test.both"
+    | _ => false
+  result ← test "atom has term-dependencies" hasTermDeps result
+  let hasDepsUnion := match typedDepJson.getObjValAs? (Array String) "dependencies" with
+    | .ok arr => arr.size == 3
+    | _ => false
+  result ← test "atom dependencies is union of type+term" hasDepsUnion result
+
+  IO.println ""
+  IO.println "Testing Atom typed dependencies FromJson round-trip..."
+  let typedDepRt := match Lean.FromJson.fromJson? typedDepJson (α := Atom) with
+    | .ok a => a.typeDependencies.size == 2 && a.termDependencies.size == 2
+      && a.typeDependencies[0]! == "probe:Test.typeOnly"
+      && a.termDependencies[0]! == "probe:Test.termOnly"
+    | .error _ => false
+  result ← test "Atom typed deps round-trips through JSON" typedDepRt result
+
+  IO.println ""
+  IO.println "Testing Atom default empty typed dependencies..."
+  let defaultDepAtom : Atom := {
+    name := "probe:Test.simple"
+    displayName := "simple"
+    dependencies := #["probe:Test.dep"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  result ← test "default typeDependencies is empty" (defaultDepAtom.typeDependencies.isEmpty) result
+  result ← test "default termDependencies is empty" (defaultDepAtom.termDependencies.isEmpty) result
+  let defaultDepJson := Lean.toJson defaultDepAtom
+  let defaultTypeDepsOk := match defaultDepJson.getObjValAs? (Array String) "type-dependencies" with
+    | .ok arr => arr.isEmpty
+    | _ => false
+  result ← test "default type-dependencies serializes as empty array" defaultTypeDepsOk result
+
+  IO.println ""
+  IO.println "Testing Atom typed deps backward compat (FromJson without typed deps)..."
+  let legacyJson := Lean.Json.mkObj [
+    ("name", Lean.toJson "probe:Test.legacy"),
+    ("display-name", Lean.toJson "legacy"),
+    ("dependencies", Lean.toJson (#["probe:Test.dep"] : Array String)),
+    ("code-module", Lean.toJson "Test"),
+    ("code-path", Lean.toJson "Test.lean"),
+    ("code-text", Lean.Json.null),
+    ("kind", Lean.toJson "def"),
+    ("language", Lean.toJson "lean"),
+    ("is-hidden", Lean.toJson false),
+    ("is-extraction-artifact", Lean.toJson false),
+    ("is-ignored", Lean.toJson false),
+    ("is-relevant", Lean.toJson true),
+    ("rust-source", Lean.Json.null)
+  ]
+  let legacyRt := match Lean.FromJson.fromJson? legacyJson (α := Atom) with
+    | .ok a => a.dependencies.size == 1 && a.typeDependencies.isEmpty && a.termDependencies.isEmpty
+    | .error _ => false
+  result ← test "legacy JSON without typed deps parses with empty arrays" legacyRt result
+
+  IO.println ""
+  IO.println "Testing UnifiedAtom typed dependencies round-trip..."
+  let unifiedTypedDep : UnifiedAtom := {
+    name := "probe:Test.typedThm"
+    displayName := "typedThm"
+    dependencies := #["probe:Test.a", "probe:Test.b", "probe:Test.c"]
+    typeDependencies := #["probe:Test.a", "probe:Test.c"]
+    termDependencies := #["probe:Test.b", "probe:Test.c"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .theorem
+    verificationStatus := some .verified
+    specified := some true
+  }
+  let utdJson := Lean.toJson unifiedTypedDep
+  let utdTypeDepsOk := match utdJson.getObjValAs? (Array String) "type-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.a"
+    | _ => false
+  result ← test "UnifiedAtom type-dependencies present" utdTypeDepsOk result
+  let utdTermDepsOk := match utdJson.getObjValAs? (Array String) "term-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.b"
+    | _ => false
+  result ← test "UnifiedAtom term-dependencies present" utdTermDepsOk result
+  let utdRtOk := match Lean.FromJson.fromJson? utdJson (α := UnifiedAtom) with
+    | .ok a => a.typeDependencies.size == 2 && a.termDependencies.size == 2
+      && a.dependencies.size == 3
+    | .error _ => false
+  result ← test "UnifiedAtom typed deps round-trips" utdRtOk result
+
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
 
@@ -1061,6 +1174,11 @@ def main : IO UInt32 := do
   result ← test "returns exact path when probes dir missing" (found4.toString == expectedEmpty.toString && !fb4) result
 
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
+
+  -- ============================================================
+  -- Typed dependencies (type vs term)
+  -- ============================================================
+  result ← testTypedDependencies result
 
   -- ============================================================
   -- Summary
