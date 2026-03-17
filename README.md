@@ -128,6 +128,7 @@ Each atom includes all fields plus `verification-status` and `specs`:
     "is-relevant": true,
     "rust-source": null,
     "specs": ["probe:MyModule.helper_spec"],
+    "primary-spec": "probe:MyModule.helper_spec",
     "verification-status": "verified"
   },
   "probe:MyModule.helper_spec": {
@@ -245,6 +246,7 @@ Example config (`.verilib/probes/config.json`):
 | `is-relevant` | bool | Rust source is from the target crate |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms that depend on this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
+| `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
 
 ### viewify output (molecules)

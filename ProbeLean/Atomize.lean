@@ -71,7 +71,8 @@ def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (artifactSuff
     { atom with isHidden := isHidden, isExtractionArtifact := isExtractionArtifact, isIgnored := isIgnored }
 
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
-    list of every non-theorem dependency. Single pass over atoms + dependencies. -/
+    list of every non-theorem dependency. Also propagate `primarySpec` from
+    `@[primary_spec]`-tagged theorems and the `_spec` suffix heuristic. -/
 def computeSpecs (atoms : Array Atom) : Array Atom :=
   let kindMap : Lean.RBMap String DeclKind compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.kind
@@ -87,9 +88,35 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
               m.insert dep (cur.push a.name)
           | none => m
       else m
+  let attrPrimarySpecMap : Lean.RBMap String String compare :=
+    atoms.foldl (init := .empty) fun m a =>
+      if a.kind == DeclKind.theorem && a.isPrimarySpec then
+        a.dependencies.foldl (init := m) fun m dep =>
+          match kindMap.find? dep with
+          | some k =>
+            if k == DeclKind.theorem then m
+            else m.insert dep a.name
+          | none => m
+      else m
+  let primarySpecMap :=
+    atoms.foldl (init := attrPrimarySpecMap) fun m a =>
+      if a.kind == DeclKind.theorem then m
+      else
+        match m.find? a.name with
+        | some _ => m
+        | none =>
+          let candidate := a.name ++ "_spec"
+          match specsMap.find? a.name with
+          | some specs =>
+            if specs.contains candidate then m.insert a.name candidate
+            else m
+          | none => m
   atoms.map fun a =>
-    match specsMap.find? a.name with
-    | some specs => { a with specs := specs }
+    let a := match specsMap.find? a.name with
+      | some specs => { a with specs := specs }
+      | none => a
+    match primarySpecMap.find? a.name with
+    | some ps => { a with primarySpec := some ps }
     | none => a
 
 /-- Resolve a potentially relative path against a base directory -/

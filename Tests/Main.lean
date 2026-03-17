@@ -1092,6 +1092,55 @@ def testTypedDependencies (result : TestResult) : IO TestResult := do
 
   return result
 
+def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
+  let mut result := result
+  let mkAtom (name : String) (kind : DeclKind) (deps : Array String)
+      (isPrimarySpec : Bool := false) : Atom :=
+    { name, displayName := name, dependencies := deps, codeModule := "Test",
+      codePath := "Test.lean", codeText := none, kind, isPrimarySpec }
+
+  IO.println ""
+  IO.println "Testing primary-spec _spec suffix heuristic..."
+  let defA := mkAtom "probe:Test.foo" .def #[]
+  let thmA := mkAtom "probe:Test.foo_spec" .theorem #["probe:Test.foo"]
+  let res1 := computeSpecs #[defA, thmA]
+  let defRes1 := res1.find? fun a => a.name == "probe:Test.foo"
+  result ← test "heuristic sets primarySpec on def" (match defRes1 with
+    | some a => a.primarySpec == some "probe:Test.foo_spec"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing primary-spec attribute takes precedence..."
+  let defB := mkAtom "probe:Test.bar" .def #[]
+  let thmAttr := mkAtom "probe:Test.bar_main" .theorem #["probe:Test.bar"] (isPrimarySpec := true)
+  let thmHeur := mkAtom "probe:Test.bar_spec" .theorem #["probe:Test.bar"]
+  let res2 := computeSpecs #[defB, thmAttr, thmHeur]
+  let defRes2 := res2.find? fun a => a.name == "probe:Test.bar"
+  result ← test "attribute overrides heuristic" (match defRes2 with
+    | some a => a.primarySpec == some "probe:Test.bar_main"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing primary-spec heuristic no match..."
+  let defC := mkAtom "probe:Test.baz" .def #[]
+  let thmOther := mkAtom "probe:Test.baz_lemma" .theorem #["probe:Test.baz"]
+  let res3 := computeSpecs #[defC, thmOther]
+  let defRes3 := res3.find? fun a => a.name == "probe:Test.baz"
+  result ← test "no heuristic match when no _spec theorem" (match defRes3 with
+    | some a => a.primarySpec.isNone
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing primary-spec attribute still works via isPrimarySpec..."
+  let defD := mkAtom "probe:Test.qux" .def #[]
+  let thmTagged := mkAtom "probe:Test.qux_spec" .theorem #["probe:Test.qux"] (isPrimarySpec := true)
+  let res4 := computeSpecs #[defD, thmTagged]
+  let defRes4 := res4.find? fun a => a.name == "probe:Test.qux"
+  result ← test "attribute-tagged theorem sets primarySpec on def" (match defRes4 with
+    | some a => a.primarySpec == some "probe:Test.qux_spec"
+    | none => false) result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1113,6 +1162,7 @@ def main : IO UInt32 := do
   result ← testMetadataHelpers result
   result ← testFindDefaultAtomsPath result
   result ← testTypedDependencies result
+  result ← testPrimarySpecHeuristic result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

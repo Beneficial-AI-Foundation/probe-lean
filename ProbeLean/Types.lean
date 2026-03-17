@@ -205,6 +205,8 @@ structure Atom where
   isRelevant : Bool := true
   rustSource : Option String := none
   specs : Array String := #[]
+  isPrimarySpec : Bool := false
+  primarySpec : Option String := none
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson Atom where
@@ -228,7 +230,10 @@ instance : Lean.ToJson Atom where
     ]
     let withSpecs := if atom.specs.isEmpty then base
       else base ++ [("specs", Lean.toJson atom.specs)]
-    Lean.Json.mkObj withSpecs
+    let withPrimary := match atom.primarySpec with
+      | some ps => withSpecs ++ [("primary-spec", Lean.toJson ps)]
+      | none => withSpecs
+    Lean.Json.mkObj withPrimary
 
 instance : Lean.FromJson Atom where
   fromJson? json := do
@@ -248,7 +253,9 @@ instance : Lean.FromJson Atom where
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs }
+    let isPrimarySpec ← json.getObjValAs? Bool "is-primary-spec" <|> pure false
+    let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, isPrimarySpec, primarySpec }
 
 /-- Output format for atoms - an object keyed by atom name -/
 structure AtomsOutput where
@@ -401,6 +408,8 @@ structure UnifiedAtom where
   isRelevant : Bool := true
   rustSource : Option String := none
   specs : Array String := #[]
+  isPrimarySpec : Bool := false
+  primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus
   deriving Repr, BEq, Inhabited
 
@@ -425,9 +434,12 @@ instance : Lean.ToJson UnifiedAtom where
     ]
     let withSpecs := if atom.specs.isEmpty then base
       else base ++ [("specs", Lean.toJson atom.specs)]
-    let withVerification := match atom.verificationStatus with
-      | some status => withSpecs ++ [("verification-status", Lean.toJson status)]
+    let withPrimary := match atom.primarySpec with
+      | some ps => withSpecs ++ [("primary-spec", Lean.toJson ps)]
       | none => withSpecs
+    let withVerification := match atom.verificationStatus with
+      | some status => withPrimary ++ [("verification-status", Lean.toJson status)]
+      | none => withPrimary
     Lean.Json.mkObj withVerification
 
 instance : Lean.FromJson UnifiedAtom where
@@ -448,8 +460,10 @@ instance : Lean.FromJson UnifiedAtom where
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
+    let isPrimarySpec ← json.getObjValAs? Bool "is-primary-spec" <|> pure false
+    let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, verificationStatus }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, isPrimarySpec, primarySpec, verificationStatus }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

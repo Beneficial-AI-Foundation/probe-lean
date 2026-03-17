@@ -53,6 +53,29 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
       "is-ignored": false,
       "is-relevant": true,
       "rust-source": null,
+      "specs": ["probe:ArkLib.SumCheck.Protocol.Prover.prove_spec"],
+      "primary-spec": "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec",
+      "verification-status": "verified"
+    },
+    "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec": {
+      "display-name": "prove_spec",
+      "dependencies": [
+        "probe:ArkLib.SumCheck.Protocol.Prover.prove"
+      ],
+      "type-dependencies": [
+        "probe:ArkLib.SumCheck.Protocol.Prover.prove"
+      ],
+      "term-dependencies": [],
+      "code-module": "ArkLib.SumCheck.Protocol",
+      "code-path": "ArkLib/SumCheck/Protocol.lean",
+      "code-text": { "lines-start": 70, "lines-end": 85 },
+      "kind": "theorem",
+      "language": "lean",
+      "is-hidden": false,
+      "is-extraction-artifact": false,
+      "is-ignored": false,
+      "is-relevant": true,
+      "rust-source": null,
       "verification-status": "verified"
     }
   }
@@ -226,6 +249,7 @@ Each value contains all atom fields plus verification status and specs:
 | `is-relevant` | bool | Rust source is from the target crate |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
+| `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
 
 ### `probe-lean/viewify` (molecules)

@@ -3,6 +3,7 @@
 -/
 import Lean
 import ProbeLean.Types
+import ProbeLean.Attrs
 
 namespace ProbeLean
 
@@ -237,6 +238,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
 
   let rustSource ← getDeclRustSource env info.name
   let isRelevant := isRelevantSource rustSource crate
+  let isPrimarySpec := primarySpecAttr.hasTag env info.name
 
   return {
     name := addProbePrefix info.name.toString
@@ -250,6 +252,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     kind := info.kind
     isRelevant := isRelevant
     rustSource := rustSource
+    isPrimarySpec := isPrimarySpec
   }
 
 end ProbeLean

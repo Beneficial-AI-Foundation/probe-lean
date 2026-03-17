@@ -51,6 +51,8 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     isRelevant := atom.isRelevant
     rustSource := atom.rustSource
     specs := atom.specs
+    isPrimarySpec := atom.isPrimarySpec
+    primarySpec := atom.primarySpec
     verificationStatus := proofEntry.map fun p => mapVerifyStatus p.status
   }
 
