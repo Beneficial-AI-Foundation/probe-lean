@@ -402,7 +402,6 @@ structure UnifiedAtom where
   rustSource : Option String := none
   specs : Array String := #[]
   verificationStatus : Option WebVerificationStatus
-  specified : Option Bool
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson UnifiedAtom where
@@ -429,10 +428,7 @@ instance : Lean.ToJson UnifiedAtom where
     let withVerification := match atom.verificationStatus with
       | some status => withSpecs ++ [("verification-status", Lean.toJson status)]
       | none => withSpecs
-    let withSpecified := match atom.specified with
-      | some spec => withVerification ++ [("specified", Lean.toJson spec)]
-      | none => withVerification
-    Lean.Json.mkObj withSpecified
+    Lean.Json.mkObj withVerification
 
 instance : Lean.FromJson UnifiedAtom where
   fromJson? json := do
@@ -453,8 +449,7 @@ instance : Lean.FromJson UnifiedAtom where
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
-    let specified ← json.getObjValAs? (Option Bool) "specified" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, verificationStatus, specified }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, rustSource, specs, verificationStatus }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

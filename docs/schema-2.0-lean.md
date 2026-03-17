@@ -53,8 +53,7 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
       "is-ignored": false,
       "is-relevant": true,
       "rust-source": null,
-      "verification-status": "verified",
-      "specified": true
+      "verification-status": "verified"
     }
   }
 }
@@ -66,14 +65,14 @@ probe-lean registers the following `schema` values:
 
 | schema | Command | Description |
 |--------|---------|-------------|
-| `probe-lean/extract` | `extract` | Unified atoms with verification and specification status |
+| `probe-lean/extract` | `extract` | Unified atoms with verification status and specs |
 | `probe-lean/viewify` | `viewify` | Filtered molecules for the web UI |
 
 ## CLI Commands
 
 probe-lean exposes two commands:
 
-- **`extract`**: The primary command. Combines atom extraction, specification status computation,
+- **`extract`**: The primary command. Combines atom extraction, specs computation,
   and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
 - **`viewify`**: Reads extract output, filters atoms (not hidden, not extraction artifact,
   is relevant, code-path ends with `Funs.lean`), and outputs molecules to `.verilib/views/`.
@@ -208,7 +207,7 @@ do not recognize them must ignore them.
 ### `probe-lean/extract` (unified atoms)
 
 Produced by the `extract` command (`tool.command: "extract"`). Dictionary keyed by code-name.
-Each value contains all atom fields plus verification and specification status:
+Each value contains all atom fields plus verification status and specs:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -226,9 +225,8 @@ Each value contains all atom fields plus verification and specification status:
 | `is-ignored` | bool | From config's ignored list |
 | `is-relevant` | bool | Rust source is from the target crate |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
-| `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. |
+| `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
-| `specified` | bool or absent | Whether the declaration has a specification |
 
 ### `probe-lean/viewify` (molecules)
 
@@ -269,3 +267,6 @@ Key changes:
 8. **New per-atom fields**: `type-dependencies` and `term-dependencies` split the flat
    `dependencies` array into constants from the type signature vs the body/proof.
    The `dependencies` field is preserved as the deduplicated union for backward compatibility.
+9. **Removed `specified` field**: The `specified` boolean was always `true` in Lean (all
+   declarations have type signatures). Whether an atom has specifications is now inferred
+   from `specs != []`, aligning with probe-verus v5.0.0 which also dropped `specified`.

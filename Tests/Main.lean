@@ -3,8 +3,6 @@
 -/
 import ProbeLean
 
-set_option maxRecDepth 4096
-
 open ProbeLean
 
 /-- Simple test harness -/
@@ -25,126 +23,8 @@ def test (name : String) (condition : Bool) (result : TestResult) : IO TestResul
     IO.println s!"  ✗ {name}"
     return result.add false
 
-/-- Tests for type-dependencies and term-dependencies fields -/
-def testTypedDependencies (result : TestResult) : IO TestResult := do
+def testConstants (result : TestResult) : IO TestResult := do
   let mut result := result
-
-  IO.println ""
-  IO.println "Testing Atom typed dependencies JSON serialization..."
-  let typedDepAtom : Atom := {
-    name := "probe:Test.myThm"
-    displayName := "myThm"
-    dependencies := #["probe:Test.typeOnly", "probe:Test.termOnly", "probe:Test.both"]
-    typeDependencies := #["probe:Test.typeOnly", "probe:Test.both"]
-    termDependencies := #["probe:Test.termOnly", "probe:Test.both"]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := some { linesStart := 10, linesEnd := 20 }
-    kind := .theorem
-  }
-  let typedDepJson := Lean.toJson typedDepAtom
-  let hasTypeDeps := match typedDepJson.getObjValAs? (Array String) "type-dependencies" with
-    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.typeOnly" && arr[1]! == "probe:Test.both"
-    | _ => false
-  result ← test "atom has type-dependencies" hasTypeDeps result
-  let hasTermDeps := match typedDepJson.getObjValAs? (Array String) "term-dependencies" with
-    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.termOnly" && arr[1]! == "probe:Test.both"
-    | _ => false
-  result ← test "atom has term-dependencies" hasTermDeps result
-  let hasDepsUnion := match typedDepJson.getObjValAs? (Array String) "dependencies" with
-    | .ok arr => arr.size == 3
-    | _ => false
-  result ← test "atom dependencies is union of type+term" hasDepsUnion result
-
-  IO.println ""
-  IO.println "Testing Atom typed dependencies FromJson round-trip..."
-  let typedDepRt := match Lean.FromJson.fromJson? typedDepJson (α := Atom) with
-    | .ok a => a.typeDependencies.size == 2 && a.termDependencies.size == 2
-      && a.typeDependencies[0]! == "probe:Test.typeOnly"
-      && a.termDependencies[0]! == "probe:Test.termOnly"
-    | .error _ => false
-  result ← test "Atom typed deps round-trips through JSON" typedDepRt result
-
-  IO.println ""
-  IO.println "Testing Atom default empty typed dependencies..."
-  let defaultDepAtom : Atom := {
-    name := "probe:Test.simple"
-    displayName := "simple"
-    dependencies := #["probe:Test.dep"]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := none
-    kind := .def
-  }
-  result ← test "default typeDependencies is empty" (defaultDepAtom.typeDependencies.isEmpty) result
-  result ← test "default termDependencies is empty" (defaultDepAtom.termDependencies.isEmpty) result
-  let defaultDepJson := Lean.toJson defaultDepAtom
-  let defaultTypeDepsOk := match defaultDepJson.getObjValAs? (Array String) "type-dependencies" with
-    | .ok arr => arr.isEmpty
-    | _ => false
-  result ← test "default type-dependencies serializes as empty array" defaultTypeDepsOk result
-
-  IO.println ""
-  IO.println "Testing Atom typed deps backward compat (FromJson without typed deps)..."
-  let legacyJson := Lean.Json.mkObj [
-    ("name", Lean.toJson "probe:Test.legacy"),
-    ("display-name", Lean.toJson "legacy"),
-    ("dependencies", Lean.toJson (#["probe:Test.dep"] : Array String)),
-    ("code-module", Lean.toJson "Test"),
-    ("code-path", Lean.toJson "Test.lean"),
-    ("code-text", Lean.Json.null),
-    ("kind", Lean.toJson "def"),
-    ("language", Lean.toJson "lean"),
-    ("is-hidden", Lean.toJson false),
-    ("is-extraction-artifact", Lean.toJson false),
-    ("is-ignored", Lean.toJson false),
-    ("is-relevant", Lean.toJson true),
-    ("rust-source", Lean.Json.null)
-  ]
-  let legacyRt := match Lean.FromJson.fromJson? legacyJson (α := Atom) with
-    | .ok a => a.dependencies.size == 1 && a.typeDependencies.isEmpty && a.termDependencies.isEmpty
-    | .error _ => false
-  result ← test "legacy JSON without typed deps parses with empty arrays" legacyRt result
-
-  IO.println ""
-  IO.println "Testing UnifiedAtom typed dependencies round-trip..."
-  let unifiedTypedDep : UnifiedAtom := {
-    name := "probe:Test.typedThm"
-    displayName := "typedThm"
-    dependencies := #["probe:Test.a", "probe:Test.b", "probe:Test.c"]
-    typeDependencies := #["probe:Test.a", "probe:Test.c"]
-    termDependencies := #["probe:Test.b", "probe:Test.c"]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := none
-    kind := .theorem
-    verificationStatus := some .verified
-    specified := some true
-  }
-  let utdJson := Lean.toJson unifiedTypedDep
-  let utdTypeDepsOk := match utdJson.getObjValAs? (Array String) "type-dependencies" with
-    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.a"
-    | _ => false
-  result ← test "UnifiedAtom type-dependencies present" utdTypeDepsOk result
-  let utdTermDepsOk := match utdJson.getObjValAs? (Array String) "term-dependencies" with
-    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.b"
-    | _ => false
-  result ← test "UnifiedAtom term-dependencies present" utdTermDepsOk result
-  let utdRtOk := match Lean.FromJson.fromJson? utdJson (α := UnifiedAtom) with
-    | .ok a => a.typeDependencies.size == 2 && a.termDependencies.size == 2
-      && a.dependencies.size == 3
-    | .error _ => false
-  result ← test "UnifiedAtom typed deps round-trips" utdRtOk result
-
-  return result
-
-def main : IO UInt32 := do
-  let mut result : TestResult := { passed := 0, failed := 0 }
-
-  -- ============================================================
-  -- Constants
-  -- ============================================================
-
   IO.println "Testing Constants..."
   result ← test "verilibDir" (Constants.verilibDir == ".verilib") result
   result ← test "probesDir" (Constants.probesDir == "probes") result
@@ -155,11 +35,10 @@ def main : IO UInt32 := do
   result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
   result ← test "schemaExtract" (Constants.schemaExtract == "probe-lean/extract") result
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
+  return result
 
-  -- ============================================================
-  -- Analysis helpers
-  -- ============================================================
-
+def testAnalysisHelpers (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing isInternalName..."
   result ← test "underscore prefix" (isInternalName `_private) result
@@ -199,11 +78,10 @@ def main : IO UInt32 := do
   result ← test "strip many ./" (stripLeadingDotSlash "././././test.lean" == "test.lean") result
   result ← test "no strip needed" (stripLeadingDotSlash "test.lean" == "test.lean") result
   result ← test "no strip absolute" (stripLeadingDotSlash "/tmp/test.lean" == "/tmp/test.lean") result
+  return result
 
-  -- ============================================================
-  -- Shared utilities (Types.lean)
-  -- ============================================================
-
+def testSharedUtilities (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing addProbePrefix..."
   result ← test "add probe prefix" (addProbePrefix "Test.foo" == "probe:Test.foo") result
@@ -214,11 +92,10 @@ def main : IO UInt32 := do
   result ← test "strip probe prefix" (stripProbePrefix "probe:Test.foo" == "Test.foo") result
   result ← test "strip probe prefix simple" (stripProbePrefix "probe:foo" == "foo") result
   result ← test "strip probe prefix no prefix" (stripProbePrefix "Test.foo" == "Test.foo") result
+  return result
 
-  -- ============================================================
-  -- Type JSON serialization
-  -- ============================================================
-
+def testTypeJsonSerialization (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing DeclKind JSON serialization..."
   result ← test "def toJson" (Lean.toJson DeclKind.def == "def") result
@@ -322,24 +199,10 @@ def main : IO UInt32 := do
     | .ok e => e.schema == Constants.schemaExtract && e.timestamp == "2025-01-01T00:00:00Z"
     | .error _ => false
   result ← test "envelope round-trips through JSON" envRt result
+  return result
 
-  -- ============================================================
-  -- Specify
-  -- ============================================================
-
-  IO.println ""
-  IO.println "Testing isAlwaysSpecified..."
-  result ← test "theorem is specified" (isAlwaysSpecified DeclKind.theorem) result
-  result ← test "def is specified" (isAlwaysSpecified DeclKind.def) result
-  result ← test "structure is specified" (isAlwaysSpecified DeclKind.structure) result
-  result ← test "class is specified" (isAlwaysSpecified DeclKind.class) result
-  result ← test "inductive is specified" (isAlwaysSpecified DeclKind.inductive) result
-  result ← test "instance is specified" (isAlwaysSpecified DeclKind.instance) result
-
-  -- ============================================================
-  -- Atomize (config helpers)
-  -- ============================================================
-
+def testAtomizeHelpers (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing hasAnySuffix..."
   result ← test "has suffix _body" (hasAnySuffix "Test.foo_body" #["_body", "_loop"]) result
@@ -411,11 +274,10 @@ def main : IO UInt32 := do
   result ← test "non-artifact atom is not extraction artifact" (!markedAtoms[0]!.isExtractionArtifact) result
   result ← test "ignored atom is ignored" markedAtoms[3]!.isIgnored result
   result ← test "non-ignored atom is not ignored" (!markedAtoms[0]!.isIgnored) result
+  return result
 
-  -- ============================================================
-  -- computeSpecs
-  -- ============================================================
-
+def testComputeSpecs (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing computeSpecs..."
   let defAtom : Atom := {
@@ -497,13 +359,10 @@ def main : IO UInt32 := do
   result ← test "theorem-to-theorem dep not added as spec" (match thmWithMeta with
     | some a => a.specs.isEmpty
     | none => false) result
+  return result
 
-  -- ============================================================
-  -- atomToSpecEntry
-  -- ============================================================
-
-  IO.println ""
-  IO.println "Testing atomToSpecEntry..."
+def testAtomsOutputJson (result : TestResult) : IO TestResult := do
+  let mut result := result
   let testAtom : Atom := {
     name := "probe:Test.foo"
     displayName := "foo"
@@ -513,14 +372,6 @@ def main : IO UInt32 := do
     codeText := some { linesStart := 10, linesEnd := 15 }
     kind := .theorem
   }
-  let specEntry := atomToSpecEntry testAtom
-  result ← test "specEntry specified" specEntry.specified result
-  result ← test "specEntry codePath" (specEntry.codePath == "Test.lean") result
-  result ← test "specEntry specText" (specEntry.specText == some { linesStart := 10, linesEnd := 15 }) result
-
-  -- ============================================================
-  -- AtomsOutput JSON
-  -- ============================================================
 
   IO.println ""
   IO.println "Testing AtomsOutput JSON serialization..."
@@ -579,11 +430,10 @@ def main : IO UInt32 := do
       | .ok true => true | _ => false
     | _ => false
   result ← test "atom has is-ignored true" hasIsIgnoredTrue result
+  return result
 
-  -- ============================================================
-  -- Atom specs JSON serialization
-  -- ============================================================
-
+def testAtomSpecsJson (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing Atom specs JSON serialization..."
   let atomNoSpecs : Atom := {
@@ -618,11 +468,10 @@ def main : IO UInt32 := do
     | .ok a => a.specs.isEmpty
     | .error _ => false
   result ← test "Atom empty specs round-trips through JSON" noSpecsRtOk result
+  return result
 
-  -- ============================================================
-  -- Atom language field
-  -- ============================================================
-
+def testAtomLanguageField (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing Atom language field..."
   let langAtom : Atom := {
@@ -647,49 +496,19 @@ def main : IO UInt32 := do
       | .ok "lean" => true | _ => false
     | _ => false
   result ← test "atoms output includes language per atom" atomValHasLang result
+  return result
 
-  -- ============================================================
-  -- SpecEntry JSON
-  -- ============================================================
-
-  IO.println ""
-  IO.println "Testing SpecEntry JSON serialization..."
-  let specJson := Lean.toJson specEntry
-  let hasSpecified := match specJson.getObjValAs? Bool "specified" with
-    | .ok true => true | _ => false
-  let hasCodePath := match specJson.getObjValAs? String "code-path" with
-    | .ok "Test.lean" => true | _ => false
-  result ← test "specEntry toJson has specified" hasSpecified result
-  result ← test "specEntry toJson has code-path" hasCodePath result
-
-  -- ============================================================
-  -- SpecsOutput JSON
-  -- ============================================================
-
-  IO.println ""
-  IO.println "Testing SpecsOutput JSON serialization..."
-  let specsOutput : SpecsOutput := {
-    entries := #[("probe:Test.foo", { specified := true, codePath := "Test.lean", specText := none })]
+def testSorryDetection (result : TestResult) : IO TestResult := do
+  let mut result := result
+  let testAtom : Atom := {
+    name := "probe:Test.foo"
+    displayName := "foo"
+    dependencies := #["probe:Test.helper"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := some { linesStart := 10, linesEnd := 15 }
+    kind := .theorem
   }
-  let specsJson := Lean.toJson specsOutput
-  let specsKeyOk := match specsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? Bool "specified" with
-      | .ok true => true | _ => false
-    | _ => false
-  result ← test "specsOutput keyed dict format" specsKeyOk result
-
-  IO.println ""
-  IO.println "Testing SpecsOutput FromJson round-trip..."
-  let specsRt := match Lean.FromJson.fromJson? (Lean.toJson specsOutput) (α := SpecsOutput) with
-    | .ok so => match so.entries.toList with
-      | [(n, e)] => n == "probe:Test.foo" && e.specified == true
-      | _ => false
-    | .error _ => false
-  result ← test "specsOutput round-trips through JSON" specsRt result
-
-  -- ============================================================
-  -- Sorry detection (VerifyInternal)
-  -- ============================================================
 
   IO.println ""
   IO.println "Testing parseSorryWarning..."
@@ -738,11 +557,10 @@ def main : IO UInt32 := do
   let verifiedEntry := atomToProofEntry testAtom noSorries
   result ← test "verifiedEntry verified" verifiedEntry.verified result
   result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
+  return result
 
-  -- ============================================================
-  -- ProofsOutput JSON
-  -- ============================================================
-
+def testProofsOutputJson (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing ProofsOutput JSON serialization..."
   let proofsOutput : ProofsOutput := {
@@ -766,11 +584,10 @@ def main : IO UInt32 := do
       | _ => false
     | .error _ => false
   result ← test "proofsOutput round-trips through JSON" proofsRt result
+  return result
 
-  -- ============================================================
-  -- WebVerificationStatus / UnifiedAtom / UnifiedAtomsOutput JSON
-  -- ============================================================
-
+def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing WebVerificationStatus FromJson round-trip..."
   let wvsVerified := match Lean.FromJson.fromJson? (Lean.toJson WebVerificationStatus.verified) (α := WebVerificationStatus) with
@@ -794,7 +611,6 @@ def main : IO UInt32 := do
     codeText := some { linesStart := 10, linesEnd := 15 }
     kind := .theorem
     verificationStatus := some .verified
-    specified := some true
   }
   let unifiedAtom2 : UnifiedAtom := {
     name := "probe:Test.bar"
@@ -806,7 +622,6 @@ def main : IO UInt32 := do
     kind := .def
     rustSource := some "src/lib.rs"
     verificationStatus := none
-    specified := none
   }
   let unifiedOutput : UnifiedAtomsOutput := { atoms := #[unifiedAtom1, unifiedAtom2] }
   let uaoJson := Lean.toJson unifiedOutput
@@ -818,7 +633,6 @@ def main : IO UInt32 := do
     | some a1 => do
       result ← test "UAO round-trip: foo displayName" (a1.displayName == "foo") result
       result ← test "UAO round-trip: foo verificationStatus" (a1.verificationStatus == some .verified) result
-      result ← test "UAO round-trip: foo specified" (a1.specified == some true) result
       result ← test "UAO round-trip: foo dependencies" (a1.dependencies.size == 1) result
     | none => do
       IO.println "  ✗ UAO round-trip: probe:Test.foo not found"
@@ -827,7 +641,6 @@ def main : IO UInt32 := do
     | some a2 => do
       result ← test "UAO round-trip: bar rustSource" (a2.rustSource == some "src/lib.rs") result
       result ← test "UAO round-trip: bar verificationStatus none" (a2.verificationStatus == none) result
-      result ← test "UAO round-trip: bar specified none" (a2.specified == none) result
     | none => do
       IO.println "  ✗ UAO round-trip: probe:Test.bar not found"
       result := result.add false
@@ -846,11 +659,10 @@ def main : IO UInt32 := do
     codeText := none
     kind := .def
     verificationStatus := none
-    specified := none
   }] }
   let uaoNoneRt := match Lean.FromJson.fromJson? (Lean.toJson uaoNoneFields) (α := UnifiedAtomsOutput) with
     | .ok uo => match uo.atoms[0]? with
-      | some a => a.verificationStatus == none && a.specified == none
+      | some a => a.verificationStatus == none
         && a.rustSource == none && a.isHidden == false && a.specs.isEmpty
       | none => false
     | .error _ => false
@@ -868,7 +680,6 @@ def main : IO UInt32 := do
     kind := .def
     specs := #["probe:Test.spec1", "probe:Test.spec2"]
     verificationStatus := some .verified
-    specified := some true
   }
   let uwsJson := Lean.toJson unifiedWithSpecs
   let uwsSpecsOk := match uwsJson.getObjValAs? (Array String) "specs" with
@@ -885,11 +696,10 @@ def main : IO UInt32 := do
   let unsAbsent := match unsJson.getObjVal? "specs" with
     | .ok _ => false | _ => true
   result ← test "UnifiedAtom specs absent when empty" unsAbsent result
+  return result
 
-  -- ============================================================
-  -- View helpers
-  -- ============================================================
-
+def testViewHelpers (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing getLastNamePart..."
   result ← test "last part simple" (getLastNamePart "foo" == "foo") result
@@ -903,11 +713,10 @@ def main : IO UInt32 := do
   result ← test "parse lines empty" (parseLines "" == { linesStart := 0, linesEnd := 0 }) result
   result ← test "parse lines L-prefix" (parseLines "L230-L238" == { linesStart := 230, linesEnd := 238 }) result
   result ← test "parse lines mixed prefix" (parseLines "L100-200" == { linesStart := 100, linesEnd := 200 }) result
+  return result
 
-  -- ============================================================
-  -- StubEntry JSON
-  -- ============================================================
-
+def testStubEntryJson (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing StubEntry JSON serialization..."
   let stubEntry : StubEntry := {
@@ -952,11 +761,10 @@ def main : IO UInt32 := do
   let hasNullSpecPath := match stubJsonNoSpec.getObjValAs? (Option String) "spec-path" with
     | .ok none => true | _ => false
   result ← test "stubEntry without spec has null spec-path" hasNullSpecPath result
+  return result
 
-  -- ============================================================
-  -- MoleculesOutput JSON
-  -- ============================================================
-
+def testMoleculesOutputJson (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing MoleculesOutput JSON serialization..."
   let moleculesOutput : MoleculesOutput := {
@@ -981,13 +789,10 @@ def main : IO UInt32 := do
       | _ => false
     | .error _ => false
   result ← test "moleculesOutput round-trips through JSON" moleculesRt result
+  return result
 
-  -- ============================================================
-  -- Envelope-aware loading (Loader)
-  -- ============================================================
-
-  IO.println ""
-  IO.println "Testing envelope-aware loading (unwrapEnvelope)..."
+def testEnvelopeAwareLoading (result : TestResult) : IO TestResult := do
+  let mut result := result
   let bareDict := Lean.Json.mkObj [
     ("probe:Test.x", Lean.Json.mkObj [
       ("display-name", Lean.toJson "x"),
@@ -1012,6 +817,8 @@ def main : IO UInt32 := do
   let bareStr := Lean.Json.pretty bareDict
   let envStr := Lean.Json.pretty enveloped
 
+  IO.println ""
+  IO.println "Testing envelope-aware loading (unwrapEnvelope)..."
   let bareParsed := match Lean.Json.parse bareStr with
     | .ok j => match Lean.FromJson.fromJson? j (α := AtomsOutput) with
       | .ok ao => ao.atoms.size == 1
@@ -1093,11 +900,10 @@ def main : IO UInt32 := do
 
   IO.FS.removeFile tmpBarePath
   IO.FS.removeFile tmpEnvPath
+  return result
 
-  -- ============================================================
-  -- Metadata helpers
-  -- ============================================================
-
+def testMetadataHelpers (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing parsePackageNameFromToml..."
   let tomlContent := "name = \"my-package\"\nversion = \"1.0.0\""
@@ -1131,7 +937,10 @@ def main : IO UInt32 := do
   result ← test "wrong prefix excluded" (!isAtomsFileName "lean_bar_abc1234.json" prefix1) result
   result ← test "semver version matches" (isAtomsFileName "lean_foo_1.0.0.json" prefix1) result
   result ← test "unknown version matches" (isAtomsFileName "lean_foo_unknown.json" prefix1) result
+  return result
 
+def testFindDefaultAtomsPath (result : TestResult) : IO TestResult := do
+  let mut result := result
   IO.println ""
   IO.println "Testing findDefaultAtomsPath..."
   let tmpBase : System.FilePath := "/tmp/probe-lean-test-" ++ toString (← IO.monoNanosNow)
@@ -1142,31 +951,26 @@ def main : IO UInt32 := do
     package := "testpkg", packageVersion := "abcdef1"
   }
 
-  -- Case 1: exact path exists
   let exactPath := probesDir / "lean_testpkg_abcdef1.json"
   IO.FS.writeFile exactPath "{}"
   let (found1, fb1) ← findDefaultAtomsPath tmpBase testSourceForPath
   result ← test "exact path returned when it exists" (found1.toString == exactPath.toString && !fb1) result
   IO.FS.removeFile exactPath
 
-  -- Case 2: exact path missing, fallback finds an alternative
   let altPath := probesDir / "lean_testpkg_old1234.json"
   IO.FS.writeFile altPath "{}"
   let (found2, fb2) ← findDefaultAtomsPath tmpBase testSourceForPath
   result ← test "fallback finds alternative atoms file" (found2.toString == altPath.toString && fb2) result
 
-  -- Case 3: multiple alternatives, newest is picked
   let _ ← IO.Process.run { cmd := "sleep", args := #["0.05"] }
   let newerPath := probesDir / "lean_testpkg_new5678.json"
   IO.FS.writeFile newerPath "{}"
   let (found3, fb3) ← findDefaultAtomsPath tmpBase testSourceForPath
   result ← test "newest alternative picked when multiple exist" (found3.toString == newerPath.toString && fb3) result
 
-  -- Cleanup
   IO.FS.removeFile altPath
   IO.FS.removeFile newerPath
 
-  -- Case 4: no probes dir at all
   let emptyBase := tmpBase / "empty"
   IO.FS.createDirAll emptyBase
   let (found4, fb4) ← findDefaultAtomsPath emptyBase testSourceForPath
@@ -1174,15 +978,141 @@ def main : IO UInt32 := do
   result ← test "returns exact path when probes dir missing" (found4.toString == expectedEmpty.toString && !fb4) result
 
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
 
-  -- ============================================================
-  -- Typed dependencies (type vs term)
-  -- ============================================================
+/-- Tests for type-dependencies and term-dependencies fields -/
+def testTypedDependencies (result : TestResult) : IO TestResult := do
+  let mut result := result
+
+  IO.println ""
+  IO.println "Testing Atom typed dependencies JSON serialization..."
+  let typedDepAtom : Atom := {
+    name := "probe:Test.myThm"
+    displayName := "myThm"
+    dependencies := #["probe:Test.typeOnly", "probe:Test.termOnly", "probe:Test.both"]
+    typeDependencies := #["probe:Test.typeOnly", "probe:Test.both"]
+    termDependencies := #["probe:Test.termOnly", "probe:Test.both"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := some { linesStart := 10, linesEnd := 20 }
+    kind := .theorem
+  }
+  let typedDepJson := Lean.toJson typedDepAtom
+  let hasTypeDeps := match typedDepJson.getObjValAs? (Array String) "type-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.typeOnly" && arr[1]! == "probe:Test.both"
+    | _ => false
+  result ← test "atom has type-dependencies" hasTypeDeps result
+  let hasTermDeps := match typedDepJson.getObjValAs? (Array String) "term-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.termOnly" && arr[1]! == "probe:Test.both"
+    | _ => false
+  result ← test "atom has term-dependencies" hasTermDeps result
+  let hasDepsUnion := match typedDepJson.getObjValAs? (Array String) "dependencies" with
+    | .ok arr => arr.size == 3
+    | _ => false
+  result ← test "atom dependencies is union of type+term" hasDepsUnion result
+
+  IO.println ""
+  IO.println "Testing Atom typed dependencies FromJson round-trip..."
+  let typedDepRt := match Lean.FromJson.fromJson? typedDepJson (α := Atom) with
+    | .ok a => a.typeDependencies.size == 2 && a.termDependencies.size == 2
+      && a.typeDependencies[0]! == "probe:Test.typeOnly"
+      && a.termDependencies[0]! == "probe:Test.termOnly"
+    | .error _ => false
+  result ← test "Atom typed deps round-trips through JSON" typedDepRt result
+
+  IO.println ""
+  IO.println "Testing Atom default empty typed dependencies..."
+  let defaultDepAtom : Atom := {
+    name := "probe:Test.simple"
+    displayName := "simple"
+    dependencies := #["probe:Test.dep"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+  }
+  result ← test "default typeDependencies is empty" (defaultDepAtom.typeDependencies.isEmpty) result
+  result ← test "default termDependencies is empty" (defaultDepAtom.termDependencies.isEmpty) result
+  let defaultDepJson := Lean.toJson defaultDepAtom
+  let defaultTypeDepsOk := match defaultDepJson.getObjValAs? (Array String) "type-dependencies" with
+    | .ok arr => arr.isEmpty
+    | _ => false
+  result ← test "default type-dependencies serializes as empty array" defaultTypeDepsOk result
+
+  IO.println ""
+  IO.println "Testing Atom typed deps backward compat (FromJson without typed deps)..."
+  let legacyJson := Lean.Json.mkObj [
+    ("name", Lean.toJson "probe:Test.legacy"),
+    ("display-name", Lean.toJson "legacy"),
+    ("dependencies", Lean.toJson (#["probe:Test.dep"] : Array String)),
+    ("code-module", Lean.toJson "Test"),
+    ("code-path", Lean.toJson "Test.lean"),
+    ("code-text", Lean.Json.null),
+    ("kind", Lean.toJson "def"),
+    ("language", Lean.toJson "lean"),
+    ("is-hidden", Lean.toJson false),
+    ("is-extraction-artifact", Lean.toJson false),
+    ("is-ignored", Lean.toJson false),
+    ("is-relevant", Lean.toJson true),
+    ("rust-source", Lean.Json.null)
+  ]
+  let legacyRt := match Lean.FromJson.fromJson? legacyJson (α := Atom) with
+    | .ok a => a.dependencies.size == 1 && a.typeDependencies.isEmpty && a.termDependencies.isEmpty
+    | .error _ => false
+  result ← test "legacy JSON without typed deps parses with empty arrays" legacyRt result
+
+  IO.println ""
+  IO.println "Testing UnifiedAtom typed dependencies round-trip..."
+  let unifiedTypedDep : UnifiedAtom := {
+    name := "probe:Test.typedThm"
+    displayName := "typedThm"
+    dependencies := #["probe:Test.a", "probe:Test.b", "probe:Test.c"]
+    typeDependencies := #["probe:Test.a", "probe:Test.c"]
+    termDependencies := #["probe:Test.b", "probe:Test.c"]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .theorem
+    verificationStatus := some .verified
+  }
+  let utdJson := Lean.toJson unifiedTypedDep
+  let utdTypeDepsOk := match utdJson.getObjValAs? (Array String) "type-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.a"
+    | _ => false
+  result ← test "UnifiedAtom type-dependencies present" utdTypeDepsOk result
+  let utdTermDepsOk := match utdJson.getObjValAs? (Array String) "term-dependencies" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Test.b"
+    | _ => false
+  result ← test "UnifiedAtom term-dependencies present" utdTermDepsOk result
+  let utdRtOk := match Lean.FromJson.fromJson? utdJson (α := UnifiedAtom) with
+    | .ok a => a.typeDependencies.size == 2 && a.termDependencies.size == 2
+      && a.dependencies.size == 3
+    | .error _ => false
+  result ← test "UnifiedAtom typed deps round-trips" utdRtOk result
+
+  return result
+
+def main : IO UInt32 := do
+  let mut result : TestResult := { passed := 0, failed := 0 }
+  result ← testConstants result
+  result ← testAnalysisHelpers result
+  result ← testSharedUtilities result
+  result ← testTypeJsonSerialization result
+  result ← testAtomizeHelpers result
+  result ← testComputeSpecs result
+  result ← testAtomsOutputJson result
+  result ← testAtomSpecsJson result
+  result ← testAtomLanguageField result
+  result ← testSorryDetection result
+  result ← testProofsOutputJson result
+  result ← testUnifiedAtomJson result
+  result ← testViewHelpers result
+  result ← testStubEntryJson result
+  result ← testMoleculesOutputJson result
+  result ← testEnvelopeAwareLoading result
+  result ← testMetadataHelpers result
+  result ← testFindDefaultAtomsPath result
   result ← testTypedDependencies result
-
-  -- ============================================================
-  -- Summary
-  -- ============================================================
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

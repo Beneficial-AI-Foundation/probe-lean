@@ -1,6 +1,6 @@
 /-
-  Extract command: combined atomize + specify + sorry detection.
-  Produces unified atoms with verification and specification status.
+  Extract command: combined atomize + sorry detection.
+  Produces unified atoms with verification status and specs.
   Schema: probe-lean/extract
 -/
 import Lean
@@ -8,7 +8,6 @@ import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Metadata
 import ProbeLean.Atomize
-import ProbeLean.Specify
 import ProbeLean.VerifyInternal
 
 namespace ProbeLean
@@ -31,9 +30,9 @@ def mapVerifyStatus : VerifyStatus → WebVerificationStatus
   | .sorries => .unverified
   | .failure => .failed
 
-/-- Combine an Atom with its optional spec and proof entries into a UnifiedAtom,
+/-- Combine an Atom with its optional proof entry into a UnifiedAtom,
     preserving all atom fields. -/
-def unifyAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option ProofEntry)
+def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     : UnifiedAtom :=
   {
     name := atom.name
@@ -53,10 +52,9 @@ def unifyAtom (atom : Atom) (specEntry : Option SpecEntry) (proofEntry : Option 
     rustSource := atom.rustSource
     specs := atom.specs
     verificationStatus := proofEntry.map fun p => mapVerifyStatus p.status
-    specified := specEntry.map fun s => s.specified
   }
 
-/-- Run the combined extract pipeline: build → atomize → markAtomFlags → specify → sorry detection → merge → envelope → write -/
+/-- Run the combined extract pipeline: build → atomize → markAtomFlags → sorry detection → merge → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if !(← isLakeProject config.projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
@@ -116,13 +114,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
   let atoms := computeSpecs atoms
 
-  -- === Step 2: Specify ===
-  IO.println "=== Step 2/3: Specify ==="
-  let specEntries := atoms.map fun atom => atomToSpecEntry atom
-  IO.println s!"Computed specification status for {specEntries.size} declarations"
-
-  -- === Step 3: Sorry detection ===
-  IO.println "=== Step 3/3: Verify ==="
+  -- === Step 2: Sorry detection ===
+  IO.println "=== Step 2/2: Verify ==="
   let proofEntries : Option (Array ProofEntry) ← if config.skipVerify then
     IO.println "Verification skipped (--skip-verify)"
     pure none
@@ -149,9 +142,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   IO.println "=== Merging results ==="
 
   let unifiedAtoms := atoms.mapIdx fun i atom =>
-    let spec := specEntries[i]?
     let proof := proofEntries.bind fun ps => ps[i]?
-    unifyAtom atom spec proof
+    unifyAtom atom proof
 
   let source ← collectSourceInfo config.projectPath
   let timestamp ← getCurrentTimestamp

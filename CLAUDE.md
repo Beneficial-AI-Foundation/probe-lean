@@ -40,7 +40,7 @@ This project uses spec-driven development. Follow this workflow:
 lake build                 # Build the project
 lake build tests           # Build tests
 .lake/build/bin/tests      # Run tests
-probe-lean extract <PATH>  # Combined atomize+specify+sorry detection → unified atoms
+probe-lean extract <PATH>  # Combined atomize+sorry detection → unified atoms
 probe-lean viewify <PATH>  # Filter extract output → molecules for web UI
 ```
 
@@ -51,6 +51,42 @@ probe-lean viewify <PATH>  # Filter extract output → molecules for web UI
 - Run tests before committing
 - All tests must pass before merging
 
+## Build Performance
+
+Lean 4's `do` notation desugars each monadic bind (`x ← ...`) into a nested `>>= fun ... =>` call. The elaborator's type-checking cost grows superlinearly with nesting depth — a single function with 100+ binds can take **10+ minutes** to compile, while the same tests split across small functions compile in **under 2 seconds**.
+
+**Rules for fast builds:**
+
+1. **Never put more than ~30 monadic binds in a single `do` block.** If a function is growing past this, extract a helper.
+2. **Tests/Main.lean uses one function per test section.** When adding tests, either add to an existing section function or create a new `testXxx` function and call it from `main`.
+3. **`main` must stay flat** — just a chain of `result ← testXxx result` calls, not inline test logic.
+4. **Never add `set_option maxRecDepth`** to work around slow compilation. If you need it, the `do` block is too deep — split it instead.
+
+## Running extract on target projects
+
+When running `probe-lean extract` on a target project (e.g., `curve25519-dalek-lean-verify`):
+
+1. **Download Mathlib cache first**: `cd <target-project> && lake exe cache get` — this downloads pre-built `.olean` files for Mathlib and saves hours of compilation.
+2. **Build the target project**: `cd <target-project> && lake build`
+3. **Run extract with `--skip-build`**: `probe-lean extract <target-project> --skip-build --skip-verify` — uses the pre-built `.olean` files.
+
+The toolchain versions must match between probe-lean and the target project (both currently use `v4.28.0-rc1`).
+
 ## Architecture
 
-[To be filled in as the project develops]
+### Extract pipeline
+
+`probe-lean extract` runs: **build → atomize → sorry detection → merge → envelope → write**
+
+- `ProbeLean/Analysis.lean` — Core analysis: walks Lean environment, extracts dependencies (type vs term)
+- `ProbeLean/Atomize.lean` — Converts declarations to `Atom` structs, applies filtering flags
+- `ProbeLean/VerifyInternal.lean` — Parses sorry warnings from build output
+- `ProbeLean/Extract.lean` — Orchestrates the pipeline, produces `UnifiedAtom` output
+- `ProbeLean/Types.lean` — All data structures and JSON serialization
+- `ProbeLean/View.lean` — `viewify` command (filters atoms → molecules for web UI)
+
+### Key design decisions
+
+- **No `specified` field**: Whether an atom has specifications is inferred from `specs != []` (aligns with probe-verus v5.0.0)
+- **`dependencies` = union of `type-dependencies` + `term-dependencies`**: Kept for backward compatibility
+- **`specs`**: Reverse dependency — for a non-theorem atom, lists theorem atoms that depend on it

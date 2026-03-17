@@ -86,7 +86,7 @@ probe-lean outputs are organized under `.verilib/`:
 
 ### extract
 
-Analyze a Lean 4 project: extract atoms, compute specification status, detect sorries, and produce unified output. This is the primary command that combines the former `atomize`, `specify`, and `verify` steps into a single pass.
+Analyze a Lean 4 project: extract atoms, detect sorries, compute specs, and produce unified output. This is the primary command that combines the former `atomize` and `verify` steps into a single pass.
 
 ```bash
 probe-lean extract <PROJECT_PATH> [-o OUTPUT] [-m MODULE] [--skip-verify] [--skip-build] [--from-file FILE]
@@ -108,27 +108,44 @@ probe-lean extract ./my-lean-project -o output.json
 
 **Output format (`data` payload):**
 
-Each atom includes all fields plus `verification-status` and `specified`:
+Each atom includes all fields plus `verification-status` and `specs`:
 
 ```json
 {
-  "probe:MyModule.myTheorem": {
-    "display-name": "myTheorem",
+  "probe:MyModule.helper": {
+    "display-name": "helper",
+    "kind": "def",
+    "language": "lean",
+    "dependencies": ["probe:MyModule.MyType"],
+    "type-dependencies": ["probe:MyModule.MyType"],
+    "term-dependencies": [],
+    "code-module": "MyModule",
+    "code-path": "MyModule.lean",
+    "code-text": { "lines-start": 5, "lines-end": 8 },
+    "is-hidden": false,
+    "is-extraction-artifact": false,
+    "is-ignored": false,
+    "is-relevant": true,
+    "rust-source": null,
+    "specs": ["probe:MyModule.helper_spec"],
+    "verification-status": "verified"
+  },
+  "probe:MyModule.helper_spec": {
+    "display-name": "helper_spec",
     "kind": "theorem",
     "language": "lean",
     "dependencies": ["probe:MyModule.helper", "probe:MyModule.MyType"],
-    "type-dependencies": ["probe:MyModule.MyType"],
+    "type-dependencies": ["probe:MyModule.helper", "probe:MyModule.MyType"],
     "term-dependencies": ["probe:MyModule.helper"],
     "code-module": "MyModule",
-    "code-path": "MyModule.lean",
+    "code-path": "MyModule/Specs.lean",
     "code-text": { "lines-start": 10, "lines-end": 15 },
     "is-hidden": false,
     "is-extraction-artifact": false,
     "is-ignored": false,
     "is-relevant": true,
     "rust-source": null,
-    "verification-status": "verified",
-    "specified": true
+    "verification-status": "verified"
   }
 }
 ```
@@ -227,8 +244,8 @@ Example config (`.verilib/probes/config.json`):
 | `is-ignored` | bool | From config's `user.is-ignored` list |
 | `is-relevant` | bool | Rust source is from the target crate |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
+| `specs` | array or absent | Code-names of theorem atoms that depend on this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
-| `specified` | bool or absent | Whether the declaration has a specification |
 
 ### viewify output (molecules)
 
