@@ -138,7 +138,7 @@ Note: A constant may appear in both `type-dependencies` and `term-dependencies` 
 - [ ] All existing tests pass unchanged
 - [ ] New test: a declaration with known type-only, term-only, and shared dependencies is verified
 - [ ] README documents the new `type-dependencies` and `term-dependencies` fields
-- [ ] Schema documentation (`docs/schema-2.0-lean.md`) is updated
+- [ ] Schema documentation (`docs/SCHEMA.md`) is updated
 
 ---
 Status: in-progress
