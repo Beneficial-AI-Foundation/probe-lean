@@ -212,7 +212,6 @@ structure Atom where
 instance : Lean.ToJson Atom where
   toJson atom :=
     let base := [
-      ("name", Lean.toJson atom.name),
       ("display-name", Lean.toJson atom.displayName),
       ("dependencies", Lean.toJson atom.dependencies),
       ("type-dependencies", Lean.toJson atom.typeDependencies),
@@ -416,7 +415,6 @@ structure UnifiedAtom where
 instance : Lean.ToJson UnifiedAtom where
   toJson atom :=
     let base := [
-      ("name", Lean.toJson atom.name),
       ("display-name", Lean.toJson atom.displayName),
       ("dependencies", Lean.toJson atom.dependencies),
       ("type-dependencies", Lean.toJson atom.typeDependencies),

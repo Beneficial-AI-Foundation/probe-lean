@@ -91,6 +91,11 @@ envelope:
       "code-module": "MyModule",
       "code-path": "MyModule.lean",
       "code-text": { "lines-start": 5, "lines-end": 8 },
+      "is-hidden": false,
+      "is-extraction-artifact": false,
+      "is-ignored": false,
+      "is-relevant": true,
+      "rust-source": null,
       "specs": ["probe:MyModule.helper_spec"],
       "primary-spec": "probe:MyModule.helper_spec",
       "verification-status": "verified"
