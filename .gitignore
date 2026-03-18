@@ -1,6 +1,5 @@
 # Lake build artifacts
 .lake/
-lake-manifest.json
 
 # Lean build artifacts
 *.olean
