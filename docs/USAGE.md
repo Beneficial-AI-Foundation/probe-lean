@@ -71,7 +71,7 @@ envelope:
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.1.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.2.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",

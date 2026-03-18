@@ -9,9 +9,13 @@ import ProbeLean.View
 open Cli
 open ProbeLean
 
+/-- Strip trailing slashes so `FilePath /` doesn't produce `//` in output paths -/
+private def normalizePath (s : String) : String :=
+  if s.length > 1 && s.endsWith "/" then (s.dropEnd 1).toString else s
+
 /-- Run the extract command -/
 def runExtract (parsed : Parsed) : IO UInt32 := do
-  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let projectPath := normalizePath (parsed.positionalArg! "projectPath" |>.as! String)
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
   let skipVerify := parsed.hasFlag "skip-verify"
@@ -47,7 +51,7 @@ def extractCmd : Cmd := `[Cli|
 
 /-- Run the viewify command -/
 def runView (parsed : Parsed) : IO UInt32 := do
-  let projectPath := parsed.positionalArg! "projectPath" |>.as! String
+  let projectPath := normalizePath (parsed.positionalArg! "projectPath" |>.as! String)
   let atomsPath := parsed.flag? "with-atoms" |>.map (·.as! String) |>.map System.FilePath.mk
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
 

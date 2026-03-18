@@ -8,7 +8,8 @@ Analyze Lean 4 projects: extract dependency graphs with verification status and 
 
 - **Lean 4 toolchain** (`elan`, `lake`) -- install via [elan](https://github.com/leanprover/elan#installation)
 - The target project must build with `lake build`
-- For large projects using Mathlib, run `lake exe cache get` first to download pre-built `.olean` files
+- **Toolchain match**: probe-lean must be installed for the same Lean version as the target project (`.olean` files are version-specific). Check with `cat <target-project>/lean-toolchain`.
+- For large projects using Mathlib, run `lake exe cache get` in the target project first to download pre-built `.olean` files
 
 ## Installation
 
@@ -27,14 +28,22 @@ cd probe-lean
 uv run tools/python/install.py [VERSION]
 ```
 
-Both scripts build the project and install to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`.
+Both scripts build the project and install the binary to `~/.local/bin/probe-lean-<version>` (with a symlink at `~/.local/bin/probe-lean`) and the required interpreter `.olean` files to `~/.local/lib/probe-lean/`.
 
-To install for a specific Lean version (e.g., to match a project you want to analyze):
+Install for a specific Lean version to match the target project:
 ```bash
+# Check target project's Lean version
+cat ../my-lean-project/lean-toolchain
+# Install probe-lean for that version
 ./tools/bash/install.sh v4.28.0-rc1
 ```
 
 If no version is specified, the script shows a menu of available versions from GitHub.
+
+Ensure `~/.local/bin` is in your `PATH`:
+```bash
+export PATH="$PATH:$HOME/.local/bin"
+```
 
 ## Quick Start
 
@@ -49,7 +58,19 @@ probe-lean extract ./my-lean-project --skip-verify
 probe-lean extract ./my-lean-project --skip-build
 ```
 
-Output lands in `.verilib/probes/lean_<pkg>_<ver>.json` by default.
+Output lands in `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json` by default.
+
+### Analyzing a project with Mathlib dependencies
+
+For large projects (e.g., those depending on Mathlib), download pre-built `.olean` caches first to avoid hours of compilation:
+
+```bash
+cd ../my-lean-project
+lake exe cache get   # download pre-built Mathlib .olean files
+lake build           # build the project itself
+cd ../probe-lean
+probe-lean extract ../my-lean-project --skip-build --skip-verify
+```
 
 ## Commands
 
@@ -81,7 +102,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.1.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.2.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",

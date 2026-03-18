@@ -131,11 +131,27 @@ def resolvePath (basePath : System.FilePath) (path : System.FilePath) : IO Syste
     else
       return resolved
 
+/-- Locate probe-lean's own .olean files so the interpreter can resolve
+    ProbeLean modules at runtime (required by `supportInterpreter`). Checks:
+    1. Lake build layout: `<bin>/../lib/lean/`
+    2. Installed layout:  `<bin>/../lib/probe-lean/` -/
+def findProbeLeanLib : IO (List System.FilePath) := do
+  let appPath ← IO.appPath
+  let binDir := appPath.parent.getD "."
+  let lakeBuildLib := binDir / ".." / "lib" / "lean"
+  let installedLib := binDir / ".." / "lib" / "probe-lean"
+  let mut paths : List System.FilePath := []
+  if ← installedLib.pathExists then paths := installedLib :: paths
+  if ← lakeBuildLib.pathExists then paths := lakeBuildLib :: paths
+  return paths
+
 /-- Run analysis via lake env to get correct search paths -/
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String) : IO (Except String (Array Atom)) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
+
+  let probeLeanPaths ← findProbeLeanLib
 
   let (leanPathOut, _, exitCode) ← runCmd "lake" #["env", "printenv", "LEAN_PATH"] (some absProjectPath)
   if exitCode != 0 then
@@ -149,7 +165,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
     let resolved ← resolvePath absProjectPath p
     searchPaths := searchPaths.push resolved
 
-  Lean.searchPathRef.set searchPaths.toList
+  Lean.searchPathRef.set (searchPaths.toList ++ probeLeanPaths)
 
   let imports := modules.map fun m => { module := m : Import }
 

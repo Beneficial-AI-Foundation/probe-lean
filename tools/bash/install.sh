@@ -33,10 +33,14 @@ install_binary() {
     local version=$1
     lake build
 
-    mkdir -p ~/.local/bin
+    mkdir -p ~/.local/bin ~/.local/lib/probe-lean
     rm -f ~/.local/bin/probe-lean ~/.local/bin/probe-lean-$version
     cp .lake/build/bin/probe-lean ~/.local/bin/probe-lean-$version
     ln -s probe-lean-$version ~/.local/bin/probe-lean
+
+    # Copy interpreter .olean files (required by supportInterpreter)
+    rm -rf ~/.local/lib/probe-lean/*
+    cp -r .lake/build/lib/lean/ProbeLean* ~/.local/lib/probe-lean/
 
     echo "Installed probe-lean-$version to ~/.local/bin"
 

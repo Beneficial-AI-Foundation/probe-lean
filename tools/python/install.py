@@ -71,17 +71,35 @@ def install_binary(project_root: Path, version: str):
     subprocess.run(["lake", "build"], check=True)
 
     local_bin = Path.home() / ".local" / "bin"
+    local_lib = Path.home() / ".local" / "lib" / "probe-lean"
     local_bin.mkdir(parents=True, exist_ok=True)
+    local_lib.mkdir(parents=True, exist_ok=True)
 
     symlink_path = local_bin / "probe-lean"
     versioned_path = local_bin / f"probe-lean-{version}"
     binary_path = project_root / ".lake" / "build" / "bin" / "probe-lean"
+    olean_src = project_root / ".lake" / "build" / "lib" / "lean"
 
     symlink_path.unlink(missing_ok=True)
     versioned_path.unlink(missing_ok=True)
 
     shutil.copy2(binary_path, versioned_path)
     symlink_path.symlink_to(f"probe-lean-{version}")
+
+    # Copy interpreter .olean files (required by supportInterpreter)
+    for item in local_lib.iterdir():
+        if item.name.startswith("ProbeLean"):
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+    for item in olean_src.iterdir():
+        if item.name.startswith("ProbeLean"):
+            dest = local_lib / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
 
     print(f"Installed probe-lean-{version} to {local_bin}")
 
