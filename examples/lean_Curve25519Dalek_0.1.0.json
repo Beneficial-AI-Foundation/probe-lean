@@ -1,5 +1,5 @@
 {"tool": {"version": "0.2.0", "name": "probe-lean", "command": "extract"},
- "timestamp": "2026-03-18T06:51:34Z",
+ "timestamp": "2026-03-18T15:34:06Z",
  "source":
  {"repo":
   "https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify.git",
