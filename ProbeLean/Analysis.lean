@@ -43,8 +43,8 @@ def isInternalName (name : Name) : Bool :=
 
 /-- Get the module name for a constant in the environment -/
 def getModuleName (env : Environment) (name : Name) : Option Name :=
-  env.getModuleIdxFor? name |>.map fun idx =>
-    env.allImportedModuleNames[idx.toNat]!
+  env.getModuleIdxFor? name >>= fun idx =>
+    env.allImportedModuleNames[idx.toNat]?
 
 /-- Check if a declaration belongs to the project (not an imported dependency) -/
 def isProjectDecl (env : Environment) (projectModules : Array Name) (name : Name) : Bool :=

@@ -66,13 +66,15 @@ def parseSorryWarnings (output : String) : Array SorryWarning :=
 def normalizePathForMatch (path : String) : String :=
   let cleaned := path.replace "././" ""
   let parts := cleaned.splitOn "/"
-  parts[parts.length - 1]!
+  parts.getLastD ""
 
-/-- Check if two file paths refer to the same file -/
+/-- Check if two file paths refer to the same file.
+    Uses path-separator boundary to avoid substring false positives
+    (e.g. "NotMain.lean" should not match "Main.lean"). -/
 def pathsMatch (path1 : String) (path2 : String) : Bool :=
   path1 == path2 ||
-  path1.endsWith path2 ||
-  path2.endsWith path1 ||
+  path1.endsWith ("/" ++ path2) ||
+  path2.endsWith ("/" ++ path1) ||
   normalizePathForMatch path1 == normalizePathForMatch path2
 
 /-- Check if a sorry warning falls within a declaration's line range -/

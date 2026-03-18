@@ -119,7 +119,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let atoms := computeSpecs atoms
 
   -- === Step 2: Sorry detection ===
-  IO.println "=== Step 2/2: Verify ==="
+  IO.println "=== Step 2/3: Verify ==="
   let proofEntries : Option (Array ProofEntry) ← if config.skipVerify then
     IO.println "Verification skipped (--skip-verify)"
     pure none
@@ -142,8 +142,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.println s!"Verified: {verified.size}/{entries.size} declarations"
     pure (some entries)
 
-  -- === Merge (parallel arrays, O(n)) ===
-  IO.println "=== Merging results ==="
+  -- === Step 3: Merge (parallel arrays, O(n)) ===
+  IO.println "=== Step 3/3: Merge ==="
 
   let unifiedAtoms := atoms.mapIdx fun i atom =>
     let proof := proofEntries.bind fun ps => ps[i]?
