@@ -1141,6 +1141,137 @@ def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
     | none => false) result
   return result
 
+def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing example JSON envelope structure..."
+  let exPath : System.FilePath := "examples/lean_Curve25519Dalek_0.1.0.json"
+  if !(← exPath.pathExists) then
+    IO.println "  ⚠ skipping: example JSON not found"
+    return result
+  let content ← IO.FS.readFile exPath
+  match Lean.Json.parse content with
+  | .error err =>
+    IO.println s!"  ✗ failed to parse example JSON: {err}"
+    return result.add false
+  | .ok json => do
+    let schemaOk := match json.getObjValAs? String "schema" with
+      | .ok "probe-lean/extract" => true | _ => false
+    result ← test "envelope schema is probe-lean/extract" schemaOk result
+    let versionOk := match json.getObjValAs? String "schema-version" with
+      | .ok "2.0" => true | _ => false
+    result ← test "envelope schema-version is 2.0" versionOk result
+    let hasTimestamp := match json.getObjValAs? String "timestamp" with
+      | .ok s => !s.isEmpty | _ => false
+    result ← test "envelope has non-empty timestamp" hasTimestamp result
+    let toolNameOk := match json.getObjVal? "tool" with
+      | .ok t => match t.getObjValAs? String "name" with
+        | .ok "probe-lean" => true | _ => false
+      | _ => false
+    result ← test "envelope tool.name is probe-lean" toolNameOk result
+    let toolCmdOk := match json.getObjVal? "tool" with
+      | .ok t => match t.getObjValAs? String "command" with
+        | .ok "extract" => true | _ => false
+      | _ => false
+    result ← test "envelope tool.command is extract" toolCmdOk result
+    let srcPkgOk := match json.getObjVal? "source" with
+      | .ok s => match s.getObjValAs? String "package" with
+        | .ok "Curve25519Dalek" => true | _ => false
+      | _ => false
+    result ← test "envelope source.package is Curve25519Dalek" srcPkgOk result
+    let srcLangOk := match json.getObjVal? "source" with
+      | .ok s => match s.getObjValAs? String "language" with
+        | .ok "lean" => true | _ => false
+      | _ => false
+    result ← test "envelope source.language is lean" srcLangOk result
+    let hasData := match json.getObjVal? "data" with
+      | .ok (.obj _) => true | _ => false
+    result ← test "envelope has data object" hasData result
+    return result
+
+def testExampleJsonLoadAtoms (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing example JSON loads via loadAtoms..."
+  let exPath : System.FilePath := "examples/lean_Curve25519Dalek_0.1.0.json"
+  if !(← exPath.pathExists) then
+    IO.println "  ⚠ skipping: example JSON not found"
+    return result
+  match ← loadAtoms exPath with
+  | .error err =>
+    IO.println s!"  ✗ loadAtoms failed: {err}"
+    return result.add false
+  | .ok ao => do
+    result ← test "loadAtoms succeeds" true result
+    result ← test "atom count > 1000" (ao.atoms.size > 1000) result
+    let allProbeKeys := ao.atoms.all fun a => a.name.startsWith "probe:"
+    result ← test "all atom keys start with probe:" allProbeKeys result
+    let allLean := ao.atoms.all fun a => a.language == "lean"
+    result ← test "all atoms have language lean" allLean result
+    return result
+
+def testExampleJsonAtomRequiredFields (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing example JSON atom required fields..."
+  let exPath : System.FilePath := "examples/lean_Curve25519Dalek_0.1.0.json"
+  if !(← exPath.pathExists) then
+    IO.println "  ⚠ skipping: example JSON not found"
+    return result
+  match ← loadAtoms exPath with
+  | .error _ => return result.add false
+  | .ok ao => do
+    let allHaveDisplayName := ao.atoms.all fun a => !a.displayName.isEmpty
+    result ← test "all atoms have non-empty display-name" allHaveDisplayName result
+    let allHaveCodeModule := ao.atoms.all fun a => !a.codeModule.isEmpty
+    result ← test "all atoms have non-empty code-module" allHaveCodeModule result
+    let allHaveCodePath := ao.atoms.all fun a => !a.codePath.isEmpty
+    result ← test "all atoms have non-empty code-path" allHaveCodePath result
+    let validKinds := ["def", "theorem", "abbrev", "class", "structure",
+                       "inductive", "instance", "axiom", "opaque", "quot"]
+    let kindStr (k : DeclKind) : String := match k with
+      | .def => "def" | .theorem => "theorem" | .abbrev => "abbrev"
+      | .class => "class" | .structure => "structure" | .inductive => "inductive"
+      | .instance => "instance" | .axiom => "axiom" | .opaque => "opaque"
+      | .quot => "quot"
+    let allValidKinds := ao.atoms.all fun a => validKinds.contains (kindStr a.kind)
+    result ← test "all atoms have valid DeclKind" allValidKinds result
+    let hasDefs := ao.atoms.any fun a => a.kind == .def
+    let hasTheorems := ao.atoms.any fun a => a.kind == .theorem
+    result ← test "has def atoms" hasDefs result
+    result ← test "has theorem atoms" hasTheorems result
+    return result
+
+def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing example JSON verification-status field..."
+  let exPath : System.FilePath := "examples/lean_Curve25519Dalek_0.1.0.json"
+  if !(← exPath.pathExists) then
+    IO.println "  ⚠ skipping: example JSON not found"
+    return result
+  let content ← IO.FS.readFile exPath
+  match Lean.Json.parse content with
+  | .error _ => return result.add false
+  | .ok json =>
+    let data := match json.getObjVal? "data" with
+      | .ok d => d | _ => Lean.Json.null
+    match data.getObj? with
+    | .error _ => return result.add false
+    | .ok obj => do
+      let validStatuses := ["verified", "unverified", "failed"]
+      let mut allValid := true
+      let mut hasVerified := false
+      for (_, val) in obj.toArray do
+        match val.getObjValAs? String "verification-status" with
+        | .ok s =>
+          if !validStatuses.contains s then allValid := false
+          if s == "verified" then hasVerified := true
+        | .error _ => allValid := false
+      result ← test "all atoms have valid verification-status" allValid result
+      result ← test "at least some atoms are verified" hasVerified result
+      return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1163,6 +1294,10 @@ def main : IO UInt32 := do
   result ← testFindDefaultAtomsPath result
   result ← testTypedDependencies result
   result ← testPrimarySpecHeuristic result
+  result ← testExampleJsonEnvelopeStructure result
+  result ← testExampleJsonLoadAtoms result
+  result ← testExampleJsonAtomRequiredFields result
+  result ← testExampleJsonVerificationStatus result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
