@@ -68,14 +68,23 @@ def normalizePathForMatch (path : String) : String :=
   let parts := cleaned.splitOn "/"
   parts.getLastD ""
 
+/-- Check if a path has meaningful directory components (not just "./" prefixes). -/
+def hasRealDirComponents (path : String) : Bool :=
+  let cleaned := path.replace "././" ""
+  let parts := cleaned.splitOn "/"
+  parts.length > 1 && parts.dropLast.any fun p => p != "." && p != ""
+
 /-- Check if two file paths refer to the same file.
     Uses path-separator boundary to avoid substring false positives
-    (e.g. "NotMain.lean" should not match "Main.lean"). -/
+    (e.g. "NotMain.lean" should not match "Main.lean").
+    Filename-only fallback is only used when at most one path has
+    real directory components, to avoid matching files in different directories. -/
 def pathsMatch (path1 : String) (path2 : String) : Bool :=
   path1 == path2 ||
   path1.endsWith ("/" ++ path2) ||
   path2.endsWith ("/" ++ path1) ||
-  normalizePathForMatch path1 == normalizePathForMatch path2
+  (let bothHaveDirs := hasRealDirComponents path1 && hasRealDirComponents path2
+   !bothHaveDirs && normalizePathForMatch path1 == normalizePathForMatch path2)
 
 /-- Check if a sorry warning falls within a declaration's line range -/
 def sorryInDeclaration (warning : SorryWarning) (atom : Atom) : Bool :=
@@ -94,10 +103,15 @@ def findSorriesForAtom (warnings : Array SorryWarning) (atom : Atom) : Array Sor
     else
       none
 
-/-- Convert an atom and its sorries to a ProofEntry -/
+/-- Convert an atom and its sorries to a ProofEntry.
+    Atoms without source location (codeText = none) cannot be checked for sorry,
+    so they are conservatively marked as unverified (sorries status). -/
 def atomToProofEntry (atom : Atom) (sorries : Array SorryInfo) : ProofEntry :=
-  let verified := sorries.isEmpty
-  let status := if verified then VerifyStatus.success else VerifyStatus.sorries
+  let hasLocation := atom.codeText.isSome
+  let verified := sorries.isEmpty && hasLocation
+  let status := if !hasLocation then VerifyStatus.sorries
+    else if sorries.isEmpty then VerifyStatus.success
+    else VerifyStatus.sorries
   let codeLine := match atom.codeText with
     | some range => range.linesStart
     | none => 0

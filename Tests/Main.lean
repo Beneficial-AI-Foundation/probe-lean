@@ -557,6 +557,39 @@ def testSorryDetection (result : TestResult) : IO TestResult := do
   let verifiedEntry := atomToProofEntry testAtom noSorries
   result ← test "verifiedEntry verified" verifiedEntry.verified result
   result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
+
+  -- S1: Atom without codeText should NOT be marked verified
+  IO.println ""
+  IO.println "Testing S1: atom without codeText should not be verified..."
+  let atomNoLoc : Atom := { testAtom with codeText := none }
+  let entryNoLoc := atomToProofEntry atomNoLoc #[]
+  -- BUG S1: When codeText is none, sorryInDeclaration always returns false,
+  -- so atomToProofEntry marks the declaration as verified even though we
+  -- cannot actually check for sorry.
+  if entryNoLoc.verified then
+    IO.eprintln "  BUG S1 CONFIRMED: atom without codeText is marked verified"
+  result ← test "S1: atom without codeText is NOT marked verified" (!entryNoLoc.verified) result
+
+  -- S4: Same filename in different directories should not match
+  IO.println ""
+  IO.println "Testing S4: same filename different dirs should not match..."
+  let differentDirMatch := pathsMatch "src/Foo/Constants.lean" "src/Bar/Constants.lean"
+  if differentDirMatch then
+    IO.eprintln "  BUG S4 CONFIRMED: same filename in different dirs incorrectly matches"
+  result ← test "S4: different dirs same filename should not match" (!differentDirMatch) result
+
+  -- S4: Sorry from one file should not be attributed to atom in another file
+  -- with the same filename but different directory
+  let sorryInFoo : SorryWarning := { filePath := "src/Foo/Constants.lean", line := 12, column := 0, message := "sorry" }
+  let atomInBar : Atom := { testAtom with
+    codePath := "src/Bar/Constants.lean"
+    codeText := some { linesStart := 10, linesEnd := 15 }
+  }
+  let crossMatch := sorryInDeclaration sorryInFoo atomInBar
+  if crossMatch then
+    IO.eprintln "  BUG S4 CONFIRMED: sorry in Foo/Constants.lean attributed to atom in Bar/Constants.lean"
+  result ← test "S4: sorry in Foo not attributed to atom in Bar" (!crossMatch) result
+
   return result
 
 def testProofsOutputJson (result : TestResult) : IO TestResult := do
