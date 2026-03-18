@@ -237,8 +237,12 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
   let projTermDeps := info.termDependencies.filter isProjectDep
 
   let rustSource ← getDeclRustSource env info.name
-  let isRelevant := isRelevantSource rustSource crate
+  let isRelevant := if crate.isEmpty then true else isRelevantSource rustSource crate
   let isPrimarySpec := primarySpecAttr.hasTag env info.name
+
+  let mut attrs : Array String := #[]
+  if isPrimarySpec then
+    attrs := attrs.push "primary_spec"
 
   return {
     name := addProbePrefix info.name.toString
@@ -251,7 +255,9 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     codeText := info.sourceInfo
     kind := info.kind
     isRelevant := isRelevant
+    isInPackage := true
     rustSource := rustSource
+    attributes := attrs
     isPrimarySpec := isPrimarySpec
   }
 

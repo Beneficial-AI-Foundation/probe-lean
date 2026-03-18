@@ -48,10 +48,11 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
       "code-text": { "lines-start": 42, "lines-end": 67 },
       "kind": "def",
       "language": "lean",
+      "is-in-package": true,
+      "is-relevant": true,
       "is-hidden": false,
       "is-extraction-artifact": false,
       "is-ignored": false,
-      "is-relevant": true,
       "rust-source": null,
       "specs": ["probe:ArkLib.SumCheck.Protocol.Prover.prove_spec"],
       "primary-spec": "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec",
@@ -71,10 +72,12 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
       "code-text": { "lines-start": 70, "lines-end": 85 },
       "kind": "theorem",
       "language": "lean",
+      "is-in-package": true,
+      "is-relevant": true,
       "is-hidden": false,
       "is-extraction-artifact": false,
       "is-ignored": false,
-      "is-relevant": true,
+      "attributes": ["primary_spec"],
       "rust-source": null,
       "verification-status": "verified"
     }
@@ -215,15 +218,31 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | Field | Type | Description |
 |-------|------|-------------|
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
+| `is-in-package` | bool | Whether the declaration belongs to the current package (not an imported dependency) |
+| `is-relevant` | bool | Whether the declaration is relevant for analysis (see computation rules below) |
 | `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list |
 | `is-extraction-artifact` | bool | Name ends with suffix from `extraction-artifact-suffixes` |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
-| `is-relevant` | bool | Rust source is from the target crate (Aeneas projects only) |
+| `attributes` | array of strings | Lean tag attributes detected on this declaration (absent when empty) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 
-The `is-*` fields and `rust-source` are specific to the Aeneas (Rust-to-Lean transpiler)
-workflow. They are optional extensions per the interchange spec's rules: consumers that
-do not recognize them must ignore them.
+### Field Computation Methods
+
+| Field | Method | Details |
+|-------|--------|---------|
+| `is-in-package` | **AUTO** | Always `true` for atoms emitted by probe-lean, since only declarations from the project's own modules are extracted. Provided as a generic signal for downstream tools. |
+| `is-relevant` | **AUTO / CONFIG** | Defaults to `true` for all in-package declarations. When `relevant-crate` is set in `.verilib/probes/config.json`, declarations with `rust-source` are filtered to only those whose source matches the configured crate. |
+| `is-hidden` | **CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`. probe-lean does not auto-detect hidden declarations. |
+| `is-extraction-artifact` | **CONFIG** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json`. probe-lean checks if the declaration name ends with any configured suffix. |
+| `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |
+| `attributes` | **AUTO** | Lean tag attributes detected on the declaration. Currently scanned: `primary_spec`. This is raw fact data — probe-lean does not interpret what these attributes mean. Consumers (e.g. probe-aeneas) may use attribute presence to compute derived fields. |
+| `rust-source` | **AUTO** | Extracted from Aeneas-generated docstrings (`Source: 'path'` pattern). `null` for declarations without Aeneas docstrings. |
+
+**Note:** The `is-hidden`, `is-extraction-artifact`, and `is-ignored` fields are set by
+probe-lean from config only as a backward-compatible convenience. In the recommended
+pipeline for Aeneas projects, these fields are computed by **probe-aeneas** using
+Aeneas-specific heuristics applied to the generic facts (`attributes`, name patterns,
+`rust-source`) that probe-lean provides.
 
 ## Output Types
 
@@ -243,10 +262,12 @@ Each value contains all atom fields plus verification status and specs:
 | `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file |
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
+| `is-in-package` | bool | Declaration belongs to the current package |
+| `is-relevant` | bool | Declaration is relevant for analysis |
 | `is-hidden` | bool | From config's hidden list |
 | `is-extraction-artifact` | bool | From config's artifact suffixes |
 | `is-ignored` | bool | From config's ignored list |
-| `is-relevant` | bool | Rust source is from the target crate |
+| `attributes` | array or absent | Lean tag attributes on this declaration. Absent when empty. |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. |

@@ -49,7 +49,9 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     isExtractionArtifact := atom.isExtractionArtifact
     isIgnored := atom.isIgnored
     isRelevant := atom.isRelevant
+    isInPackage := atom.isInPackage
     rustSource := atom.rustSource
+    attributes := atom.attributes
     specs := atom.specs
     isPrimarySpec := atom.isPrimarySpec
     primarySpec := atom.primarySpec
