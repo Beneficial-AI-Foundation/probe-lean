@@ -57,6 +57,32 @@ def parsePackageVersionFromToml (content : String) : Option String := do
           return (stripped.dropEnd 1).toString
   none
 
+/-- Extract all `[[lean_lib]]` library names from a lakefile.toml string. -/
+def parseLeanLibsFromToml (content : String) : Array String := Id.run do
+  let mut result : Array String := #[]
+  let mut inLeanLib := false
+  for line in content.splitOn "\n" do
+    let trimmed := line.trimAscii.toString
+    if trimmed.startsWith "[[" || trimmed.startsWith "[" then
+      inLeanLib := trimmed.replace " " "" |>.startsWith "[[lean_lib]]"
+    else if inLeanLib && trimmed.startsWith "name" then
+      let parts := trimmed.splitOn "="
+      if parts.length >= 2 then
+        let valuePart := (String.intercalate "=" (parts.drop 1)).trimAscii.toString
+        if valuePart.startsWith "\"" && valuePart.endsWith "\"" then
+          let stripped := valuePart.drop 1
+          result := result.push (stripped.dropEnd 1).toString
+  result
+
+/-- Read all `[[lean_lib]]` names from a project's lakefile.toml.
+    Returns an empty array if the file doesn't exist or has no lean_lib sections. -/
+def getLeanLibs (projectPath : System.FilePath) : IO (Array String) := do
+  let tomlPath := projectPath / "lakefile.toml"
+  if ← tomlPath.pathExists then
+    let content ← IO.FS.readFile tomlPath
+    return parseLeanLibsFromToml content
+  return #[]
+
 /-- Get package name and version from lakefile.toml / lakefile.lean / lake-manifest.json.
     Falls back to directory name for name and short git commit for version. -/
 def getPackageInfo (projectPath : System.FilePath) (commit : String) : IO (String × String) := do

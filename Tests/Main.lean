@@ -1305,6 +1305,40 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
       result ← test "at least some atoms are verified" hasVerified result
       return result
 
+def testParseLeanLibs (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing parseLeanLibsFromToml..."
+
+  let multiLib := "name = \"Spqr\"\ndefaultTargets = [\"Spqr\"]\n\n[[lean_lib]]\nname = \"Extraction\"\n\n[[lean_lib]]\nname = \"Spqr\"\n"
+  let r1 := parseLeanLibsFromToml multiLib
+  result ← test "multi-lib: finds two libraries" (r1.size == 2) result
+  result ← test "multi-lib: first is Extraction" (r1[0]? == some "Extraction") result
+  result ← test "multi-lib: second is Spqr" (r1[1]? == some "Spqr") result
+
+  let singleLib := "name = \"Curve25519Dalek\"\n\n[[lean_lib]]\nname = \"Curve25519Dalek\"\n"
+  let r2 := parseLeanLibsFromToml singleLib
+  result ← test "single-lib: finds one library" (r2.size == 1) result
+  result ← test "single-lib: name is Curve25519Dalek" (r2[0]? == some "Curve25519Dalek") result
+
+  let noLib := "name = \"MyProject\"\nversion = \"0.1.0\"\n"
+  let r3 := parseLeanLibsFromToml noLib
+  result ← test "no lean_lib: returns empty" (r3.size == 0) result
+
+  let withSpaces := "name = \"Foo\"\n\n[[ lean_lib ]]\nname = \"Bar\"\n"
+  let r4 := parseLeanLibsFromToml withSpaces
+  result ← test "spaces in header: finds library" (r4.size == 1) result
+  result ← test "spaces in header: name is Bar" (r4[0]? == some "Bar") result
+
+  let otherSection := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"Lib1\"\n\n[[lean_exe]]\nname = \"NotALib\"\n\n[[lean_lib]]\nname = \"Lib2\"\n"
+  let r5 := parseLeanLibsFromToml otherSection
+  result ← test "mixed sections: finds two libs" (r5.size == 2) result
+  result ← test "mixed sections: skips lean_exe" (!r5.toList.contains "NotALib") result
+  result ← test "mixed sections: has Lib1" (r5[0]? == some "Lib1") result
+  result ← test "mixed sections: has Lib2" (r5[1]? == some "Lib2") result
+
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1331,6 +1365,7 @@ def main : IO UInt32 := do
   result ← testExampleJsonLoadAtoms result
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
+  result ← testParseLeanLibs result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

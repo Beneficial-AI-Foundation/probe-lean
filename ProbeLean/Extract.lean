@@ -22,6 +22,7 @@ structure ExtractConfig where
   skipVerify : Bool
   skipBuild : Bool
   fromFile : Option System.FilePath
+  libraries : Option (Array String) := none
   deriving Repr
 
 /-- Map probe-lean VerifyStatus to the web frontend's verification status -/
@@ -68,8 +69,14 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.println "Skipping build (--skip-build), assuming .olean files exist..."
     pure ""
   else do
+    let libs ← match config.libraries with
+      | some ls => pure ls
+      | none => getLeanLibs config.projectPath
+    let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
+    if !libs.isEmpty then
+      IO.println s!"Building libraries: {", ".intercalate libs.toList}"
     IO.println s!"Building project at {config.projectPath}..."
-    let (buildStdout, buildStderr, buildExit) ← runCmd "lake" #["build"] (some config.projectPath)
+    let (buildStdout, buildStderr, buildExit) ← runCmd "lake" buildArgs (some config.projectPath)
     if buildExit != 0 then
       IO.eprintln s!"Lake build failed:\n{buildStderr}"
       return 1

@@ -56,6 +56,9 @@ probe-lean extract ./my-lean-project --skip-verify
 
 # With pre-built .olean files
 probe-lean extract ./my-lean-project --skip-build
+
+# Multi-library project: build only specific libraries
+probe-lean extract ./my-lean-project --library "Extraction,Spqr"
 ```
 
 Output lands in `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json` by default.
@@ -88,6 +91,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 |--------|-------------|
 | `-o, --output <PATH>` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
 | `-m, --module <PREFIX>` | Filter to specific module prefix |
+| `-l, --library <LIBS>` | Comma-separated list of library names to build (default: auto-detect from `lakefile.toml`) |
 | `--skip-verify` | Skip sorry detection (graph structure only) |
 | `--skip-build` | Skip `lake build` (assumes `.olean` files exist) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
@@ -137,7 +141,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 
 ## How It Works
 
-1. **Build** -- runs `lake build` to produce `.olean` files (skippable via `--skip-build`)
+1. **Build** -- discovers all `[[lean_lib]]` entries from `lakefile.toml` and runs `lake build <lib1> <lib2> ...` to produce `.olean` files for every library (skippable via `--skip-build`, overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
 4. **Verify** -- parses sorry warnings from build output to determine verification status (skippable via `--skip-verify`)
