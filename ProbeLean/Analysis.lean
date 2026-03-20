@@ -239,10 +239,13 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
   let rustSource ← getDeclRustSource env info.name
   let isRelevant := if crate.isEmpty then true else isRelevantSource rustSource crate
   let isPrimarySpec := primarySpecAttr.hasTag env info.name
+  let isExternallyVerified := externallyVerifiedAttr.hasTag env info.name
 
   let mut attrs : Array String := #[]
   if isPrimarySpec then
     attrs := attrs.push "primary_spec"
+  if isExternallyVerified then
+    attrs := attrs.push "externally_verified"
 
   return {
     name := addProbePrefix info.name.toString
