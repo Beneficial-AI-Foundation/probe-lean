@@ -215,6 +215,72 @@ def getProjectDecls (env : Environment) (projectModules : Array Name) : Array De
     decls := decls.push (analyzeDecl env name info)
   decls
 
+/-- File content cache to avoid re-reading the same file for every declaration. -/
+abbrev FileCache := IO.Ref (Std.HashMap String (Array String))
+
+/-- Read a file's lines, using the cache. -/
+def readFileLines (cache : FileCache) (path : String) : IO (Array String) := do
+  let map ← cache.get
+  if let some lines := map[path]? then
+    return lines
+  let content ← IO.FS.readFile ⟨path⟩
+  let lines := content.splitOn "\n" |>.toArray
+  cache.modify fun m => m.insert path lines
+  return lines
+
+/-- Parse attribute names out of a single `@[...]` block's inner content.
+    E.g. `"progress, externally_verified"` → `#["progress", "externally_verified"]`. -/
+private def parseAttrBlock (inside : String) : Array String := Id.run do
+  let mut result : Array String := #[]
+  for part in inside.splitOn "," do
+    let trimmed := part.trimAscii.toString
+    let attrName := (trimmed.splitOn " ").head!.trimAscii.toString
+    if !attrName.isEmpty then
+      result := result.push attrName
+  return result
+
+/-- Extract all `@[...]` blocks from a single line and return attribute names. -/
+private def extractAttrsFromLine (line : String) : Array String := Id.run do
+  let mut result : Array String := #[]
+  -- Split on "@[" to find each block
+  let parts := line.splitOn "@["
+  -- First element is text before any @[, skip it
+  for i in [1:parts.length] do
+    let segment := parts[i]!
+    -- Find the closing "]"
+    let bracketParts := segment.splitOn "]"
+    if bracketParts.length >= 1 then
+      let inside := bracketParts[0]!
+      for attr in parseAttrBlock inside do
+        if !result.contains attr then
+          result := result.push attr
+  return result
+
+/-- Extract attribute names from source text around a declaration.
+    Scans from `startLine` (0-based, typically the docstring) through `endLine`
+    for `@[...]` annotations. Stops at the declaration keyword. -/
+def extractAttributesFromSource (cache : FileCache) (projectPath : System.FilePath)
+    (codePath : String) (startLine endLine : Nat) : IO (Array String) := do
+  if codePath.isEmpty then return #[]
+  let fullPath := (projectPath / codePath).toString
+  let lines ← readFileLines cache fullPath
+  if lines.isEmpty then return #[]
+
+  let mut attrs : Array String := #[]
+  -- Scan from declaration range start through the end, looking for @[...] blocks.
+  -- The range starts at the docstring; attributes appear between the docstring and
+  -- the theorem/def keyword.
+  let scanFrom := if startLine > 2 then startLine - 2 else 0
+  let scanTo := min (endLine + 1) lines.size
+
+  for i in [scanFrom:scanTo] do
+    if h : i < lines.size then
+      let line := lines[i]
+      for attr in extractAttrsFromLine line do
+        if !attrs.contains attr then
+          attrs := attrs.push attr
+  return attrs
+
 /-- Strip leading "./" from a path string -/
 def stripLeadingDotSlash (path : String) : String :=
   -- Replace multiple ./ patterns at the start
@@ -223,7 +289,7 @@ def stripLeadingDotSlash (path : String) : String :=
   if path.startsWith "./" then (path.drop 2).toString else path
 
 /-- Convert a DeclInfo to an Atom -/
-def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (crate : String) (info : DeclInfo) : IO Atom := do
+def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (crate : String) (fileCache : FileCache) (info : DeclInfo) : IO Atom := do
   let sourcePath ← getModuleSourcePath env projectPath info.moduleName
   let sourcePathStr := match sourcePath with
     | some p => stripLeadingDotSlash p
@@ -241,11 +307,20 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
   let isPrimarySpec := primarySpecAttr.hasTag env info.name
   let isExternallyVerified := externallyVerifiedAttr.hasTag env info.name
 
+  -- Handle-based detection (works when target imports ProbeLean.Attrs)
   let mut attrs : Array String := #[]
   if isPrimarySpec then
     attrs := attrs.push "primary_spec"
   if isExternallyVerified then
     attrs := attrs.push "externally_verified"
+
+  -- Source-level fallback: scan the .lean file for @[...] annotations
+  let startLine := info.sourceInfo.map (·.linesStart) |>.getD 0
+  let endLine := info.sourceInfo.map (·.linesEnd) |>.getD startLine
+  let sourceAttrs ← extractAttributesFromSource fileCache projectPath sourcePathStr startLine endLine
+  for sa in sourceAttrs do
+    if !attrs.contains sa then
+      attrs := attrs.push sa
 
   return {
     name := addProbePrefix info.name.toString

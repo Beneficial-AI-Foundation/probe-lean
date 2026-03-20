@@ -182,9 +182,10 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
 
   IO.println s!"Found {decls.size} declarations"
 
+  let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
-    let atom ← declInfoToAtom env projectPath modules crate decl
+    let atom ← declInfoToAtom env projectPath modules crate fileCache decl
     atoms := atoms.push atom
 
   return .ok atoms
