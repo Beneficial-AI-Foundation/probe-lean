@@ -67,8 +67,7 @@ Lean 4's `do` notation desugars each monadic bind (`x ← ...`) into a nested `>
 When running `probe-lean extract` on a target project (e.g., `curve25519-dalek-lean-verify`):
 
 1. **Download Mathlib cache first**: `cd <target-project> && lake exe cache get` — this downloads pre-built `.olean` files for Mathlib and saves hours of compilation.
-2. **Build the target project**: `cd <target-project> && lake build`
-3. **Run extract with `--skip-build`**: `probe-lean extract <target-project> --skip-build --skip-verify` — uses the pre-built `.olean` files.
+2. **Run extract**: `probe-lean extract <target-project>` — builds, extracts atoms, detects sorries. The build step is automatically skipped when the cache is up-to-date.
 
 The toolchain versions must match between probe-lean and the target project (both currently use `v4.28.0-rc1`).
 

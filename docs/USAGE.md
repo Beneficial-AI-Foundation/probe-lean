@@ -64,7 +64,6 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--module <PREFIX>` | `-m` | Filter to specific module prefix |
 | `--library <LIBS>` | `-l` | Comma-separated list of library names to build (default: `defaultTargets` from `lakefile.toml`, falling back to all `[[lean_lib]]` entries) |
 | `--skip-verify` | | Skip the sorry detection step (graph structure only) |
-| `--skip-build` | | Skip `lake build` (assumes `.olean` files already exist) |
 | `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
 
 ---
@@ -166,12 +165,7 @@ lake exe cache get
 probe-lean extract ../ArkLib/
 ```
 
-If you've already built the project separately, you can skip the build step. Use both `--skip-build` and `--skip-verify` together, since sorry detection needs the build output:
-
-```bash
-lake build
-probe-lean extract ../ArkLib/ --skip-build --skip-verify
-```
+If you've already built the project, probe-lean will detect that the build cache is up-to-date and skip the `lake build` step automatically (sorry detection still works using the cached build output).
 
 Since VCV-io uses `lakefile.lean` (not `.toml`), probe-lean cannot auto-detect library names and falls back to `lake build` with no explicit targets, which uses whatever the project defines as defaults.
 
@@ -210,13 +204,9 @@ probe-lean extract ../my-lean-project/
 
 ## Performance Tips
 
-### Use `--skip-build` with pre-built projects
+### Automatic build caching
 
-If you've already built the target project, pass `--skip-build` to avoid redundant recompilation:
-
-```bash
-probe-lean extract ./my-project --skip-build
-```
+probe-lean automatically skips `lake build` when the build cache is up-to-date (no `.lean` file has been modified since the last build). Sorry detection still works using the cached build output.
 
 ### Use `--skip-verify` for faster iteration
 
@@ -233,9 +223,7 @@ probe-lean extract ./my-project --skip-verify
 ```bash
 cd <target-project>
 lake exe cache get
-nice -n 15 lake build
-cd ../probe-lean
-probe-lean extract <target-project> --skip-build
+nice -n 15 probe-lean extract <target-project>
 ```
 
 This keeps the build running but yields CPU to interactive tasks. `nice -n 19` is the lowest priority; `nice -n 10` is a reasonable middle ground.
@@ -245,7 +233,7 @@ This keeps the build running but yields CPU to interactive tasks. `nice -n 19` i
 For quick iteration on a specific module:
 
 ```bash
-probe-lean extract ./my-project -m MyProject.Core --skip-build
+probe-lean extract ./my-project -m MyProject.Core
 ```
 
 ---

@@ -54,9 +54,6 @@ probe-lean extract ./my-lean-project
 # Skip sorry detection (faster, graph structure only)
 probe-lean extract ./my-lean-project --skip-verify
 
-# With pre-built .olean files
-probe-lean extract ./my-lean-project --skip-build
-
 # Multi-library project: build only specific libraries
 probe-lean extract ./my-lean-project --library "Extraction,Spqr"
 ```
@@ -77,9 +74,8 @@ If Mathlib is present, **always download the pre-built cache first** -- compilin
 ```bash
 cd ../my-lean-project
 lake exe cache get   # download pre-built Mathlib .olean files (~5 min)
-lake build           # build the project itself
 cd ../probe-lean
-probe-lean extract ../my-lean-project --skip-build --skip-verify
+probe-lean extract ../my-lean-project
 ```
 
 probe-lean will warn you if it detects a missing Mathlib cache.
@@ -104,7 +100,6 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `-m, --module <PREFIX>` | Filter to specific module prefix |
 | `-l, --library <LIBS>` | Comma-separated list of library names to build (default: `defaultTargets` from `lakefile.toml`, falling back to all `[[lean_lib]]` entries) |
 | `--skip-verify` | Skip sorry detection (graph structure only) |
-| `--skip-build` | Skip `lake build` (assumes `.olean` files exist) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
 
 For the full command reference with examples, see **[docs/USAGE.md](docs/USAGE.md)**. For the complete JSON schema specification, see **[docs/SCHEMA.md](docs/SCHEMA.md)**.
@@ -152,7 +147,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 
 ## How It Works
 
-1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (skippable via `--skip-build`, overridable via `--library`)
+1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
 4. **Verify** -- parses sorry warnings from build output to determine verification status (skippable via `--skip-verify`)

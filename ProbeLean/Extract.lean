@@ -20,7 +20,6 @@ structure ExtractConfig where
   outputPath : Option System.FilePath
   moduleFilter : Option String
   skipVerify : Bool
-  skipBuild : Bool
   fromFile : Option System.FilePath
   libraries : Option (Array String) := none
   deriving Repr
@@ -88,9 +87,11 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     | some ls => pure ls
     | none => getLeanLibs config.projectPath
 
-  let buildOutput ← if config.skipBuild then
-    IO.println "Skipping build (--skip-build), assuming .olean files exist..."
-    pure ""
+  let buildOutput ← if ← isCacheValid config.projectPath then
+    IO.println "Build cache is up-to-date, skipping lake build..."
+    match ← loadCache config.projectPath with
+    | some cached => pure cached
+    | none => pure ""
   else do
     warnIfMathlibCacheMissing config.projectPath
     let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
