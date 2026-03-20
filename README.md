@@ -65,15 +65,26 @@ Output lands in `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json` by defa
 
 ### Analyzing a project with Mathlib dependencies
 
-For large projects (e.g., those depending on Mathlib), download pre-built `.olean` caches first to avoid hours of compilation:
+Most Lean verification projects depend on Mathlib. To check whether a target project uses Mathlib, look in its lakefile:
+
+- **`lakefile.toml`**: a `[[require]]` block with `name = "mathlib"`
+- **`lakefile.lean`**: a line like `require mathlib from git ...`
+
+You can also check `lake-manifest.json` for a `"mathlib"` entry (this file is generated and lists all resolved dependencies).
+
+If Mathlib is present, **always download the pre-built cache first** -- compiling Mathlib from source is extremely slow:
 
 ```bash
 cd ../my-lean-project
-lake exe cache get   # download pre-built Mathlib .olean files
+lake exe cache get   # download pre-built Mathlib .olean files (~5 min)
 lake build           # build the project itself
 cd ../probe-lean
 probe-lean extract ../my-lean-project --skip-build --skip-verify
 ```
+
+probe-lean will warn you if it detects a missing Mathlib cache.
+
+For detailed walkthroughs with real projects (curve25519-dalek-lean-verify, ArkLib, VCV-io), see **[docs/USAGE.md](docs/USAGE.md)**.
 
 ## Commands
 
@@ -91,7 +102,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 |--------|-------------|
 | `-o, --output <PATH>` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
 | `-m, --module <PREFIX>` | Filter to specific module prefix |
-| `-l, --library <LIBS>` | Comma-separated list of library names to build (default: auto-detect from `lakefile.toml`) |
+| `-l, --library <LIBS>` | Comma-separated list of library names to build (default: `defaultTargets` from `lakefile.toml`, falling back to all `[[lean_lib]]` entries) |
 | `--skip-verify` | Skip sorry detection (graph structure only) |
 | `--skip-build` | Skip `lake build` (assumes `.olean` files exist) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
@@ -141,7 +152,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 
 ## How It Works
 
-1. **Build** -- discovers all `[[lean_lib]]` entries from `lakefile.toml` and runs `lake build <lib1> <lib2> ...` to produce `.olean` files for every library (skippable via `--skip-build`, overridable via `--library`)
+1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (skippable via `--skip-build`, overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
 4. **Verify** -- parses sorry warnings from build output to determine verification status (skippable via `--skip-verify`)

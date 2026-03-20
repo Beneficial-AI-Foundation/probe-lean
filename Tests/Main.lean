@@ -1339,6 +1339,47 @@ def testParseLeanLibs (result : TestResult) : IO TestResult := do
 
   return result
 
+def testParseDefaultTargets (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing parseDefaultTargetsFromToml..."
+
+  let withDefault := "name = \"Curve25519Dalek\"\ndefaultTargets = [\"Curve25519Dalek\"]\n\n[[lean_lib]]\nname = \"Curve25519Dalek\"\n\n[[lean_lib]]\nname = \"Utils\"\n"
+  let d1 := parseDefaultTargetsFromToml withDefault
+  result ← test "defaultTargets: finds one target" (d1.size == 1) result
+  result ← test "defaultTargets: target is Curve25519Dalek" (d1[0]? == some "Curve25519Dalek") result
+
+  let multiDefault := "name = \"Pkg\"\ndefaultTargets = [\"Lib1\", \"Lib2\"]\n\n[[lean_lib]]\nname = \"Lib1\"\n"
+  let d2 := parseDefaultTargetsFromToml multiDefault
+  result ← test "multi defaultTargets: finds two targets" (d2.size == 2) result
+  result ← test "multi defaultTargets: first is Lib1" (d2[0]? == some "Lib1") result
+  result ← test "multi defaultTargets: second is Lib2" (d2[1]? == some "Lib2") result
+
+  let noDefault := "name = \"Pkg\"\nversion = \"0.1.0\"\n\n[[lean_lib]]\nname = \"Pkg\"\n"
+  let d3 := parseDefaultTargetsFromToml noDefault
+  result ← test "no defaultTargets: returns empty" (d3.size == 0) result
+
+  let emptyDefault := "name = \"Pkg\"\ndefaultTargets = []\n"
+  let d4 := parseDefaultTargetsFromToml emptyDefault
+  result ← test "empty defaultTargets: returns empty" (d4.size == 0) result
+
+  IO.println ""
+  IO.println "Testing getLeanLibs priority (defaultTargets > lean_lib)..."
+
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-libs-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll tmpBase
+
+  IO.FS.writeFile (tmpBase / "lakefile.toml") withDefault
+  let l1 ← getLeanLibs tmpBase
+  result ← test "getLeanLibs prefers defaultTargets" (l1.size == 1 && l1[0]? == some "Curve25519Dalek") result
+
+  IO.FS.writeFile (tmpBase / "lakefile.toml") noDefault
+  let l2 ← getLeanLibs tmpBase
+  result ← test "getLeanLibs falls back to lean_lib" (l2.size == 1 && l2[0]? == some "Pkg") result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1366,6 +1407,7 @@ def main : IO UInt32 := do
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
   result ← testParseLeanLibs result
+  result ← testParseDefaultTargets result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

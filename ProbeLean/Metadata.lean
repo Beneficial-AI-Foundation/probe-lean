@@ -74,12 +74,33 @@ def parseLeanLibsFromToml (content : String) : Array String := Id.run do
           result := result.push (stripped.dropEnd 1).toString
   result
 
-/-- Read all `[[lean_lib]]` names from a project's lakefile.toml.
-    Returns an empty array if the file doesn't exist or has no lean_lib sections. -/
+/-- Parse `defaultTargets = ["Lib1", "Lib2"]` from a lakefile.toml string. -/
+def parseDefaultTargetsFromToml (content : String) : Array String := Id.run do
+  let mut result : Array String := #[]
+  for line in content.splitOn "\n" do
+    let trimmed := line.trimAscii.toString
+    if trimmed.startsWith "[" then break
+    if trimmed.startsWith "defaultTargets" then
+      let parts := trimmed.splitOn "="
+      if parts.length >= 2 then
+        let valuePart := (String.intercalate "=" (parts.drop 1)).trimAscii.toString
+        if valuePart.startsWith "[" && valuePart.endsWith "]" then
+          let inner := ((valuePart.drop 1).dropEnd 1).toString
+          for entry in inner.splitOn "," do
+            let e := entry.trimAscii.toString
+            if e.startsWith "\"" && e.endsWith "\"" then
+              result := result.push ((e.drop 1).dropEnd 1).toString
+  result
+
+/-- Read build targets from a project's lakefile.toml.
+    Prefers `defaultTargets` when present; falls back to all `[[lean_lib]]` names.
+    Returns an empty array if the file doesn't exist or has no targets. -/
 def getLeanLibs (projectPath : System.FilePath) : IO (Array String) := do
   let tomlPath := projectPath / "lakefile.toml"
   if ← tomlPath.pathExists then
     let content ← IO.FS.readFile tomlPath
+    let defaults := parseDefaultTargetsFromToml content
+    if !defaults.isEmpty then return defaults
     return parseLeanLibsFromToml content
   return #[]
 

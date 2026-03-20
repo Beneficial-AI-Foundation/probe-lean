@@ -59,19 +59,40 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     verificationStatus := proofEntry.map fun p => mapVerifyStatus p.status
   }
 
+/-- Check whether a module belongs to one of the given library roots.
+    A module `A.B.C` belongs to library `A` if its name equals `A` or starts with `A.`. -/
+def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
+  libs.any fun lib => m.toString == lib || m.toString.startsWith (lib ++ ".")
+
+/-- Check if project depends on Mathlib and warn if the olean cache is missing. -/
+def warnIfMathlibCacheMissing (projectPath : System.FilePath) : IO Unit := do
+  let manifestPath := projectPath / "lake-manifest.json"
+  if !(← manifestPath.pathExists) then return
+  let content ← IO.FS.readFile manifestPath
+  unless containsSubstring content "mathlib" do return
+  let oleanPath := projectPath / ".lake" / "packages" / "mathlib" /
+    ".lake" / "build" / "lib" / "lean" / "Mathlib.olean"
+  if ← oleanPath.pathExists then return
+  IO.eprintln "⚠ Warning: This project depends on Mathlib but no pre-built .olean cache was found."
+  IO.eprintln "  Building Mathlib from source can take hours. Run this first:"
+  IO.eprintln s!"    cd {projectPath} && lake exe cache get"
+  IO.eprintln ""
+
 /-- Run the combined extract pipeline: build → atomize → markAtomFlags → sorry detection → merge → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if !(← isLakeProject config.projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
     return 1
 
+  let libs ← match config.libraries with
+    | some ls => pure ls
+    | none => getLeanLibs config.projectPath
+
   let buildOutput ← if config.skipBuild then
     IO.println "Skipping build (--skip-build), assuming .olean files exist..."
     pure ""
   else do
-    let libs ← match config.libraries with
-      | some ls => pure ls
-      | none => getLeanLibs config.projectPath
+    warnIfMathlibCacheMissing config.projectPath
     let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
     if !libs.isEmpty then
       IO.println s!"Building libraries: {", ".intercalate libs.toList}"
@@ -98,12 +119,17 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.eprintln "Error: No modules found in project"
     return 1
 
+  let filteredModules := if !libs.isEmpty then
+    modules.filter fun m => moduleInLibraries m libs
+  else
+    modules
+
   let filteredModules := match config.moduleFilter with
     | some filter =>
       let filterName := String.toName filter
-      modules.filter fun m =>
+      filteredModules.filter fun m =>
         m == filterName || m.toString.startsWith (filter ++ ".")
-    | none => modules
+    | none => filteredModules
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
 
