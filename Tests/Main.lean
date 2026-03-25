@@ -1305,6 +1305,24 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
       result ← test "at least some atoms are verified" hasVerified result
       return result
 
+def testReadToolchain (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing readToolchain..."
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-tc-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll tmpBase
+  IO.FS.writeFile (tmpBase / "lean-toolchain") "leanprover/lean4:v4.29.0-rc3\n"
+  let tc1 ← readToolchain tmpBase
+  result ← test "reads existing lean-toolchain" (tc1 == some "leanprover/lean4:v4.29.0-rc3") result
+
+  let emptyDir := tmpBase / "empty"
+  IO.FS.createDirAll emptyDir
+  let tc2 ← readToolchain emptyDir
+  result ← test "returns none when no lean-toolchain" (tc2 == none) result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
 def testParseLeanLibs (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -1406,6 +1424,7 @@ def main : IO UInt32 := do
   result ← testExampleJsonLoadAtoms result
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
+  result ← testReadToolchain result
   result ← testParseLeanLibs result
   result ← testParseDefaultTargets result
 

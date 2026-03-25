@@ -11,6 +11,14 @@ namespace ProbeLean
 
 open Lean
 
+/-- Read the target project's lean-toolchain file and return its contents (trimmed),
+    or `none` if the file doesn't exist or can't be read. -/
+def readToolchain (projectPath : System.FilePath) : IO (Option String) := do
+  let path := projectPath / "lean-toolchain"
+  if !(← path.pathExists) then return none
+  let contents ← IO.FS.readFile path
+  return some contents.trimAscii.toString
+
 /-- Load probes config from .verilib/probes/config.json -/
 def loadUserConfig (projectPath : System.FilePath) : IO (Option Lean.Json) := do
   let configPath := projectPath / ".verilib" / "probes" / "config.json"
@@ -174,7 +182,19 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   let env ← try
     importModules imports {} 0
   catch e =>
-    return .error s!"Failed to import modules: {e}"
+    let msg := toString e
+    if containsSubstring msg "incompatible header" then
+      let targetTC ← readToolchain projectPath
+      let probeLeanVersion := Lean.versionString
+      let hint := match targetTC with
+        | some tc => s!"\n\nToolchain mismatch: probe-lean was built with Lean {probeLeanVersion}, " ++
+            s!"but the target project uses {tc}.\n" ++
+            "The .olean binary format is not compatible across Lean versions.\n" ++
+            "Fix: update probe-lean's lean-toolchain to match the target project, then rebuild."
+        | none => s!"\n\nThis may be a toolchain mismatch. probe-lean was built with Lean {probeLeanVersion}.\n" ++
+            "Ensure the target project uses the same Lean version, or update probe-lean to match."
+      return .error s!"Failed to import modules: {msg}{hint}"
+    return .error s!"Failed to import modules: {msg}"
 
   IO.println "Extracting declarations..."
 
