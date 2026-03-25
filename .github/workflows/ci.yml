@@ -41,7 +41,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install probe-extract-check
-        run: cargo install --git https://github.com/Beneficial-AI-Foundation/probe --bin probe-extract-check
+        run: cargo install --git https://github.com/Beneficial-AI-Foundation/probe probe-extract-check
 
       - name: Run structural checks on example JSON
         run: probe-extract-check examples/lean_Curve25519Dalek_0.1.0.json --allow-warnings
