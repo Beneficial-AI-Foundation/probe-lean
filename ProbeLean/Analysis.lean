@@ -290,10 +290,13 @@ def stripLeadingDotSlash (path : String) : String :=
 
 /-- Convert a DeclInfo to an Atom -/
 def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (crate : String) (fileCache : FileCache) (info : DeclInfo) : IO Atom := do
-  let sourcePath ← getModuleSourcePath env projectPath info.moduleName
-  let sourcePathStr := match sourcePath with
-    | some p => stripLeadingDotSlash p
-    | none => ""
+  let sourcePathStr ← match info.sourceInfo with
+    | some _ =>
+      let sourcePath ← getModuleSourcePath env projectPath info.moduleName
+      pure (match sourcePath with
+        | some p => stripLeadingDotSlash p
+        | none => "")
+    | none => pure ""
 
   let isProjectDep (dep : Name) : Bool :=
     !isInternalName dep && isProjectDecl env projectModules dep
@@ -330,7 +333,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     termDependencies := projTermDeps.map fun dep => addProbePrefix dep.toString
     codeModule := info.moduleName.toString
     codePath := sourcePathStr
-    codeText := info.sourceInfo
+    codeText := if sourcePathStr.isEmpty then none else info.sourceInfo
     kind := info.kind
     isRelevant := isRelevant
     isInPackage := true

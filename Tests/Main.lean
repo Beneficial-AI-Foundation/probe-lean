@@ -1258,8 +1258,9 @@ def testExampleJsonAtomRequiredFields (result : TestResult) : IO TestResult := d
     result ← test "all atoms have non-empty display-name" allHaveDisplayName result
     let allHaveCodeModule := ao.atoms.all fun a => !a.codeModule.isEmpty
     result ← test "all atoms have non-empty code-module" allHaveCodeModule result
-    let allHaveCodePath := ao.atoms.all fun a => !a.codePath.isEmpty
-    result ← test "all atoms have non-empty code-path" allHaveCodePath result
+    let nonStubsHaveCodePath := ao.atoms.all fun a =>
+      a.codeText.isNone || !a.codePath.isEmpty
+    result ← test "non-stub atoms have non-empty code-path" nonStubsHaveCodePath result
     let validKinds := ["def", "theorem", "abbrev", "class", "structure",
                        "inductive", "instance", "axiom", "opaque", "quot"]
     let kindStr (k : DeclKind) : String := match k with
@@ -1398,6 +1399,141 @@ def testParseDefaultTargets (result : TestResult) : IO TestResult := do
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
+def testLeanInvariants (result : TestResult) : IO TestResult := do
+  let mut result := result
+
+  -- Invariant 1: type-deps ∪ term-deps == dependencies
+  IO.println ""
+  IO.println "Testing invariant: type-deps ∪ term-deps == dependencies..."
+  let invAtom : Atom := {
+    name := "probe:Inv.foo"
+    displayName := "foo"
+    dependencies := #["probe:Inv.a", "probe:Inv.b", "probe:Inv.c"]
+    typeDependencies := #["probe:Inv.a", "probe:Inv.c"]
+    termDependencies := #["probe:Inv.b", "probe:Inv.c"]
+    codeModule := "Inv"
+    codePath := "Inv.lean"
+    codeText := some { linesStart := 1, linesEnd := 5 }
+    kind := .theorem
+  }
+  let union := (invAtom.typeDependencies ++ invAtom.termDependencies).toList.eraseDups
+  let depsSet := invAtom.dependencies.toList
+  let unionMatchesDeps := union.all depsSet.contains && depsSet.all union.contains
+  result ← test "type ∪ term == dependencies" unionMatchesDeps result
+
+  let emptyTypedAtom : Atom := {
+    name := "probe:Inv.bar"
+    displayName := "bar"
+    dependencies := #["probe:Inv.x"]
+    typeDependencies := #[]
+    termDependencies := #[]
+    codeModule := "Inv"
+    codePath := "Inv.lean"
+    codeText := none
+    kind := .def
+  }
+  let emptyUnion := (emptyTypedAtom.typeDependencies ++ emptyTypedAtom.termDependencies).toList.eraseDups
+  result ← test "empty typed deps: union is empty (legacy compat)" emptyUnion.isEmpty result
+
+  -- Invariant 2: specs reference existing atoms
+  IO.println ""
+  IO.println "Testing invariant: specs reference existing atoms..."
+  let specDef : Atom := {
+    name := "probe:Inv.mydef"
+    displayName := "mydef"
+    dependencies := #[]
+    codeModule := "Inv"
+    codePath := "Inv.lean"
+    codeText := some { linesStart := 10, linesEnd := 15 }
+    kind := .def
+  }
+  let specThm : Atom := {
+    name := "probe:Inv.mydef_spec"
+    displayName := "mydef_spec"
+    dependencies := #["probe:Inv.mydef"]
+    codeModule := "Inv"
+    codePath := "Inv.lean"
+    codeText := some { linesStart := 20, linesEnd := 30 }
+    kind := .theorem
+  }
+  let specResult := computeSpecs #[specDef, specThm]
+  let allAtomNames := specResult.map (·.name)
+  let allSpecsExist := specResult.all fun a =>
+    a.specs.all fun s => allAtomNames.contains s
+  result ← test "all spec references are existing atoms" allSpecsExist result
+
+  -- Invariant 3: primary-spec is in specs
+  IO.println ""
+  IO.println "Testing invariant: primary-spec is in specs..."
+  let psResult := computeSpecs #[specDef, specThm]
+  let primarySpecInSpecs := psResult.all fun a =>
+    match a.primarySpec with
+    | none => true
+    | some ps => a.specs.contains ps
+  result ← test "primary-spec is always in specs" primarySpecInSpecs result
+
+  -- Invariant 4: spec↔dependency bidirectionality
+  IO.println ""
+  IO.println "Testing invariant: spec↔dependency bidirectionality..."
+  let biDef : Atom := {
+    name := "probe:Bi.f"
+    displayName := "f"
+    dependencies := #[]
+    codeModule := "Bi"
+    codePath := "Bi.lean"
+    codeText := some { linesStart := 1, linesEnd := 5 }
+    kind := .def
+  }
+  let biThm1 : Atom := {
+    name := "probe:Bi.f_spec"
+    displayName := "f_spec"
+    dependencies := #["probe:Bi.f"]
+    codeModule := "Bi"
+    codePath := "Bi.lean"
+    codeText := some { linesStart := 10, linesEnd := 15 }
+    kind := .theorem
+  }
+  let biThm2 : Atom := {
+    name := "probe:Bi.f_loop_spec"
+    displayName := "f_loop_spec"
+    dependencies := #["probe:Bi.f"]
+    codeModule := "Bi"
+    codePath := "Bi.lean"
+    codeText := none
+    kind := .theorem
+  }
+  let biResult := computeSpecs #[biDef, biThm1, biThm2]
+  let biDefRes := biResult.find? fun a => a.name == "probe:Bi.f"
+  let bidir := match biDefRes with
+    | some a => a.specs.all fun specName =>
+        match biResult.find? fun b => b.name == specName with
+        | some specAtom => specAtom.dependencies.contains a.name
+        | none => false
+    | none => false
+  result ← test "if A has spec B, then B depends on A" bidir result
+
+  -- Invariant 5: mapVerifyStatus produces valid values
+  IO.println ""
+  IO.println "Testing invariant: mapVerifyStatus produces valid values..."
+  let vs1 := mapVerifyStatus .success
+  let vs2 := mapVerifyStatus .sorries
+  let vs3 := mapVerifyStatus .failure
+  result ← test "success maps to verified" (vs1 == .verified) result
+  result ← test "sorries maps to unverified" (vs2 == .unverified) result
+  result ← test "failure maps to failed" (vs3 == .failed) result
+
+  let validStatuses := #["verified", "unverified", "failed"]
+  let vsJson1 := Lean.toJson vs1
+  let vsJson2 := Lean.toJson vs2
+  let vsJson3 := Lean.toJson vs3
+  let allValid := [vsJson1, vsJson2, vsJson3].all fun j =>
+    match j with
+    | .str s => validStatuses.contains s
+    | _ => false
+  result ← test "all verification-status JSON values are valid strings" allValid result
+
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1425,6 +1561,7 @@ def main : IO UInt32 := do
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
   result ← testReadToolchain result
+  result ← testLeanInvariants result
   result ← testParseLeanLibs result
   result ← testParseDefaultTargets result
 
