@@ -169,7 +169,31 @@ If you've already built the project, probe-lean will detect that the build cache
 
 Since VCV-io uses `lakefile.lean` (not `.toml`), probe-lean cannot auto-detect library names and falls back to `lake build` with no explicit targets, which uses whatever the project defines as defaults.
 
-### Example 4: From-scratch setup on a fresh machine
+### Example 4: [signal-shot-PQXDH](https://github.com/Beneficial-AI-Foundation/signal-shot-PQXDH)
+
+Lean 4 formalization of the Signal PQXDH key agreement protocol. Depends on Mathlib and subverso.
+
+| Property | Value |
+|----------|-------|
+| Toolchain | `v4.29.0-rc3` |
+| Depends on Mathlib | Yes |
+| Libraries | `PQXDHLean` |
+| `defaultTargets` | `["PQXDHLean"]` |
+
+```bash
+# 1. Install probe-lean for the matching toolchain
+cd probe-lean
+./tools/bash/install.sh v4.29.0-rc3
+
+# 2. Download Mathlib cache (first time only — ~5 min)
+cd ../signal-shot-PQXDH
+lake exe cache get
+
+# 3. Run extract
+probe-lean extract ../signal-shot-PQXDH/
+```
+
+### Example 5: From-scratch setup on a fresh machine
 
 Starting from nothing on Ubuntu/Debian:
 
