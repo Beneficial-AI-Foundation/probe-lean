@@ -266,7 +266,9 @@ def update_symlinks(version: str):
     bin_symlink.unlink(missing_ok=True)
     bin_symlink.symlink_to(f"probe-lean-{version}")
 
-    if lib_symlink.is_symlink() or lib_symlink.exists():
+    if lib_symlink.is_dir() and not lib_symlink.is_symlink():
+        shutil.rmtree(lib_symlink)
+    elif lib_symlink.is_symlink() or lib_symlink.exists():
         lib_symlink.unlink()
     lib_symlink.symlink_to(f"probe-lean-{version}")
 

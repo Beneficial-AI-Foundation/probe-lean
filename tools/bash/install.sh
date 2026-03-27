@@ -210,7 +210,8 @@ update_symlinks() {
     local version=$1
     rm -f ~/.local/bin/probe-lean
     ln -s "probe-lean-$version" ~/.local/bin/probe-lean
-    rm -f ~/.local/lib/probe-lean
+    # May be an old directory or a symlink from a previous install
+    rm -rf ~/.local/lib/probe-lean
     ln -sfn "probe-lean-$version" ~/.local/lib/probe-lean
 }
 
