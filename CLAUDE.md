@@ -79,6 +79,8 @@ The version is defined **once** in `lakefile.toml` and generated into `ProbeLean
 
 Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (or `Constants.toolVersion` which references it).
 
+**When to bump the version:** Bump the minor version in `lakefile.toml` (and regenerate) when a release includes new features, changed output format, or breaking changes to the CLI or installer. Patch bumps are for bug fixes only. Tag the commit with `v<version>` to trigger the release workflow.
+
 ## Architecture
 
 ### Extract pipeline
