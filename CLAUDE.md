@@ -31,8 +31,10 @@ This project uses spec-driven development. Follow this workflow:
 ## Documentation
 
 - **README.md must be updated after each change** (new features, commands, options, defaults, etc.)
+- **docs/USAGE.md must be updated** when commands, flags, installation steps, or walkthroughs change
+- **docs/SCHEMA.md must be updated** when output format, fields, or envelope structure changes
 - Include usage examples and option descriptions
-- Update README before committing
+- Update docs before committing
 
 ## Commands
 

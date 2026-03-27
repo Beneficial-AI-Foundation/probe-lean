@@ -13,38 +13,48 @@ git clone https://github.com/Beneficial-AI-Foundation/probe-lean
 cd probe-lean
 ```
 
-**Option 1: Bash**
+**Option 1 -- auto-detect from target project (recommended):**
 ```bash
-./tools/bash/install.sh [VERSION]
+./tools/bash/install.sh --from-project ../my-lean-project
 ```
 
-**Option 2: Python (using uv)**
+**Option 2 -- explicit version:**
 ```bash
-uv run tools/python/install.py [VERSION]
+./tools/bash/install.sh v4.28.0
 ```
 
-Both scripts build the project and install the binary to `~/.local/bin/probe-lean-<version>` (with a symlink at `~/.local/bin/probe-lean`) and the required interpreter `.olean` files to `~/.local/lib/probe-lean/`.
+**Option 3 -- interactive menu (no arguments):**
+```bash
+./tools/bash/install.sh
+```
 
-If no version is specified, the script shows a menu of available versions.
+A Python equivalent is also available:
+```bash
+uv run tools/python/install.py --from-project ../my-lean-project
+```
+
+Both scripts first try to download a pre-built binary from GitHub Releases. If none is available for the requested Lean version, they fall back to building from source.
+
+Binaries are installed to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`. The required `.olean` files go to `~/.local/lib/probe-lean-<version>/`.
+
+Verify the installation:
+```bash
+probe-lean --version
+```
+
+### Installer flags
+
+| Flag | Description |
+|------|-------------|
+| `--from-project <path>` | Auto-detect the Lean version from the target project's `lean-toolchain` |
+| `--lean-version <ver>` | Explicit Lean version (e.g., `v4.28.0`) |
+| `--force` | Reinstall even if the version is already installed |
 
 ### Toolchain version matching
 
 probe-lean **must** be installed for the same Lean version as the target project. `.olean` files are version-specific and will not load across versions.
 
-Check what version the target project needs:
-
-```bash
-cat ../my-lean-project/lean-toolchain
-# e.g. leanprover/lean4:v4.28.0
-```
-
-Then install probe-lean for that version:
-
-```bash
-./tools/bash/install.sh v4.28.0
-```
-
-If your targets use different Lean versions, the install script temporarily switches the toolchain, builds, and installs a versioned binary (`probe-lean-v4.28.0`). The `probe-lean` symlink points to the most recently installed version.
+If your targets use different Lean versions, the installer handles this: it builds (or downloads) a versioned binary for each version. Multiple versions coexist under `~/.local/bin/probe-lean-v<version>`. The `probe-lean` symlink points to the most recently installed version.
 
 ---
 
@@ -101,9 +111,9 @@ Aeneas-generated Lean translation of the curve25519-dalek Rust crate, with Mathl
 | `defaultTargets` | `["Curve25519Dalek"]` |
 
 ```bash
-# 1. Install probe-lean for the matching toolchain
+# 1. Install probe-lean (auto-detects v4.28.0-rc1 from lean-toolchain)
 cd probe-lean
-./tools/bash/install.sh v4.28.0-rc1
+./tools/bash/install.sh --from-project ../curve25519-dalek-lean-verify
 
 # 2. Download Mathlib cache (first time only — ~5 min)
 cd ../curve25519-dalek-lean-verify
@@ -127,9 +137,9 @@ Lean 4 library for verified cryptographic protocols. Uses `lakefile.lean` (not `
 | Other libraries | `ToMathlib`, `LibSodium` |
 
 ```bash
-# 1. Install probe-lean for v4.28.0
+# 1. Install probe-lean (auto-detects v4.28.0)
 cd probe-lean
-./tools/bash/install.sh v4.28.0
+./tools/bash/install.sh --from-project ../VCV-io
 
 # 2. Download Mathlib cache
 cd ../VCV-io
@@ -153,9 +163,9 @@ Lean 4 library for formally verified zkSNARK components. Depends on Mathlib and 
 | `defaultTargets` | `["ArkLib"]` |
 
 ```bash
-# 1. Install probe-lean for v4.28.0 (skip if already done for VCV-io)
+# 1. Install probe-lean (skip if already done for VCV-io — same Lean version)
 cd probe-lean
-./tools/bash/install.sh v4.28.0
+./tools/bash/install.sh --from-project ../ArkLib
 
 # 2. Download Mathlib cache
 cd ../ArkLib
@@ -166,8 +176,6 @@ probe-lean extract ../ArkLib/
 ```
 
 If you've already built the project, probe-lean will detect that the build cache is up-to-date and skip the `lake build` step automatically (sorry detection still works using the cached build output).
-
-Since VCV-io uses `lakefile.lean` (not `.toml`), probe-lean cannot auto-detect library names and falls back to `lake build` with no explicit targets, which uses whatever the project defines as defaults.
 
 ### Example 4: [signal-shot-PQXDH](https://github.com/Beneficial-AI-Foundation/signal-shot-PQXDH)
 
@@ -181,9 +189,9 @@ Lean 4 formalization of the Signal PQXDH key agreement protocol. Depends on Math
 | `defaultTargets` | `["PQXDHLean"]` |
 
 ```bash
-# 1. Install probe-lean for the matching toolchain
+# 1. Install probe-lean (auto-detects v4.29.0-rc3 — different from Examples 1–3)
 cd probe-lean
-./tools/bash/install.sh v4.29.0-rc3
+./tools/bash/install.sh --from-project ../signal-shot-PQXDH
 
 # 2. Download Mathlib cache (first time only — ~5 min)
 cd ../signal-shot-PQXDH
@@ -206,15 +214,14 @@ source ~/.profile
 git clone https://github.com/Beneficial-AI-Foundation/probe-lean
 cd probe-lean
 
-# Check what version the target project needs
-cat ../my-lean-project/lean-toolchain
-# leanprover/lean4:v4.28.0
-
-# Install probe-lean for that version
-./tools/bash/install.sh v4.28.0
+# Install probe-lean for the target project (auto-detects Lean version)
+./tools/bash/install.sh --from-project ../my-lean-project
 
 # Ensure ~/.local/bin is in PATH
 export PATH="$PATH:$HOME/.local/bin"
+
+# Verify installation
+probe-lean --version
 
 # Prepare the target project
 cd ../my-lean-project
@@ -272,7 +279,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.2.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.3.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",
@@ -386,13 +393,11 @@ lake build
 
 ### Toolchain mismatch
 
-If you see `.olean` version errors, check that probe-lean was installed for the right version:
+If you see `.olean` version errors, reinstall probe-lean for the target project:
 
 ```bash
-cat <target-project>/lean-toolchain
-# Reinstall probe-lean for that version
 cd probe-lean
-./tools/bash/install.sh <version>
+./tools/bash/install.sh --force --from-project <target-project>
 ```
 
 ### Output directory

@@ -18,7 +18,7 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
   "schema-version": "2.0",
   "tool": {
     "name": "probe-lean",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "command": "extract"
   },
   "source": {
@@ -113,7 +113,7 @@ Surveyed projects:
 
 | Project | Has `version`? | Value |
 |---------|---------------|-------|
-| probe-lean | yes | `0.2.0` |
+| probe-lean | yes | `0.3.0` |
 | curve25519-dalek-lean-verify | yes | `0.1.0` |
 | ArkLib | no | -- |
 | katydid-proofs | no | -- |
