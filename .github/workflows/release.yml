@@ -17,6 +17,8 @@ jobs:
       matrix:
         lean-version:
           - v4.28.0-rc1
+          - v4.28.0
+          - v4.29.0-rc8
         os:
           - ubuntu-latest
           - macos-latest
