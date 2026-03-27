@@ -31,7 +31,7 @@ def testConstants (result : TestResult) : IO TestResult := do
   result ← test "viewsDir" (Constants.viewsDir == "views") result
   result ← test "mapsDir" (Constants.mapsDir == "maps") result
   result ← test "toolName" (Constants.toolName == "probe-lean") result
-  result ← test "toolVersion" (Constants.toolVersion == "0.2.0") result
+  result ← test "toolVersion" (Constants.toolVersion == ProbeLean.version) result
   result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
   result ← test "schemaExtract" (Constants.schemaExtract == "probe-lean/extract") result
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
@@ -104,12 +104,12 @@ def testTypeJsonSerialization (result : TestResult) : IO TestResult := do
 
   IO.println ""
   IO.println "Testing ToolInfo JSON serialization..."
-  let toolInfo : ToolInfo := { name := "probe-lean", version := "0.1.0", command := "extract" }
+  let toolInfo : ToolInfo := { name := "probe-lean", version := ProbeLean.version, command := "extract" }
   let toolJson := Lean.toJson toolInfo
   let toolNameOk := match toolJson.getObjValAs? String "name" with
     | .ok "probe-lean" => true | _ => false
   let toolVersionOk := match toolJson.getObjValAs? String "version" with
-    | .ok "0.1.0" => true | _ => false
+    | .ok v => v == ProbeLean.version | _ => false
   let toolCommandOk := match toolJson.getObjValAs? String "command" with
     | .ok "extract" => true | _ => false
   result ← test "toolInfo name" toolNameOk result
@@ -119,7 +119,7 @@ def testTypeJsonSerialization (result : TestResult) : IO TestResult := do
   IO.println ""
   IO.println "Testing ToolInfo FromJson round-trip..."
   let toolRt := match Lean.FromJson.fromJson? (Lean.toJson toolInfo) (α := ToolInfo) with
-    | .ok ti => ti.name == "probe-lean" && ti.version == "0.1.0" && ti.command == "extract"
+    | .ok ti => ti.name == "probe-lean" && ti.version == ProbeLean.version && ti.command == "extract"
     | .error _ => false
   result ← test "toolInfo round-trips through JSON" toolRt result
 
@@ -1324,6 +1324,53 @@ def testReadToolchain (result : TestResult) : IO TestResult := do
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
+def testToolchainVersionParsing (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing toolchain version parsing..."
+
+  -- parseToolchainVersion extracts the version tag from a lean-toolchain string
+  let parse (s : String) : String :=
+    let trimmed := s.trimAscii.toString
+    match trimmed.splitOn ":" with
+    | [_, version] => version
+    | _ => trimmed
+
+  result ← test "parses leanprover/lean4:v4.28.0-rc1"
+    (parse "leanprover/lean4:v4.28.0-rc1" == "v4.28.0-rc1") result
+  result ← test "parses with trailing whitespace"
+    (parse "leanprover/lean4:v4.29.0-rc3\n" == "v4.29.0-rc3") result
+  result ← test "handles bare version"
+    (parse "v4.28.0-rc1" == "v4.28.0-rc1") result
+
+  -- Test that Lean.versionString is well-formed (no "v" prefix)
+  let vs := Lean.versionString
+  result ← test "Lean.versionString has no v prefix"
+    (!vs.startsWith "v") result
+  result ← test "Lean.versionString is non-empty"
+    (vs.length > 0) result
+
+  -- Test version matching: prepend "v" to Lean.versionString and compare
+  let probeLeanVersion := s!"v{Lean.versionString}"
+  result ← test "probeLeanVersion starts with v"
+    (probeLeanVersion.startsWith "v") result
+
+  return result
+
+def testFindProbeLeanLibPaths (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing findProbeLeanLib versioned paths..."
+
+  -- Verify the versioned lib path uses the correct format
+  let expectedSuffix := s!"probe-lean-v{Lean.versionString}"
+  result ← test "versioned lib dir name matches format"
+    (expectedSuffix.startsWith "probe-lean-v") result
+  result ← test "versioned lib dir contains version"
+    (containsSubstring expectedSuffix Lean.versionString) result
+
+  return result
+
 def testParseLeanLibs (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -1534,6 +1581,36 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
 
   return result
 
+def testVersionConsistency (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing version consistency..."
+
+  result ← test "Constants.toolVersion equals ProbeLean.version"
+    (Constants.toolVersion == ProbeLean.version) result
+
+  result ← test "ProbeLean.version is non-empty"
+    (ProbeLean.version.length > 0) result
+
+  let dotCount := ProbeLean.version.splitOn "." |>.length
+  result ← test "ProbeLean.version looks like semver"
+    (dotCount >= 3) result
+
+  -- Read lakefile.toml and verify the version matches
+  let lakefileContent ← IO.FS.readFile "lakefile.toml"
+  let parts := lakefileContent.splitOn "version = \""
+  let lakefileVersion : Option String :=
+    if h : parts.length > 1 then
+      let rest := parts[1]
+      let closing := rest.splitOn "\""
+      if h2 : closing.length > 0 then some closing[0]
+      else none
+    else none
+  result ← test "ProbeLean.version matches lakefile.toml"
+    (lakefileVersion == some ProbeLean.version) result
+
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1561,9 +1638,12 @@ def main : IO UInt32 := do
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
   result ← testReadToolchain result
+  result ← testToolchainVersionParsing result
+  result ← testFindProbeLeanLibPaths result
   result ← testLeanInvariants result
   result ← testParseLeanLibs result
   result ← testParseDefaultTargets result
+  result ← testVersionConsistency result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

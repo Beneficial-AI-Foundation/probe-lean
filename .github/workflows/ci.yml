@@ -32,6 +32,20 @@ jobs:
       - name: Run tests
         run: .lake/build/bin/tests
 
+  check-version:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Version.lean matches lakefile.toml
+        run: |
+          ./tools/gen-version.sh
+          if ! git diff --exit-code ProbeLean/Version.lean; then
+            echo "::error::ProbeLean/Version.lean is out of date. Run ./tools/gen-version.sh and commit."
+            exit 1
+          fi
+
   check-extract:
     name: Validate extract output
     runs-on: ubuntu-latest

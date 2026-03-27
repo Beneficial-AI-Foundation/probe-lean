@@ -71,6 +71,12 @@ When running `probe-lean extract` on a target project (e.g., `curve25519-dalek-l
 
 The toolchain versions must match between probe-lean and the target project (both currently use `v4.28.0-rc1`).
 
+## Versioning
+
+The version is defined **once** in `lakefile.toml` and generated into `ProbeLean/Version.lean` by `tools/gen-version.sh`. After bumping the version in `lakefile.toml`, run `./tools/gen-version.sh` and commit both files. CI checks they stay in sync.
+
+Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (or `Constants.toolVersion` which references it).
+
 ## Architecture
 
 ### Extract pipeline
@@ -81,6 +87,7 @@ The toolchain versions must match between probe-lean and the target project (bot
 - `ProbeLean/Atomize.lean` — Converts declarations to `Atom` structs, applies filtering flags
 - `ProbeLean/VerifyInternal.lean` — Parses sorry warnings from build output
 - `ProbeLean/Extract.lean` — Orchestrates the pipeline, produces `UnifiedAtom` output
+- `ProbeLean/Version.lean` — Single version constant, generated from `lakefile.toml`
 - `ProbeLean/Types.lean` — All data structures and JSON serialization
 - `ProbeLean/View.lean` — `viewify` command (filters atoms → molecules for web UI)
 

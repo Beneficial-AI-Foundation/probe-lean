@@ -1,0 +1,192 @@
+# BAIF Lean Extract Action
+# Analyzes a Lean 4 project and produces verification results JSON.
+#
+# Usage:
+#   - uses: Beneficial-AI-Foundation/probe-lean/action@main
+#     with:
+#       project-path: .
+
+name: 'BAIF Lean Extract'
+description: 'Analyze a Lean 4 project: extract atoms, detect sorries, compute specs'
+author: 'Beneficial AI Foundation'
+
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  project-path:
+    description: 'Path to the Lean 4 project (directory containing lakefile.toml or lakefile.lean)'
+    required: true
+  lean-version:
+    description: 'Lean version override (default: auto-detect from project lean-toolchain)'
+    required: false
+    default: ''
+  extract-args:
+    description: 'Extra arguments passed to probe-lean extract (e.g., --skip-verify --library Lib1)'
+    required: false
+    default: ''
+  output-dir:
+    description: 'Directory for output files (default: current directory)'
+    required: false
+    default: '.'
+  probe-lean-ref:
+    description: 'Git ref for probe-lean source (default: main)'
+    required: false
+    default: 'main'
+
+outputs:
+  results-file:
+    description: 'Path to the extract results JSON file'
+    value: ${{ steps.extract.outputs.results_file }}
+  lean-version:
+    description: 'Lean version used'
+    value: ${{ steps.detect.outputs.lean_version }}
+  atom-count:
+    description: 'Number of atoms extracted'
+    value: ${{ steps.extract.outputs.atom_count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect Lean version
+      id: detect
+      shell: bash
+      run: |
+        PROJECT_PATH="${{ inputs.project-path }}"
+        TOOLCHAIN_FILE="$PROJECT_PATH/lean-toolchain"
+
+        if [ ! -f "$TOOLCHAIN_FILE" ]; then
+          echo "::error::lean-toolchain not found at $TOOLCHAIN_FILE"
+          exit 1
+        fi
+
+        LEAN_VERSION="${{ inputs.lean-version }}"
+        if [ -z "$LEAN_VERSION" ]; then
+          CONTENTS=$(cat "$TOOLCHAIN_FILE" | tr -d '[:space:]')
+          LEAN_VERSION="${CONTENTS##*:}"
+          echo "Auto-detected Lean version: $LEAN_VERSION"
+        fi
+
+        echo "lean_version=$LEAN_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Checkout probe-lean
+      uses: actions/checkout@v4
+      with:
+        repository: Beneficial-AI-Foundation/probe-lean
+        ref: ${{ inputs.probe-lean-ref }}
+        path: .probe-lean-src
+
+    - name: Configure probe-lean for target Lean version
+      shell: bash
+      run: |
+        cd .probe-lean-src
+        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
+        echo "leanprover/lean4:$LEAN_VERSION" > lean-toolchain
+        sed -i'' -e "s/rev = \"v[^\"]*\"/rev = \"$LEAN_VERSION\"/" lakefile.toml
+
+    - name: Install elan
+      shell: bash
+      run: |
+        if ! command -v elan &>/dev/null; then
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | bash -s -- -y --default-toolchain none
+        fi
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      shell: bash
+      run: |
+        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
+        elan toolchain install "leanprover/lean4:$LEAN_VERSION"
+        elan default "leanprover/lean4:$LEAN_VERSION"
+
+    - name: Cache probe-lean binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.local/bin/probe-lean*
+          ~/.local/lib/probe-lean*
+        key: probe-lean-${{ steps.detect.outputs.lean_version }}-${{ hashFiles('.probe-lean-src/ProbeLean/**/*.lean') }}
+
+    - name: Build probe-lean
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: .probe-lean-src
+      run: lake build probe-lean
+
+    - name: Install probe-lean
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
+        VERSIONED_LIB=~/.local/lib/probe-lean-$LEAN_VERSION
+
+        mkdir -p ~/.local/bin "$VERSIONED_LIB"
+        cp .probe-lean-src/.lake/build/bin/probe-lean ~/.local/bin/probe-lean-$LEAN_VERSION
+        chmod +x ~/.local/bin/probe-lean-$LEAN_VERSION
+
+        rm -rf "$VERSIONED_LIB"/*
+        cp -r .probe-lean-src/.lake/build/lib/lean/ProbeLean* "$VERSIONED_LIB"/
+
+        ln -sf probe-lean-$LEAN_VERSION ~/.local/bin/probe-lean
+        ln -sfn probe-lean-$LEAN_VERSION ~/.local/lib/probe-lean
+
+    - name: Add probe-lean to PATH
+      shell: bash
+      run: |
+        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
+        ln -sf probe-lean-$LEAN_VERSION ~/.local/bin/probe-lean 2>/dev/null || true
+        ln -sfn probe-lean-$LEAN_VERSION ~/.local/lib/probe-lean 2>/dev/null || true
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Download Mathlib cache if needed
+      shell: bash
+      run: |
+        PROJECT_PATH="${{ inputs.project-path }}"
+        if [ -f "$PROJECT_PATH/lake-manifest.json" ]; then
+          if grep -q '"mathlib"' "$PROJECT_PATH/lake-manifest.json" 2>/dev/null; then
+            echo "Mathlib dependency detected, downloading cache..."
+            cd "$PROJECT_PATH" && lake exe cache get || echo "::warning::Mathlib cache download failed"
+          fi
+        fi
+
+    - name: Run probe-lean extract
+      id: extract
+      shell: bash
+      run: |
+        PROJECT_PATH="${{ inputs.project-path }}"
+        OUTPUT_DIR="${{ inputs.output-dir }}"
+        EXTRACT_ARGS="${{ inputs.extract-args }}"
+
+        echo "=== Running probe-lean extract ==="
+        echo "Project: $PROJECT_PATH"
+
+        echo "Running: probe-lean extract $PROJECT_PATH $EXTRACT_ARGS"
+        # shellcheck disable=SC2086 -- EXTRACT_ARGS is intentionally word-split
+        probe-lean extract "$PROJECT_PATH" $EXTRACT_ARGS
+
+        # Find the output file
+        RESULTS_FILE=$(find "$PROJECT_PATH/.verilib/probes/" -name "lean_*.json" -type f 2>/dev/null | head -1)
+        if [ -z "$RESULTS_FILE" ]; then
+          echo "::warning::No output file found in $PROJECT_PATH/.verilib/probes/"
+          RESULTS_FILE=""
+          ATOM_COUNT=0
+        else
+          ATOM_COUNT=$(python3 -c "import json; d=json.load(open('$RESULTS_FILE')); print(len(d.get('data',{})))" 2>/dev/null || echo 0)
+          echo "Results: $RESULTS_FILE ($ATOM_COUNT atoms)"
+
+          if [ -n "$OUTPUT_DIR" ] && [ "$OUTPUT_DIR" != "." ]; then
+            mkdir -p "$OUTPUT_DIR"
+            cp "$RESULTS_FILE" "$OUTPUT_DIR/"
+            RESULTS_FILE="$OUTPUT_DIR/$(basename "$RESULTS_FILE")"
+          fi
+        fi
+
+        echo "results_file=$RESULTS_FILE" >> $GITHUB_OUTPUT
+        echo "atom_count=$ATOM_COUNT" >> $GITHUB_OUTPUT
+
+    - name: Cleanup
+      if: always()
+      shell: bash
+      run: rm -rf .probe-lean-src

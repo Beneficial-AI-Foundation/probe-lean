@@ -4,6 +4,7 @@
   with JSON serialization matching the probe interchange spec.
 -/
 import Lean.Data.Json
+import ProbeLean.Version
 
 namespace ProbeLean
 
@@ -17,7 +18,7 @@ namespace Constants
   def viewsDir : String := "views"
   def mapsDir : String := "maps"
   def toolName : String := "probe-lean"
-  def toolVersion : String := "0.2.0"
+  def toolVersion : String := ProbeLean.version
   def schemaVersion : String := "2.0"
   def schemaExtract : String := "probe-lean/extract"
   def schemaView : String := "probe-lean/viewify"

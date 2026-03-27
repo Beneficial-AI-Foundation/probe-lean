@@ -5,9 +5,17 @@
 import Cli
 import ProbeLean.Extract
 import ProbeLean.View
+import ProbeLean.Version
 
 open Cli
 open ProbeLean
+
+/-- Recursively set the version on a command and all its subcommands. -/
+partial def Cli.Cmd.withVersion (cmd : Cli.Cmd) (v : String) : Cli.Cmd :=
+  .init { cmd.meta with version? := some v }
+    cmd.run
+    (cmd.subCmds.map (·.withVersion v))
+    cmd.extension?
 
 /-- Strip trailing slashes so `FilePath /` doesn't produce `//` in output paths -/
 private def normalizePath (s : String) : String :=
@@ -36,7 +44,7 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
 
 /-- The extract subcommand -/
 def extractCmd : Cmd := `[Cli|
-  extract VIA runExtract; ["0.1.0"]
+  extract VIA runExtract; ["0.0.0"]
   "Analyze a Lean 4 project: extract atoms, compute specs, detect sorries, and produce unified output"
 
   FLAGS:
@@ -66,7 +74,7 @@ def runView (parsed : Parsed) : IO UInt32 := do
 
 /-- The viewify subcommand -/
 def viewCmd : Cmd := `[Cli|
-  viewify VIA runView; ["0.1.0"]
+  viewify VIA runView; ["0.0.0"]
   "Generate molecules output from extract results, filtering for the web UI"
 
   FLAGS:
@@ -83,15 +91,16 @@ def runRoot (_parsed : Parsed) : IO UInt32 := do
   IO.println "Run 'probe-lean --help' for more information"
   return 0
 
-/-- Main command -/
-def probeleanCmd : Cmd := `[Cli|
-  "probe-lean" VIA runRoot; ["0.1.0"]
-  "A tool for analyzing Lean 4 projects"
+/-- Main command (version from ProbeLean.version, sourced from lakefile.toml) -/
+def probeleanCmd : Cmd :=
+  (`[Cli|
+    "probe-lean" VIA runRoot; ["0.0.0"]
+    "A tool for analyzing Lean 4 projects"
 
-  SUBCOMMANDS:
-    extractCmd;
-    viewCmd
-]
+    SUBCOMMANDS:
+      extractCmd;
+      viewCmd
+  ]).withVersion ProbeLean.version
 
 /-- Entry point -/
 def main (args : List String) : IO UInt32 :=

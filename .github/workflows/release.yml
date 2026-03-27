@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build probe-lean (${{ matrix.lean-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lean-version:
+          - v4.28.0-rc1
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rewrite toolchain to target Lean version
+        run: |
+          echo "leanprover/lean4:${{ matrix.lean-version }}" > lean-toolchain
+          sed -i'' -e 's/rev = "v[^"]*"/rev = "${{ matrix.lean-version }}"/' lakefile.toml
+
+      - uses: leanprover/lean-action@v1
+        with:
+          test: false
+
+      - name: Detect platform
+        id: platform
+        run: |
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            aarch64|arm64) ARCH="arm64" ;;
+            x86_64)        ARCH="x86_64" ;;
+          esac
+          echo "platform=${OS}-${ARCH}" >> $GITHUB_OUTPUT
+
+      - name: Package binary and .olean files
+        run: |
+          ARTIFACT="probe-lean-${{ matrix.lean-version }}-${{ steps.platform.outputs.platform }}"
+          mkdir -p "$ARTIFACT/bin" "$ARTIFACT/lib"
+          cp .lake/build/bin/probe-lean "$ARTIFACT/bin/"
+          cp -r .lake/build/lib/lean/ProbeLean* "$ARTIFACT/lib/"
+          tar -czf "${ARTIFACT}.tar.gz" -C "$ARTIFACT" bin lib
+          echo "ARTIFACT=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
+
+      - name: Create release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" --generate-notes 2>/dev/null || true
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" "$ARTIFACT" --clobber

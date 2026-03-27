@@ -18,32 +18,76 @@ git clone https://github.com/Beneficial-AI-Foundation/probe-lean
 cd probe-lean
 ```
 
-**Option 1: Bash**
+### Auto-detect version from a target project (recommended)
+
+The installer reads the target project's `lean-toolchain` and installs the matching probe-lean binary automatically:
+
 ```bash
-./tools/bash/install.sh [VERSION]
+# Bash
+./tools/bash/install.sh --from-project ../my-lean-project
+
+# Python (using uv)
+uv run tools/python/install.py --from-project ../my-lean-project
 ```
 
-**Option 2: Python (using uv)**
-```bash
-uv run tools/python/install.py [VERSION]
-```
+### Explicit version
 
-Both scripts build the project and install the binary to `~/.local/bin/probe-lean-<version>` (with a symlink at `~/.local/bin/probe-lean`) and the required interpreter `.olean` files to `~/.local/lib/probe-lean/`.
-
-Install for a specific Lean version to match the target project:
 ```bash
-# Check target project's Lean version
-cat ../my-lean-project/lean-toolchain
-# Install probe-lean for that version
+./tools/bash/install.sh --lean-version v4.28.0-rc1
+# or equivalently
 ./tools/bash/install.sh v4.28.0-rc1
 ```
 
-If no version is specified, the script shows a menu of available versions from GitHub.
+### Interactive menu
+
+If no version is specified, the script shows a menu of available Lean versions:
+
+```bash
+./tools/bash/install.sh
+```
+
+### How it works
+
+Both scripts follow the same logic:
+1. Detect the required Lean version (from `--from-project`, `--lean-version`, or interactive menu)
+2. Check if `probe-lean-<version>` is already installed (skip if so, unless `--force`)
+3. Try downloading a pre-built binary from GitHub releases
+4. Fall back to building from source if no pre-built binary is available
+
+The binary is installed to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`. Interpreter `.olean` files are installed to `~/.local/lib/probe-lean-<version>/` (per-version, so multiple versions can coexist).
+
+### Installer options
+
+| Option | Description |
+|--------|-------------|
+| `--from-project <path>` | Auto-detect Lean version from target project's `lean-toolchain` |
+| `--lean-version <ver>` | Explicit Lean version (e.g., `v4.28.0-rc1`) |
+| `--force` | Rebuild/reinstall even if already installed |
+| `[VERSION]` | Positional version argument (same as `--lean-version`) |
 
 Ensure `~/.local/bin` is in your `PATH`:
 ```bash
 export PATH="$PATH:$HOME/.local/bin"
 ```
+
+### Docker
+
+```bash
+docker build --build-arg LEAN_VERSION=v4.28.0-rc1 -t probe-lean .
+docker run --rm -v /path/to/project:/project probe-lean extract /project
+```
+
+### GitHub Actions
+
+For CI integration in downstream repos:
+
+```yaml
+- uses: Beneficial-AI-Foundation/probe-lean/action@main
+  with:
+    project-path: .
+```
+
+The action auto-detects the Lean version, builds probe-lean, and runs extraction. See [action/action.yml](action/action.yml) for all options.
 
 ## Quick Start
 
@@ -160,6 +204,25 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 lake build tests
 .lake/build/bin/tests
 ```
+
+## Versioning
+
+The version is defined once in `lakefile.toml` and propagated everywhere via `ProbeLean/Version.lean`:
+
+```
+lakefile.toml  →  tools/gen-version.sh  →  ProbeLean/Version.lean
+                                              ↓
+                                         Constants.toolVersion  (JSON output)
+                                         CLI --version          (Main.lean)
+```
+
+After bumping the version in `lakefile.toml`, run:
+
+```bash
+./tools/gen-version.sh
+```
+
+CI verifies the generated file stays in sync.
 
 ## License
 

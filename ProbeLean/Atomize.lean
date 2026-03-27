@@ -141,15 +141,18 @@ def resolvePath (basePath : System.FilePath) (path : System.FilePath) : IO Syste
 
 /-- Locate probe-lean's own .olean files so the interpreter can resolve
     ProbeLean modules at runtime (required by `supportInterpreter`). Checks:
-    1. Lake build layout: `<bin>/../lib/lean/`
-    2. Installed layout:  `<bin>/../lib/probe-lean/` -/
+    1. Lake build layout:       `<bin>/../lib/lean/`
+    2. Versioned installed layout: `<bin>/../lib/probe-lean-v<version>/`
+    3. Legacy installed layout:  `<bin>/../lib/probe-lean/` -/
 def findProbeLeanLib : IO (List System.FilePath) := do
   let appPath ← IO.appPath
   let binDir := appPath.parent.getD "."
   let lakeBuildLib := binDir / ".." / "lib" / "lean"
+  let versionedLib := binDir / ".." / "lib" / s!"probe-lean-v{Lean.versionString}"
   let installedLib := binDir / ".." / "lib" / "probe-lean"
   let mut paths : List System.FilePath := []
   if ← installedLib.pathExists then paths := installedLib :: paths
+  if ← versionedLib.pathExists then paths := versionedLib :: paths
   if ← lakeBuildLib.pathExists then paths := lakeBuildLib :: paths
   return paths
 
