@@ -13,46 +13,36 @@ Analyze Lean 4 projects: extract dependency graphs with verification status and 
 
 ## Installation
 
+No git clone required — the installer downloads a pre-built binary directly from GitHub releases.
+
+### Quick install (recommended)
+
+Auto-detect the Lean version from a target project:
+
 ```bash
-git clone https://github.com/Beneficial-AI-Foundation/probe-lean
-cd probe-lean
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./my-lean-project
 ```
 
-### Auto-detect version from a target project (recommended)
-
-The installer reads the target project's `lean-toolchain` and installs the matching probe-lean binary automatically:
+Or specify a Lean version explicitly:
 
 ```bash
-# Bash
-./tools/bash/install.sh --from-project ../my-lean-project
-
-# Python (using uv)
-uv run tools/python/install.py --from-project ../my-lean-project
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --lean-version v4.28.0-rc1
 ```
 
-### Explicit version
-
+Ensure `~/.local/bin` is in your `PATH`:
 ```bash
-./tools/bash/install.sh --lean-version v4.28.0-rc1
-# or equivalently
-./tools/bash/install.sh v4.28.0-rc1
-```
-
-### Interactive menu
-
-If no version is specified, the script shows a menu of available Lean versions:
-
-```bash
-./tools/bash/install.sh
+export PATH="$PATH:$HOME/.local/bin"
 ```
 
 ### How it works
 
-Both scripts follow the same logic:
-1. Detect the required Lean version (from `--from-project`, `--lean-version`, or interactive menu)
-2. Check if `probe-lean-<version>` is already installed (skip if so, unless `--force`)
-3. Try downloading a pre-built binary from GitHub releases
-4. Fall back to building from source if no pre-built binary is available
+The installer:
+1. Detects the required Lean version (from `--from-project`, `--lean-version`, or interactive menu)
+2. Checks if `probe-lean-<version>` is already installed (skips if so, unless `--force`)
+3. Downloads a pre-built binary from GitHub releases
+4. Falls back to building from source if no pre-built binary is available
 
 The binary is installed to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`. Interpreter `.olean` files are installed to `~/.local/lib/probe-lean-<version>/` (per-version, so multiple versions can coexist).
 
@@ -65,9 +55,16 @@ The binary is installed to `~/.local/bin/probe-lean-<version>` with a symlink at
 | `--force` | Rebuild/reinstall even if already installed |
 | `[VERSION]` | Positional version argument (same as `--lean-version`) |
 
-Ensure `~/.local/bin` is in your `PATH`:
+### From a cloned repo
+
+If you have the repository cloned (e.g., for development), you can run the scripts directly:
+
 ```bash
-export PATH="$PATH:$HOME/.local/bin"
+git clone https://github.com/Beneficial-AI-Foundation/probe-lean
+cd probe-lean
+./tools/bash/install.sh --from-project ../my-lean-project
+# or with Python:
+uv run tools/python/install.py --from-project ../my-lean-project
 ```
 
 ### Docker
@@ -76,6 +73,8 @@ export PATH="$PATH:$HOME/.local/bin"
 docker build --build-arg LEAN_VERSION=v4.28.0-rc1 -t probe-lean .
 docker run --rm -v /path/to/project:/project probe-lean extract /project
 ```
+
+The Docker image downloads the pre-built binary during build — no repository clone needed.
 
 ### GitHub Actions
 

@@ -8,32 +8,28 @@
 
 ## Installation
 
-```bash
-git clone https://github.com/Beneficial-AI-Foundation/probe-lean
-cd probe-lean
-```
+No git clone required — the installer downloads a pre-built binary directly from GitHub releases.
 
 **Option 1 -- auto-detect from target project (recommended):**
 ```bash
-./tools/bash/install.sh --from-project ../my-lean-project
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./my-lean-project
 ```
 
 **Option 2 -- explicit version:**
 ```bash
-./tools/bash/install.sh v4.28.0
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --lean-version v4.28.0
 ```
 
-**Option 3 -- interactive menu (no arguments):**
+If you have the repository cloned (e.g., for development), you can run the scripts directly:
 ```bash
-./tools/bash/install.sh
-```
-
-A Python equivalent is also available:
-```bash
+./tools/bash/install.sh --from-project ../my-lean-project
+# or with Python:
 uv run tools/python/install.py --from-project ../my-lean-project
 ```
 
-Both scripts first try to download a pre-built binary from GitHub Releases. If none is available for the requested Lean version, they fall back to building from source.
+The installer first tries to download a pre-built binary from GitHub Releases. If none is available for the requested Lean version, it falls back to building from source (auto-cloning the repo if needed).
 
 Binaries are installed to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`. The required `.olean` files go to `~/.local/lib/probe-lean-<version>/`.
 
@@ -112,15 +108,15 @@ Aeneas-generated Lean translation of the curve25519-dalek Rust crate, with Mathl
 
 ```bash
 # 1. Install probe-lean (auto-detects v4.28.0-rc1 from lean-toolchain)
-cd probe-lean
-./tools/bash/install.sh --from-project ../curve25519-dalek-lean-verify
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./curve25519-dalek-lean-verify
 
 # 2. Download Mathlib cache (first time only — ~5 min)
-cd ../curve25519-dalek-lean-verify
+cd curve25519-dalek-lean-verify
 lake exe cache get
 
 # 3. Run extract
-probe-lean extract ../curve25519-dalek-lean-verify/
+probe-lean extract .
 ```
 
 probe-lean reads `defaultTargets = ["Curve25519Dalek"]` and builds only that library (the `Utils` library contains standalone scripts and is not part of the main verification target).
@@ -138,15 +134,15 @@ Lean 4 library for verified cryptographic protocols. Uses `lakefile.lean` (not `
 
 ```bash
 # 1. Install probe-lean (auto-detects v4.28.0)
-cd probe-lean
-./tools/bash/install.sh --from-project ../VCV-io
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./VCV-io
 
 # 2. Download Mathlib cache
-cd ../VCV-io
+cd VCV-io
 lake exe cache get
 
 # 3. Run extract
-probe-lean extract ../VCV-io/
+probe-lean extract .
 ```
 
 Since VCV-io uses `lakefile.lean` (not `.toml`), probe-lean cannot auto-detect library names and falls back to `lake build` with no explicit targets, which uses the project's `@[default_target]` annotations.
@@ -164,15 +160,15 @@ Lean 4 library for formally verified zkSNARK components. Depends on Mathlib and 
 
 ```bash
 # 1. Install probe-lean (skip if already done for VCV-io — same Lean version)
-cd probe-lean
-./tools/bash/install.sh --from-project ../ArkLib
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./ArkLib
 
 # 2. Download Mathlib cache
-cd ../ArkLib
+cd ArkLib
 lake exe cache get
 
 # 3. Run extract (builds ArkLib and its deps, then analyzes)
-probe-lean extract ../ArkLib/
+probe-lean extract .
 ```
 
 If you've already built the project, probe-lean will detect that the build cache is up-to-date and skip the `lake build` step automatically (sorry detection still works using the cached build output).
@@ -190,15 +186,15 @@ Lean 4 formalization of the Signal PQXDH key agreement protocol. Depends on Math
 
 ```bash
 # 1. Install probe-lean (auto-detects v4.29.0-rc3 — different from Examples 1–3)
-cd probe-lean
-./tools/bash/install.sh --from-project ../signal-shot-PQXDH
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./signal-shot-PQXDH
 
 # 2. Download Mathlib cache (first time only — ~5 min)
-cd ../signal-shot-PQXDH
+cd signal-shot-PQXDH
 lake exe cache get
 
 # 3. Run extract
-probe-lean extract ../signal-shot-PQXDH/
+probe-lean extract .
 ```
 
 ### Example 5: From-scratch setup on a fresh machine
@@ -207,15 +203,12 @@ Starting from nothing on Ubuntu/Debian:
 
 ```bash
 # Install elan (Lean version manager)
-curl https://elan-init.trycloudflake.com/elan-init.sh -sSf | sh
+curl https://elan-init.trycloudflare.com/elan-init.sh -sSf | sh
 source ~/.profile
 
-# Clone probe-lean
-git clone https://github.com/Beneficial-AI-Foundation/probe-lean
-cd probe-lean
-
-# Install probe-lean for the target project (auto-detects Lean version)
-./tools/bash/install.sh --from-project ../my-lean-project
+# Install probe-lean (auto-detects Lean version from target project, no clone needed)
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --from-project ./my-lean-project
 
 # Ensure ~/.local/bin is in PATH
 export PATH="$PATH:$HOME/.local/bin"
@@ -224,11 +217,11 @@ export PATH="$PATH:$HOME/.local/bin"
 probe-lean --version
 
 # Prepare the target project
-cd ../my-lean-project
+cd my-lean-project
 lake exe cache get    # download Mathlib cache (if applicable)
 
 # Run extraction
-probe-lean extract ../my-lean-project/
+probe-lean extract .
 ```
 
 ---
@@ -396,8 +389,8 @@ lake build
 If you see `.olean` version errors, reinstall probe-lean for the target project:
 
 ```bash
-cd probe-lean
-./tools/bash/install.sh --force --from-project <target-project>
+curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
+  | bash -s -- --force --from-project <target-project>
 ```
 
 ### Output directory
