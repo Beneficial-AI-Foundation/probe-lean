@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-03-31
+
+### Added
+
+- Build cache now checks `lean-toolchain` and `lakefile.toml` mtimes, so
+  changing the toolchain properly invalidates the cache without needing
+  manual cleanup.
+- `checkFilesNewerThan` skips dot-directories (`.lake/`, `.git/`), avoiding
+  slow walks through dependency sources and false cache invalidations after
+  `lake exe cache get`.
+- `isCacheValid` verifies the build output directory (`.lake/build/lib/`)
+  exists, catching `lake clean` scenarios where the cache file survives but
+  build artifacts are gone.
+- Smarter `incompatible header` error hint: when probe-lean and the target
+  project use the same Lean version, suggests `lake clean` (stale oleans)
+  instead of a misleading "toolchain mismatch" message.
+- `parseToolchainVersion` helper extracted for reuse and testing.
+
+### Fixed
+
+- Bash installer (`tools/bash/install.sh`): replaced `trap cleanup EXIT`
+  with inline restore after build, fixing `unbound variable` errors when
+  building for a non-default Lean version.
+
 ## [0.3.0] - 2026-03-26
 
 ### Added

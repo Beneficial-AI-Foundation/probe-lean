@@ -1327,21 +1327,16 @@ def testReadToolchain (result : TestResult) : IO TestResult := do
 def testToolchainVersionParsing (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing toolchain version parsing..."
-
-  -- parseToolchainVersion extracts the version tag from a lean-toolchain string
-  let parse (s : String) : String :=
-    let trimmed := s.trimAscii.toString
-    match trimmed.splitOn ":" with
-    | [_, version] => version
-    | _ => trimmed
+  IO.println "Testing parseToolchainVersion..."
 
   result ← test "parses leanprover/lean4:v4.28.0-rc1"
-    (parse "leanprover/lean4:v4.28.0-rc1" == "v4.28.0-rc1") result
+    (parseToolchainVersion "leanprover/lean4:v4.28.0-rc1" == "v4.28.0-rc1") result
   result ← test "parses with trailing whitespace"
-    (parse "leanprover/lean4:v4.29.0-rc3\n" == "v4.29.0-rc3") result
+    (parseToolchainVersion "leanprover/lean4:v4.29.0-rc3\n" == "v4.29.0-rc3") result
   result ← test "handles bare version"
-    (parse "v4.28.0-rc1" == "v4.28.0-rc1") result
+    (parseToolchainVersion "v4.28.0-rc1" == "v4.28.0-rc1") result
+  result ← test "parses release version"
+    (parseToolchainVersion "leanprover/lean4:v4.28.0" == "v4.28.0") result
 
   -- Test that Lean.versionString is well-formed (no "v" prefix)
   let vs := Lean.versionString
@@ -1350,10 +1345,11 @@ def testToolchainVersionParsing (result : TestResult) : IO TestResult := do
   result ← test "Lean.versionString is non-empty"
     (vs.length > 0) result
 
-  -- Test version matching: prepend "v" to Lean.versionString and compare
-  let probeLeanVersion := s!"v{Lean.versionString}"
-  result ← test "probeLeanVersion starts with v"
-    (probeLeanVersion.startsWith "v") result
+  -- Test version matching via dropPrefix
+  let tc := s!"leanprover/lean4:v{Lean.versionString}"
+  let parsed := (parseToolchainVersion tc).dropPrefix "v" |>.toString
+  result ← test "version round-trip matches Lean.versionString"
+    (parsed == Lean.versionString) result
 
   return result
 
@@ -1611,6 +1607,86 @@ def testVersionConsistency (result : TestResult) : IO TestResult := do
 
   return result
 
+def testCacheValidity (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing isCacheValid..."
+
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-cache-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll tmpBase
+
+  -- No cache file at all → invalid
+  let v1 ← isCacheValid tmpBase
+  result ← test "no cache file → invalid" (!v1) result
+
+  -- Create cache file but no build dir → invalid
+  let cacheDir := tmpBase / ".lake" / "probe-lean"
+  IO.FS.createDirAll cacheDir
+  IO.FS.writeFile (cacheDir / "build_output.txt") "cached"
+  let v2 ← isCacheValid tmpBase
+  result ← test "cache file but no build dir → invalid" (!v2) result
+
+  -- Create build dir → valid (no .lean files to be newer)
+  let buildDir := tmpBase / ".lake" / "build" / "lib" / "lean"
+  IO.FS.createDirAll buildDir
+  let v3 ← isCacheValid tmpBase
+  result ← test "cache file + build dir → valid" v3 result
+
+  -- Touch lean-toolchain after cache → invalid
+  IO.sleep 1100
+  IO.FS.writeFile (tmpBase / "lean-toolchain") "leanprover/lean4:v4.28.0\n"
+  let v4 ← isCacheValid tmpBase
+  result ← test "lean-toolchain newer than cache → invalid" (!v4) result
+
+  -- Refresh cache after toolchain change → valid again
+  IO.sleep 1100
+  IO.FS.writeFile (cacheDir / "build_output.txt") "cached-v2"
+  let v5 ← isCacheValid tmpBase
+  result ← test "refreshed cache after toolchain change → valid" v5 result
+
+  -- Touch lakefile.toml after cache → invalid
+  IO.sleep 1100
+  IO.FS.writeFile (tmpBase / "lakefile.toml") "name = \"test\"\n"
+  let v6 ← isCacheValid tmpBase
+  result ← test "lakefile.toml newer than cache → invalid" (!v6) result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
+def testCheckFilesSkipsDotDirs (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing checkFilesNewerThan skips dot-directories..."
+
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-dotdir-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll tmpBase
+
+  -- Write a cache timestamp file, then wait
+  let tsFile := tmpBase / "timestamp"
+  IO.FS.writeFile tsFile ""
+  IO.sleep 1100
+  let tsMeta ← tsFile.metadata
+  let cacheTime := tsMeta.modified
+
+  -- Create a .lean file inside a dot-directory (should be ignored)
+  let dotDir := tmpBase / ".lake"
+  IO.FS.createDirAll dotDir
+  IO.FS.writeFile (dotDir / "Foo.lean") "def foo := 1"
+
+  let r1 ← checkFilesNewerThan tmpBase cacheTime
+  result ← test ".lean in dot-dir is ignored" (!r1) result
+
+  -- Create a .lean file in a normal directory (should be detected)
+  let srcDir := tmpBase / "src"
+  IO.FS.createDirAll srcDir
+  IO.FS.writeFile (srcDir / "Bar.lean") "def bar := 2"
+
+  let r2 ← checkFilesNewerThan tmpBase cacheTime
+  result ← test ".lean in normal dir is detected" r2 result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1644,6 +1720,8 @@ def main : IO UInt32 := do
   result ← testParseLeanLibs result
   result ← testParseDefaultTargets result
   result ← testVersionConsistency result
+  result ← testCacheValidity result
+  result ← testCheckFilesSkipsDotDirs result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

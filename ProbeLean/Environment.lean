@@ -43,24 +43,41 @@ def getCacheFiles (projectPath : System.FilePath) : System.FilePath × System.Fi
   let cacheDir := getCacheDir projectPath
   (cacheDir / "build_output.txt", cacheDir / "build_config.json")
 
-/-- Recursively check if any .lean file is newer than cache -/
+/-- Recursively check if any .lean file is newer than cache.
+    Skips dot-directories (.lake/, .git/, etc.) to avoid walking dependency
+    sources and build artifacts. -/
 partial def checkFilesNewerThan (dir : System.FilePath) (cacheTime : IO.FS.SystemTime) : IO Bool := do
   let entries ← dir.readDir
   for entry in entries do
     let path := entry.path
     if ← path.isDir then
-      if ← checkFilesNewerThan path cacheTime then return true
+      if !entry.fileName.startsWith "." then
+        if ← checkFilesNewerThan path cacheTime then return true
     else if path.extension == some "lean" then
       let fileMeta ← path.metadata
       if fileMeta.modified > cacheTime then return true
   return false
 
-/-- Check if cache is valid (exists and newer than any .lean file) -/
+/-- Check if cache is valid: cache file exists, build output directory exists,
+    config files (lean-toolchain, lakefile) haven't changed, and no .lean source
+    is newer than the cache. -/
 def isCacheValid (projectPath : System.FilePath) : IO Bool := do
   let (outputCache, _) := getCacheFiles projectPath
   if !(← outputCache.pathExists) then return false
+  let buildLibLean := projectPath / ".lake" / "build" / "lib" / "lean"
+  let buildLib := projectPath / ".lake" / "build" / "lib"
+  if !(← buildLibLean.pathExists) && !(← buildLib.pathExists) then return false
   let cacheMeta ← outputCache.metadata
   let cacheTime := cacheMeta.modified
+  let configFiles := #[
+    projectPath / "lean-toolchain",
+    projectPath / "lakefile.toml",
+    projectPath / "lakefile.lean"
+  ]
+  for cf in configFiles do
+    if ← cf.pathExists then
+      let cfMeta ← cf.metadata
+      if cfMeta.modified > cacheTime then return false
   let hasNewerFile ← checkFilesNewerThan projectPath cacheTime
   return !hasNewerFile
 

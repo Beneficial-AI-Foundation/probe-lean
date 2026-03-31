@@ -19,6 +19,14 @@ def readToolchain (projectPath : System.FilePath) : IO (Option String) := do
   let contents ← IO.FS.readFile path
   return some contents.trimAscii.toString
 
+/-- Extract the version tag from a lean-toolchain string.
+    `"leanprover/lean4:v4.28.0-rc1"` → `"v4.28.0-rc1"`, bare `"v4.28.0"` passes through. -/
+def parseToolchainVersion (tc : String) : String :=
+  let trimmed := tc.trimAscii.toString
+  match trimmed.splitOn ":" with
+  | [_, version] => version
+  | _ => trimmed
+
 /-- Load probes config from .verilib/probes/config.json -/
 def loadUserConfig (projectPath : System.FilePath) : IO (Option Lean.Json) := do
   let configPath := projectPath / ".verilib" / "probes" / "config.json"
@@ -190,10 +198,17 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
       let targetTC ← readToolchain projectPath
       let probeLeanVersion := Lean.versionString
       let hint := match targetTC with
-        | some tc => s!"\n\nToolchain mismatch: probe-lean was built with Lean {probeLeanVersion}, " ++
+        | some tc =>
+          let targetVersion := (parseToolchainVersion tc).dropPrefix "v" |>.toString
+          if targetVersion == probeLeanVersion then
+            s!"\n\nStale .olean files: probe-lean and the target project both use Lean {probeLeanVersion},\n" ++
+            "but the build artifacts were compiled by a different Lean version.\n" ++
+            s!"Fix: run `lake clean` in the target project, then re-run extract."
+          else
+            s!"\n\nToolchain mismatch: probe-lean was built with Lean {probeLeanVersion}, " ++
             s!"but the target project uses {tc}.\n" ++
             "The .olean binary format is not compatible across Lean versions.\n" ++
-            "Fix: update probe-lean's lean-toolchain to match the target project, then rebuild."
+            "Fix: install probe-lean for the target's Lean version, or update the target project."
         | none => s!"\n\nThis may be a toolchain mismatch. probe-lean was built with Lean {probeLeanVersion}.\n" ++
             "Ensure the target project uses the same Lean version, or update probe-lean to match."
       return .error s!"Failed to import modules: {msg}{hint}"

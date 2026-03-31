@@ -181,20 +181,23 @@ build_from_source() {
         original_toolchain=$(cat lean-toolchain)
         original_lakefile=$(cat lakefile.toml)
 
-        cleanup() {
-            echo "$original_toolchain" > lean-toolchain
-            echo "$original_lakefile" > lakefile.toml
-            echo "Restored lean-toolchain and lakefile.toml"
-        }
-        trap cleanup EXIT
-
         echo "leanprover/lean4:$version" > lean-toolchain
         sed -i'' -e "s/rev = \"v[^\"]*\"/rev = \"$version\"/" lakefile.toml
 
         rm -rf .lake lake-manifest.json
         echo "Removed .lake/ and lake-manifest.json"
 
-        lake build
+        local build_ok=true
+        lake build || build_ok=false
+
+        echo "$original_toolchain" > lean-toolchain
+        echo "$original_lakefile" > lakefile.toml
+        echo "Restored lean-toolchain and lakefile.toml"
+
+        if [ "$build_ok" = false ]; then
+            echo "Build failed" >&2
+            exit 1
+        fi
     fi
 
     local versioned_lib=~/.local/lib/probe-lean-$version
