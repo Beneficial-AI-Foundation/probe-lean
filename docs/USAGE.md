@@ -76,23 +76,24 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 
 ## Walkthrough: Analyzing Real Projects
 
-### Mathlib cache (critical for performance)
+### Mathlib cache (auto-downloaded)
 
 Most Lean verification projects depend on [Mathlib](https://github.com/leanprover-community/mathlib4). Compiling Mathlib from source is extremely slow and saturates all CPU cores. The Mathlib project publishes pre-built `.olean` caches that download in minutes.
 
-**Always run this before building a Mathlib-dependent project for the first time:**
+**probe-lean automatically downloads the Mathlib cache** when it detects a Mathlib dependency without pre-built `.olean` files. You will see:
+
+```
+Mathlib dependency detected but no pre-built cache found.
+Running `lake exe cache get` to download pre-built .olean files...
+
+  ✓ Mathlib cache downloaded
+```
+
+If the automatic download fails (e.g. network issues), probe-lean prints a warning and continues (which will trigger a slow Mathlib compilation). In that case, run the cache download manually:
 
 ```bash
 cd <target-project>
 lake exe cache get
-```
-
-If you skip this step, `probe-lean extract` will trigger a full Mathlib compilation. probe-lean warns you if it detects a missing cache:
-
-```
-⚠ Warning: This project depends on Mathlib but no pre-built .olean cache was found.
-  Building Mathlib from source can take hours. Run this first:
-    cd <target-project> && lake exe cache get
 ```
 
 ### Example 1: [curve25519-dalek-lean-verify](https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify)
@@ -111,11 +112,8 @@ Aeneas-generated Lean translation of the curve25519-dalek Rust crate, with Mathl
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
   | bash -s -- --from-project ./curve25519-dalek-lean-verify
 
-# 2. Download Mathlib cache (first time only — ~5 min)
+# 2. Run extract (Mathlib cache is auto-downloaded on first run)
 cd curve25519-dalek-lean-verify
-lake exe cache get
-
-# 3. Run extract
 probe-lean extract .
 ```
 
@@ -137,11 +135,8 @@ Lean 4 library for verified cryptographic protocols. Uses `lakefile.lean` (not `
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
   | bash -s -- --from-project ./VCV-io
 
-# 2. Download Mathlib cache
+# 2. Run extract (Mathlib cache is auto-downloaded on first run)
 cd VCV-io
-lake exe cache get
-
-# 3. Run extract
 probe-lean extract .
 ```
 
@@ -163,11 +158,8 @@ Lean 4 library for formally verified zkSNARK components. Depends on Mathlib and 
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
   | bash -s -- --from-project ./ArkLib
 
-# 2. Download Mathlib cache
+# 2. Run extract (Mathlib cache is auto-downloaded on first run)
 cd ArkLib
-lake exe cache get
-
-# 3. Run extract (builds ArkLib and its deps, then analyzes)
 probe-lean extract .
 ```
 
@@ -189,11 +181,8 @@ Lean 4 formalization of the Signal PQXDH key agreement protocol. Depends on Math
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
   | bash -s -- --from-project ./signal-shot-PQXDH
 
-# 2. Download Mathlib cache (first time only — ~5 min)
+# 2. Run extract (Mathlib cache is auto-downloaded on first run)
 cd signal-shot-PQXDH
-lake exe cache get
-
-# 3. Run extract
 probe-lean extract .
 ```
 
@@ -218,9 +207,7 @@ probe-lean --version
 
 # Prepare the target project
 cd my-lean-project
-lake exe cache get    # download Mathlib cache (if applicable)
-
-# Run extraction
+# Run extraction (Mathlib cache auto-downloaded if needed)
 probe-lean extract .
 ```
 
@@ -245,8 +232,6 @@ probe-lean extract ./my-project --skip-verify
 `lake build` for Mathlib-dependent projects can saturate all CPU cores for 10--30 minutes (longer on first build). On shared machines or when you need the system responsive, build at low priority:
 
 ```bash
-cd <target-project>
-lake exe cache get
 nice -n 15 probe-lean extract <target-project>
 ```
 
@@ -272,7 +257,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.3.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.4.1", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",
@@ -367,7 +352,7 @@ Example config (`.verilib/probes/config.json`):
 
 ### Build takes hours
 
-You're almost certainly compiling Mathlib from source. Run `lake exe cache get` in the target project first (see [Mathlib cache](#mathlib-cache-critical-for-performance)).
+You're almost certainly compiling Mathlib from source. probe-lean auto-downloads the cache on first run (see [Mathlib cache](#mathlib-cache-auto-downloaded)), but if that failed, run `lake exe cache get` in the target project manually.
 
 ### "environment already contains 'main'"
 
