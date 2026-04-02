@@ -63,8 +63,9 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
 def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
   libs.any fun lib => m.toString == lib || m.toString.startsWith (lib ++ ".")
 
-/-- Check if project depends on Mathlib and warn if the olean cache is missing. -/
-def warnIfMathlibCacheMissing (projectPath : System.FilePath) : IO Unit := do
+/-- Check if project depends on Mathlib and auto-download the olean cache if missing.
+    Without the pre-built cache, `lake build` compiles Mathlib from source (hours). -/
+def ensureMathlibCache (projectPath : System.FilePath) : IO Unit := do
   let manifestPath := projectPath / "lake-manifest.json"
   if !(← manifestPath.pathExists) then return
   let content ← IO.FS.readFile manifestPath
@@ -72,10 +73,19 @@ def warnIfMathlibCacheMissing (projectPath : System.FilePath) : IO Unit := do
   let oleanPath := projectPath / ".lake" / "packages" / "mathlib" /
     ".lake" / "build" / "lib" / "lean" / "Mathlib.olean"
   if ← oleanPath.pathExists then return
-  IO.eprintln "⚠ Warning: This project depends on Mathlib but no pre-built .olean cache was found."
-  IO.eprintln "  Building Mathlib from source can take hours. Run this first:"
-  IO.eprintln s!"    cd {projectPath} && lake exe cache get"
-  IO.eprintln ""
+  IO.println "Mathlib dependency detected but no pre-built cache found."
+  IO.println "Running `lake exe cache get` to download pre-built .olean files..."
+  IO.println ""
+  let (_, stderr, exitCode) ← runCmd "lake" #["exe", "cache", "get"] (some projectPath)
+  if exitCode != 0 then
+    IO.eprintln s!"⚠ `lake exe cache get` failed (exit {exitCode}):"
+    IO.eprintln stderr
+    IO.eprintln "  Building Mathlib from source may take hours."
+    IO.eprintln s!"  Try running manually: cd {projectPath} && lake exe cache get"
+    IO.eprintln ""
+  else
+    IO.println "  ✓ Mathlib cache downloaded"
+    IO.println ""
 
 /-- Run the combined extract pipeline: build → atomize → markAtomFlags → sorry detection → merge → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
@@ -93,7 +103,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     | some cached => pure cached
     | none => pure ""
   else do
-    warnIfMathlibCacheMissing config.projectPath
+    ensureMathlibCache config.projectPath
     let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
     if !libs.isEmpty then
       IO.println s!"Building libraries: {", ".intercalate libs.toList}"
