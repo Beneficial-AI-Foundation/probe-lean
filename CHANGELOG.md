@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-04-03
+
+### Added
+
+- **Toolchain version diagnostic**: `extract` now prints the Lean version
+  probe-lean was built with and the target project's toolchain version at
+  startup (e.g. `probe-lean built with Lean 4.28.0-rc1, target project uses v4.28.0`).
+  Makes toolchain mismatches immediately visible in logs.
+
 ## [0.4.1] - 2026-04-02
 
 ### Fixed

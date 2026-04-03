@@ -93,6 +93,13 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
     return 1
 
+  let probeLeanVersion := Lean.versionString
+  let targetTC ← readToolchain config.projectPath
+  let targetVersionStr := match targetTC with
+    | some tc => parseToolchainVersion tc
+    | none    => "unknown (no lean-toolchain file)"
+  IO.println s!"probe-lean built with Lean {probeLeanVersion}, target project uses {targetVersionStr}"
+
   let libs ← match config.libraries with
     | some ls => pure ls
     | none => getLeanLibs config.projectPath
