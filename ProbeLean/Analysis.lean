@@ -97,7 +97,8 @@ def getDependencies (info : ConstantInfo) : DependencyInfo :=
     | some v => v.getUsedConstants
     | none => #[]
   let all := (typeConsts ++ valueConsts).toList.eraseDups.toArray
-  { typeDeps := typeConsts, termDeps := valueConsts, all }
+  let sortByName (arr : Array Name) := arr.qsort fun a b => a.toString < b.toString
+  { typeDeps := sortByName typeConsts, termDeps := sortByName valueConsts, all := sortByName all }
 
 /-- Get source file path for a module (relative to project root) -/
 def getModuleSourcePath (_env : Environment) (projectPath : System.FilePath) (modName : Name) : IO (Option String) := do
@@ -213,7 +214,8 @@ def getProjectDecls (env : Environment) (projectModules : Array Name) : Array De
     | .recInfo _ => continue
     | _ => pure ()
     decls := decls.push (analyzeDecl env name info)
-  decls
+  -- Sort by declaration name for deterministic output (P14)
+  decls.qsort fun a b => a.name.toString < b.name.toString
 
 /-- File content cache to avoid re-reading the same file for every declaration. -/
 abbrev FileCache := IO.Ref (Std.HashMap String (Array String))
@@ -325,6 +327,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     if !attrs.contains sa then
       attrs := attrs.push sa
 
+  let sortedAttrs := attrs.qsort (· < ·)
   return {
     name := addProbePrefix info.name.toString
     displayName := info.displayName
@@ -338,7 +341,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     isRelevant := isRelevant
     isInPackage := true
     rustSource := rustSource
-    attributes := attrs
+    attributes := sortedAttrs
     isPrimarySpec := isPrimarySpec
   }
 

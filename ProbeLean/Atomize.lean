@@ -129,7 +129,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
           | none => m
   atoms.map fun a =>
     let a := match specsMap.find? a.name with
-      | some specs => { a with specs := specs }
+      | some specs => { a with specs := specs.qsort (· < ·) }
       | none => a
     match primarySpecMap.find? a.name with
     | some ps => { a with primarySpec := some ps }

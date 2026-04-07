@@ -95,13 +95,14 @@ def sorryInDeclaration (warning : SorryWarning) (atom : Atom) : Bool :=
     | some range =>
       warning.line >= range.linesStart && warning.line <= range.linesEnd
 
-/-- Find all sorries for a given atom -/
+/-- Find all sorries for a given atom, sorted by line number (P14) -/
 def findSorriesForAtom (warnings : Array SorryWarning) (atom : Atom) : Array SorryInfo :=
-  warnings.filterMap fun w =>
+  let matched := warnings.filterMap fun w =>
     if sorryInDeclaration w atom then
       some { line := w.line, message := w.message }
     else
       none
+  matched.qsort fun a b => a.line < b.line
 
 /-- Convert an atom and its sorries to a ProofEntry.
     Atoms without source location (codeText = none) cannot be checked for sorry,

@@ -271,7 +271,8 @@ structure AtomsOutput where
 
 instance : Lean.ToJson AtomsOutput where
   toJson output :=
-    let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
+    let sorted := output.atoms.qsort fun a b => a.name < b.name
+    let entries := sorted.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
 
 instance : Lean.FromJson AtomsOutput where
@@ -488,7 +489,8 @@ structure UnifiedAtomsOutput where
 
 instance : Lean.ToJson UnifiedAtomsOutput where
   toJson output :=
-    let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
+    let sorted := output.atoms.qsort fun a b => a.name < b.name
+    let entries := sorted.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
 
 instance : Lean.FromJson UnifiedAtomsOutput where

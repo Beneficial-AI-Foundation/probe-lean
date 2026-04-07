@@ -257,7 +257,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.4.3", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.4.4", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",

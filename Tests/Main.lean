@@ -1380,6 +1380,86 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
       result ← test "at least some atoms are trusted" hasTrusted result
       return result
 
+def testDeterminismInvariants (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing P14 determinism: sorted keys and arrays in example JSON..."
+  let exPath : System.FilePath := "examples/lean_Curve25519Dalek_0.1.0.json"
+  if !(← exPath.pathExists) then
+    IO.println "  ⚠ skipping: example JSON not found"
+    return result
+  let content ← IO.FS.readFile exPath
+  match Lean.Json.parse content with
+  | .error _ => return result.add false
+  | .ok json =>
+    let data := match json.getObjVal? "data" with
+      | .ok d => d | _ => Lean.Json.null
+    match data.getObj? with
+    | .error _ => return result.add false
+    | .ok obj => do
+      let keys := obj.toArray.map (·.1)
+      let mut keysPairwiseSorted := true
+      for i in [0:keys.size - 1] do
+        if h : i < keys.size then
+          if h2 : i + 1 < keys.size then
+            if keys[i] > keys[i + 1] then
+              keysPairwiseSorted := false
+      result ← test "data keys are in deterministic sorted order" keysPairwiseSorted result
+
+      let isSortedStr (arr : Array String) : Bool :=
+        if arr.size ≤ 1 then true
+        else Id.run do
+          let mut ok := true
+          for i in [0:arr.size - 1] do
+            if h : i < arr.size then
+              if h2 : i + 1 < arr.size then
+                if arr[i] > arr[i + 1] then
+                  ok := false
+          ok
+
+      let mut depsSorted := true
+      let mut typeDepsSorted := true
+      let mut termDepsSorted := true
+      let mut specsSorted := true
+      let mut attrsSorted := true
+      let mut sorriesSorted := true
+      for (_, val) in obj.toArray do
+        match val.getObjValAs? (Array String) "dependencies" with
+        | .ok arr => if !isSortedStr arr then depsSorted := false
+        | .error _ => pure ()
+        match val.getObjValAs? (Array String) "type-dependencies" with
+        | .ok arr => if !isSortedStr arr then typeDepsSorted := false
+        | .error _ => pure ()
+        match val.getObjValAs? (Array String) "term-dependencies" with
+        | .ok arr => if !isSortedStr arr then termDepsSorted := false
+        | .error _ => pure ()
+        match val.getObjValAs? (Array String) "specs" with
+        | .ok arr => if !isSortedStr arr then specsSorted := false
+        | .error _ => pure ()
+        match val.getObjValAs? (Array String) "attributes" with
+        | .ok arr => if !isSortedStr arr then attrsSorted := false
+        | .error _ => pure ()
+        match val.getObjValAs? (Array Lean.Json) "sorries" with
+        | .ok arr =>
+          let lines := arr.filterMap fun j => j.getObjValAs? Nat "line" |>.toOption
+          let linesSorted := if lines.size ≤ 1 then true
+            else Id.run do
+              let mut ok := true
+              for i in [0:lines.size - 1] do
+                if h : i < lines.size then
+                  if h2 : i + 1 < lines.size then
+                    if Nat.blt lines[i + 1] lines[i] then ok := false
+              ok
+          if !linesSorted then sorriesSorted := false
+        | .error _ => pure ()
+      result ← test "all dependencies arrays are sorted" depsSorted result
+      result ← test "all type-dependencies arrays are sorted" typeDepsSorted result
+      result ← test "all term-dependencies arrays are sorted" termDepsSorted result
+      result ← test "all specs arrays are sorted" specsSorted result
+      result ← test "all attributes arrays are sorted" attrsSorted result
+      result ← test "all sorries arrays are sorted by line" sorriesSorted result
+      return result
+
 def testReadToolchain (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -1789,6 +1869,7 @@ def main : IO UInt32 := do
   result ← testExampleJsonLoadAtoms result
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
+  result ← testDeterminismInvariants result
   result ← testReadToolchain result
   result ← testToolchainVersionParsing result
   result ← testFindProbeLeanLibPaths result

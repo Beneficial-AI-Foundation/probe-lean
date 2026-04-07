@@ -144,7 +144,9 @@ def getProjectModules (projectPath : System.FilePath) : IO (Except String (Array
     for olean in oleans do
       modules := modules.push olean
 
-  return .ok modules
+  -- Sort for deterministic import order (P14)
+  let sortedModules := modules.qsort fun a b => a.toString < b.toString
+  return .ok sortedModules
 
 /-- Information about a loaded project -/
 structure ProjectInfo where
