@@ -424,6 +424,7 @@ structure UnifiedAtom where
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus
+  trustedReason : Option String := none
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson UnifiedAtom where
@@ -455,7 +456,10 @@ instance : Lean.ToJson UnifiedAtom where
     let withVerification := match atom.verificationStatus with
       | some status => withPrimary ++ [("verification-status", Lean.toJson status)]
       | none => withPrimary
-    Lean.Json.mkObj withVerification
+    let withTrustedReason := match atom.trustedReason with
+      | some reason => withVerification ++ [("trusted-reason", Lean.toJson reason)]
+      | none => withVerification
+    Lean.Json.mkObj withTrustedReason
 
 instance : Lean.FromJson UnifiedAtom where
   fromJson? json := do
@@ -480,7 +484,8 @@ instance : Lean.FromJson UnifiedAtom where
     let isPrimarySpec ← json.getObjValAs? Bool "is-primary-spec" <|> pure false
     let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus }
+    let trustedReason ← json.getObjValAs? (Option String) "trusted-reason" <|> pure none
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isExtractionArtifact, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

@@ -30,11 +30,16 @@ def mapVerifyStatus : VerifyStatus → WebVerificationStatus
   | .sorries => .unverified
   | .failure => .failed
 
-/-- An atom is part of the trust base when it is an axiom (assumed without
-    proof) or lives in a hand-written `*External.lean` file (Aeneas convention
-    for external function/type models). -/
+/-- Determine why an atom is trusted, if at all. Axioms take precedence
+    over the `*External.lean` file convention when both apply. -/
+def trustedReason (atom : Atom) : Option String :=
+  if atom.kind == .axiom then some "axiom"
+  else if atom.codePath.endsWith "External.lean" then some "external"
+  else none
+
+/-- Backward-compatible wrapper: `true` when the atom belongs to the trust base. -/
 def isTrustedAtom (atom : Atom) : Bool :=
-  atom.kind == .axiom || atom.codePath.endsWith "External.lean"
+  (trustedReason atom).isSome
 
 /-- Combine an Atom with its optional proof entry into a UnifiedAtom,
     preserving all atom fields. Axioms and declarations from `*External.lean`
@@ -42,10 +47,8 @@ def isTrustedAtom (atom : Atom) : Bool :=
 def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     : UnifiedAtom :=
   let baseStatus := proofEntry.map fun p => mapVerifyStatus p.status
-  let status := if isTrustedAtom atom then
-    some .trusted
-  else
-    baseStatus
+  let reason := trustedReason atom
+  let status := if reason.isSome then some .trusted else baseStatus
   {
     name := atom.name
     displayName := atom.displayName
@@ -68,6 +71,7 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     isPrimarySpec := atom.isPrimarySpec
     primarySpec := atom.primarySpec
     verificationStatus := status
+    trustedReason := reason
   }
 
 /-- Check whether a module belongs to one of the given library roots.

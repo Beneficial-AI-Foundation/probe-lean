@@ -1,5 +1,5 @@
-{"tool": {"version": "0.4.4", "name": "probe-lean", "command": "extract"},
- "timestamp": "2026-04-07T12:59:41Z",
+{"tool": {"version": "0.4.5", "name": "probe-lean", "command": "extract"},
+ "timestamp": "2026-04-07T18:14:17Z",
  "source":
  {"repo":
   "https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify.git",
@@ -762,6 +762,7 @@
   "probe:curve25519_dalek.zeroize.Zeroize.Blanket.zeroize":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.zeroize.DefaultIsZeroes"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.zeroize.DefaultIsZeroes",
     "probe:curve25519_dalek.zeroize.DefaultIsZeroes.coredefaultDefaultInst"],
@@ -1242,6 +1243,7 @@
   "probe:curve25519_dalek.subtle.CtOption.value":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.CtOption"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.subtle.CtOption"],
    "specs":
    ["probe:curve25519_dalek.scalar.Scalar.from_canonical_bytes_spec",
@@ -1267,6 +1269,7 @@
     "probe:curve25519_dalek.subtle.CtOption.is_some",
     "probe:curve25519_dalek.subtle.CtOption.new",
     "probe:curve25519_dalek.subtle.CtOption.value"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.CtOption",
@@ -1297,6 +1300,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.CtOption"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.CtOption"],
@@ -1325,6 +1329,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.CtOption"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.subtle.CtOption"],
    "specs":
    ["probe:curve25519_dalek.scalar.Scalar.from_canonical_bytes_spec",
@@ -1364,6 +1369,7 @@
   "probe:curve25519_dalek.subtle.CtOption":
   {"verification-status": "trusted",
    "type-dependencies": [],
+   "trusted-reason": "external",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.scalar.Scalar.from_canonical_bytes_spec",
@@ -1486,6 +1492,7 @@
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
     "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_swap.default"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
@@ -1514,6 +1521,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
@@ -1593,6 +1601,7 @@
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
     "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_assign.default",
     "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_select"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
@@ -1621,6 +1630,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
@@ -1697,6 +1707,7 @@
    ["probe:curve25519_dalek.core.ops.arith.Neg",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.core.ops.arith.Neg",
     "probe:curve25519_dalek.core.ops.arith.Neg.neg",
@@ -1726,6 +1737,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
    "rust-source": null,
    "language": "lean",
@@ -1745,6 +1757,7 @@
   "probe:curve25519_dalek.subtle.Choice.val":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
    "specs":
    ["probe:curve25519_dalek.Array.Insts.SubtleConditionallySelectable.conditional_select_spec",
@@ -1818,6 +1831,7 @@
   "probe:curve25519_dalek.subtle.Choice.unwrap_u8":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
@@ -1907,6 +1921,7 @@
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitNotChoice.not",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -1935,6 +1950,7 @@
   "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitNotChoice.not":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -1968,6 +1984,7 @@
   "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitBitOrChoiceChoice.bitor":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -2001,6 +2018,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitBitAndChoiceChoice.bitand"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -2031,6 +2049,7 @@
   "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitBitAndChoiceChoice.bitand":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -2064,6 +2083,7 @@
   "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
    "specs":
    ["probe:curve25519_dalek.Shared1MontgomeryPoint.Insts.CoreOpsArithMulShared0ScalarMontgomeryPoint.mul_spec",
@@ -2110,6 +2130,7 @@
   "probe:curve25519_dalek.subtle.Choice":
   {"verification-status": "trusted",
    "type-dependencies": [],
+   "trusted-reason": "external",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.Array.Insts.SubtleConditionallySelectable.conditional_select_spec",
@@ -4453,6 +4474,7 @@
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_swap",
@@ -4479,6 +4501,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -4585,6 +4608,7 @@
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_assign",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_assign",
@@ -4611,6 +4635,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.scalar.Scalar",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -6603,6 +6628,7 @@
   "probe:curve25519_dalek.scalar.Scalar.Insts.CoreCmpPartialEqScalar.ne":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.scalar.Scalar"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -6714,6 +6740,7 @@
   "probe:curve25519_dalek.scalar.Scalar.Insts.CoreCmpEq.assert_receiver_is_total_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.scalar.Scalar"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -8791,6 +8818,7 @@
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.ristretto.RistrettoPoint.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.ristretto.RistrettoPoint.Insts.SubtleConditionallySelectable.conditional_swap",
@@ -8817,6 +8845,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -8914,6 +8943,7 @@
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.ristretto.RistrettoPoint.Insts.SubtleConditionallySelectable.conditional_assign",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.ristretto.RistrettoPoint.Insts.SubtleConditionallySelectable.conditional_assign",
@@ -8940,6 +8970,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.ristretto.RistrettoPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -9787,6 +9818,7 @@
   "probe:curve25519_dalek.ristretto.RistrettoPoint.Insts.CoreCmpPartialEqRistrettoPoint.ne":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.ristretto.RistrettoPoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -9910,6 +9942,7 @@
   "probe:curve25519_dalek.ristretto.RistrettoPoint.Insts.CoreCmpEq.assert_receiver_is_total_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.ristretto.RistrettoPoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -11043,6 +11076,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.ristretto.CompressedRistretto"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -12567,6 +12601,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.montgomery.ProjectivePoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.ProjectivePoint",
     "probe:curve25519_dalek.subtle.Choice",
@@ -12675,6 +12710,7 @@
    ["probe:curve25519_dalek.montgomery.ProjectivePoint",
     "probe:curve25519_dalek.montgomery.ProjectivePoint.Insts.SubtleConditionallySelectable.conditional_assign",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.ProjectivePoint",
     "probe:curve25519_dalek.montgomery.ProjectivePoint.Insts.SubtleConditionallySelectable.conditional_assign",
@@ -12701,6 +12737,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.montgomery.ProjectivePoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.ProjectivePoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -13746,6 +13783,7 @@
     "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Array.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.montgomery.MontgomeryPoint",
@@ -13776,6 +13814,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -13873,6 +13912,7 @@
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.SubtleConditionallySelectable.conditional_assign",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.SubtleConditionallySelectable.conditional_assign",
@@ -13899,6 +13939,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -14427,6 +14468,7 @@
   "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.CoreCmpPartialEqMontgomeryPoint.ne":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.montgomery.MontgomeryPoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -14543,6 +14585,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.CoreCmpEq.assert_receiver_is_total_eq"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint",
     "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.CoreCmpEq.assert_receiver_is_total_eq"],
@@ -14565,6 +14608,7 @@
   "probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.CoreCmpEq.assert_receiver_is_total_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.montgomery.MontgomeryPoint"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.montgomery.MontgomeryPoint"],
    "specs":
    ["probe:curve25519_dalek.montgomery.MontgomeryPoint.Insts.CoreCmpEq.assert_receiver_is_total_eq_spec"],
@@ -17175,6 +17219,7 @@
   "probe:curve25519_dalek.instDecidableEqChoice":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
@@ -19112,6 +19157,7 @@
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_swap",
@@ -19141,6 +19187,7 @@
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_swap'",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_swap'",
@@ -19167,6 +19214,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -19194,6 +19242,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_swap'",
@@ -19301,6 +19350,7 @@
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_assign",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_assign",
@@ -19330,6 +19380,7 @@
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_assign'",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_assign'",
@@ -19356,6 +19407,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -19383,6 +19435,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.affine.AffinePoint",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.SubtleConditionallySelectable.conditional_assign'",
@@ -19608,6 +19661,7 @@
   "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.CoreCmpPartialEqAffinePoint.ne":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.edwards.affine.AffinePoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -19803,6 +19857,7 @@
   "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.CoreCmpEq.assert_receiver_is_total_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.edwards.affine.AffinePoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -22588,6 +22643,7 @@
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.SubtleConditionallySelectable.conditional_swap",
@@ -22614,6 +22670,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -22728,6 +22785,7 @@
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.SubtleConditionallySelectable.conditional_assign",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.SubtleConditionallySelectable.conditional_assign",
@@ -22754,6 +22812,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.edwards.EdwardsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -23739,6 +23798,7 @@
   "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.CoreCmpPartialEqEdwardsPoint.ne":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.edwards.EdwardsPoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -23944,6 +24004,7 @@
   "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.CoreCmpEq.assert_receiver_is_total_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.edwards.EdwardsPoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -24897,6 +24958,7 @@
   "probe:curve25519_dalek.edwards.CompressedEdwardsY.Insts.CoreCmpPartialEqCompressedEdwardsY.ne":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.edwards.CompressedEdwardsY"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -25064,6 +25126,7 @@
   "probe:curve25519_dalek.core.result.Result.map":
   {"verification-status": "trusted",
    "type-dependencies": [],
+   "trusted-reason": "external",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.edwards.CompressedEdwardsY.from_slice_spec",
@@ -25086,6 +25149,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index"],
+   "trusted-reason": "external",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -25106,6 +25170,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index_mut"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index_mut"],
    "rust-source": null,
@@ -25126,6 +25191,7 @@
   "probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index_mut":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
    "specs":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index_mut_spec"],
@@ -25148,6 +25214,7 @@
   "probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
    "specs":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.index_spec"],
@@ -25170,6 +25237,7 @@
   "probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_unchecked_mut":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -25188,6 +25256,7 @@
   "probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_unchecked":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -25207,6 +25276,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get"],
    "rust-source": null,
@@ -25228,6 +25298,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_mut"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_mut"],
    "rust-source": null,
@@ -25248,6 +25319,7 @@
   "probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_mut":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
    "specs":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_mut_spec"],
@@ -25270,6 +25342,7 @@
   "probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
+   "trusted-reason": "external",
    "term-dependencies": ["probe:curve25519_dalek.core.ops.range.RangeFull"],
    "specs":
    ["probe:curve25519_dalek.core.ops.range.RangeFull.Insts.CoreSliceIndexSliceIndexSliceSlice.get_spec"],
@@ -25728,6 +25801,7 @@
   "probe:curve25519_dalek.core.fmt.Arguments":
   {"verification-status": "trusted",
    "type-dependencies": [],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -30769,6 +30843,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -30886,6 +30961,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -34357,6 +34433,7 @@
    ["probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap",
@@ -34383,6 +34460,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -36564,6 +36642,7 @@
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap",
@@ -36593,6 +36672,7 @@
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap'",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap'",
@@ -36619,6 +36699,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -36646,6 +36727,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint",
     "probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint.Insts.SubtleConditionallySelectable.conditional_swap'",
@@ -37111,6 +37193,7 @@
   {"verification-status": "trusted",
    "type-dependencies":
    ["probe:curve25519_dalek.backend.serial.curve_models.AffineNielsPoint"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -37468,6 +37551,7 @@
   "probe:curve25519_dalek.alloc.vec.Vec.Insts.ZeroizeZeroize.zeroize":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.zeroize.Zeroize"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -37508,6 +37592,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.U8.Insts.SubtleConstantTimeEq.ct_eq",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -37534,6 +37619,7 @@
   "probe:curve25519_dalek.U8.Insts.SubtleConstantTimeEq.ct_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -37592,6 +37678,7 @@
   "probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_swap":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -37617,6 +37704,7 @@
    ["probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",
@@ -37641,6 +37729,7 @@
   "probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
@@ -37667,6 +37756,7 @@
   "probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_assign":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -37737,6 +37827,7 @@
   "probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_swap":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -37798,6 +37889,7 @@
    ["probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",
@@ -37822,6 +37914,7 @@
   "probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
@@ -37851,6 +37944,7 @@
   "probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_assign":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice"],
@@ -37878,6 +37972,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.U16.Insts.SubtleConstantTimeEq.ct_eq",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -37904,6 +37999,7 @@
   "probe:curve25519_dalek.U16.Insts.SubtleConstantTimeEq.ct_eq":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -37936,6 +38032,7 @@
     "probe:curve25519_dalek.Slice.Insts.SubtleConstantTimeEq.ct_eq",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConstantTimeEq"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.backend.serial.u64.field.FieldElement51.Insts.SubtleConstantTimeEq.ct_eq_spec",
@@ -37967,6 +38064,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConstantTimeEq"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.backend.serial.u64.field.FieldElement51.Insts.SubtleConstantTimeEq.ct_eq_spec",
@@ -43056,6 +43154,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -43082,6 +43181,7 @@
   "probe:curve25519_dalek.Choice.zero":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.Choice.eq_zero_of_val",
@@ -43125,6 +43225,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
@@ -43149,6 +43250,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
@@ -43175,6 +43277,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -43201,6 +43304,7 @@
   "probe:curve25519_dalek.Choice.one":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies": [],
    "specs":
    ["probe:curve25519_dalek.Choice.eq_one_of_val",
@@ -43265,6 +43369,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.eq_zero_or_one",
     "probe:curve25519_dalek.Choice.one",
@@ -43294,6 +43399,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.eq_zero_or_one",
     "probe:curve25519_dalek.Choice.one",
@@ -43323,6 +43429,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.Choice.zero",
@@ -43349,6 +43456,7 @@
    ["probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
@@ -43375,6 +43483,7 @@
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
@@ -43440,6 +43549,7 @@
   "probe:curve25519_dalek.Bool.Insts.CoreConvertFromChoice.from":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.subtle.Choice"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val"],
@@ -43507,6 +43617,7 @@
   "probe:curve25519_dalek.Array.Insts.ZeroizeZeroize.zeroize":
   {"verification-status": "trusted",
    "type-dependencies": ["probe:curve25519_dalek.zeroize.Zeroize"],
+   "trusted-reason": "axiom",
    "term-dependencies": [],
    "rust-source": null,
    "language": "lean",
@@ -43527,6 +43638,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Array.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",
@@ -43555,6 +43667,7 @@
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Array.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",
@@ -43583,6 +43696,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.val",
@@ -43615,6 +43729,7 @@
    "type-dependencies":
    ["probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.ConditionallySelectable"],
+   "trusted-reason": "external",
    "term-dependencies":
    ["probe:curve25519_dalek.Array.Insts.SubtleConditionallySelectable.conditional_select",
     "probe:curve25519_dalek.subtle.Choice",

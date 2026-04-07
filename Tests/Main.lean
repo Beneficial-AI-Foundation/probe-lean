@@ -706,6 +706,42 @@ def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
   result ← test "UnifiedAtomsOutput round-trip preserves none fields" uaoNoneRt result
 
   IO.println ""
+  IO.println "Testing UnifiedAtom trusted-reason serialization..."
+  let trustedAtom : UnifiedAtom := {
+    name := "probe:Test.ax"
+    displayName := "ax"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .axiom
+    verificationStatus := some .trusted
+    trustedReason := some "axiom"
+  }
+  let trJson := Lean.toJson trustedAtom
+  let trHasField := match trJson.getObjValAs? String "trusted-reason" with
+    | .ok "axiom" => true | _ => false
+  result ← test "trusted-reason present in JSON when set" trHasField result
+  let trRoundTrip := match Lean.FromJson.fromJson? trJson (α := UnifiedAtom) with
+    | .ok a => a.trustedReason == some "axiom"
+    | .error _ => false
+  result ← test "trusted-reason round-trips through JSON" trRoundTrip result
+  let normalAtom : UnifiedAtom := {
+    name := "probe:Test.f"
+    displayName := "f"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .def
+    verificationStatus := some .verified
+  }
+  let noTrJson := Lean.toJson normalAtom
+  let trAbsent := match noTrJson.getObjVal? "trusted-reason" with
+    | .ok _ => false | .error _ => true
+  result ← test "trusted-reason absent from JSON when none" trAbsent result
+
+  IO.println ""
   IO.println "Testing UnifiedAtom specs serialization..."
   let unifiedWithSpecs : UnifiedAtom := {
     name := "probe:Test.with_specs"
@@ -1195,27 +1231,40 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   result ← test "def in ExternallyVerified.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/ExternallyVerified.lean")) result
 
   IO.println ""
+  IO.println "Testing trustedReason..."
+  result ← test "axiom reason is \"axiom\"" (trustedReason (mkAtomWith .axiom "Test.lean") == some "axiom") result
+  result ← test "external def reason is \"external\"" (trustedReason (mkAtomWith .def "Pkg/FunsExternal.lean") == some "external") result
+  result ← test "axiom in External reason is \"axiom\" (precedence)" (trustedReason (mkAtomWith .axiom "Pkg/FunsExternal.lean") == some "axiom") result
+  result ← test "normal def reason is none" (trustedReason (mkAtomWith .def "Pkg/Funs.lean") == none) result
+  result ← test "theorem in External reason is \"external\"" (trustedReason (mkAtomWith .theorem "Pkg/TypesExternal.lean") == some "external") result
+
+  IO.println ""
   IO.println "Testing unifyAtom trusted override..."
   let axiomAtom := mkAtomWith .axiom "Test.lean"
   let proofOk : ProofEntry := { verified := true, status := .success, codePath := "Test.lean", codeLine := 1, sorries := #[] }
   let unified1 := unifyAtom axiomAtom (some proofOk)
   result ← test "axiom overrides success to trusted" (unified1.verificationStatus == some .trusted) result
+  result ← test "axiom trusted-reason is \"axiom\"" (unified1.trustedReason == some "axiom") result
 
   let externalDef := mkAtomWith .def "Pkg/FunsExternal.lean"
   let unified2 := unifyAtom externalDef (some proofOk)
   result ← test "FunsExternal def overrides to trusted" (unified2.verificationStatus == some .trusted) result
+  result ← test "FunsExternal trusted-reason is \"external\"" (unified2.trustedReason == some "external") result
 
   let externalDefNoProof := mkAtomWith .def "Pkg/FunsExternal.lean"
   let unified3 := unifyAtom externalDefNoProof none
   result ← test "FunsExternal def with no proof entry is trusted" (unified3.verificationStatus == some .trusted) result
+  result ← test "FunsExternal no-proof trusted-reason is \"external\"" (unified3.trustedReason == some "external") result
 
   let normalDef := mkAtomWith .def "Pkg/Funs.lean"
   let unified4 := unifyAtom normalDef (some proofOk)
   result ← test "normal def stays verified" (unified4.verificationStatus == some .verified) result
+  result ← test "normal def trusted-reason is none" (unified4.trustedReason == none) result
 
   let normalDefNone := mkAtomWith .def "Pkg/Funs.lean"
   let unified5 := unifyAtom normalDefNone none
   result ← test "normal def with no proof entry stays none" (unified5.verificationStatus == none) result
+  result ← test "normal def no-proof trusted-reason is none" (unified5.trustedReason == none) result
 
   IO.println ""
   IO.println "Testing trusted override with non-success proof entries..."
@@ -1365,19 +1414,34 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
     | .error _ => return result.add false
     | .ok obj => do
       let validStatuses := ["verified", "unverified", "failed", "trusted"]
+      let validReasons := ["axiom", "external"]
       let mut allValid := true
       let mut hasVerified := false
       let mut hasTrusted := false
+      let mut trustedHaveReason := true
+      let mut reasonsValid := true
+      let mut nonTrustedNoReason := true
       for (_, val) in obj.toArray do
         match val.getObjValAs? String "verification-status" with
         | .ok s =>
           if !validStatuses.contains s then allValid := false
           if s == "verified" then hasVerified := true
-          if s == "trusted" then hasTrusted := true
+          if s == "trusted" then
+            hasTrusted := true
+            match val.getObjValAs? String "trusted-reason" with
+            | .ok r => if !validReasons.contains r then reasonsValid := false
+            | .error _ => trustedHaveReason := false
+          else
+            match val.getObjVal? "trusted-reason" with
+            | .ok _ => nonTrustedNoReason := false
+            | .error _ => pure ()
         | .error _ => allValid := false
       result ← test "all atoms have valid verification-status" allValid result
       result ← test "at least some atoms are verified" hasVerified result
       result ← test "at least some atoms are trusted" hasTrusted result
+      result ← test "all trusted atoms have trusted-reason" trustedHaveReason result
+      result ← test "all trusted-reason values are valid" reasonsValid result
+      result ← test "non-trusted atoms have no trusted-reason" nonTrustedNoReason result
       return result
 
 def testDeterminismInvariants (result : TestResult) : IO TestResult := do

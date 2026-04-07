@@ -193,7 +193,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
-4. **Verify** -- parses sorry warnings from build output to determine verification status; axioms and `*External.lean` declarations are marked `"trusted"` (skippable via `--skip-verify`)
+4. **Verify** -- parses sorry warnings from build output to determine verification status; axioms and `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"` or `"external"`) for trust-base classification (skippable via `--skip-verify`)
 5. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom
 6. **Schema 2.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 

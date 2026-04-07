@@ -18,7 +18,7 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
   "schema-version": "2.0",
   "tool": {
     "name": "probe-lean",
-    "version": "0.4.4",
+    "version": "0.4.5",
     "command": "extract"
   },
   "source": {
@@ -80,6 +80,25 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
       "attributes": ["primary_spec"],
       "rust-source": null,
       "verification-status": "verified"
+    },
+    "probe:Aeneas.Std.core.convert.num.FromUsizeBool": {
+      "display-name": "FromUsizeBool",
+      "dependencies": [],
+      "type-dependencies": [],
+      "term-dependencies": [],
+      "code-module": "Aeneas.Std.FunsExternal",
+      "code-path": "Aeneas/Std/FunsExternal.lean",
+      "code-text": { "lines-start": 10, "lines-end": 12 },
+      "kind": "axiom",
+      "language": "lean",
+      "is-in-package": true,
+      "is-relevant": true,
+      "is-hidden": false,
+      "is-extraction-artifact": false,
+      "is-ignored": false,
+      "rust-source": null,
+      "verification-status": "trusted",
+      "trusted-reason": "axiom"
     }
   }
 }
@@ -113,7 +132,7 @@ Surveyed projects:
 
 | Project | Has `version`? | Value |
 |---------|---------------|-------|
-| probe-lean | yes | `0.4.4` |
+| probe-lean | yes | `0.4.5` |
 | curve25519-dalek-lean-verify | yes | `0.1.0` |
 | ArkLib | no | -- |
 | katydid-proofs | no | -- |
@@ -272,6 +291,7 @@ Each value contains all atom fields plus verification status and specs:
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms and declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"external"` (file ends with `External.lean`). Enables automated trust-base classification. |
 
 ### `probe-lean/viewify` (molecules)
 

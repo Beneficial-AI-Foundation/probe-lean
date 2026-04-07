@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.5] - 2026-04-07
+
+### Added
+
+- **`trusted-reason` field**: Each trusted atom now carries a `trusted-reason`
+  field (`"axiom"` or `"external"`) so downstream tools can classify the trust
+  base directly from the extract JSON without inspecting `kind` or `code-path`.
+
 ## [0.4.4] - 2026-04-07
 
 ### Added

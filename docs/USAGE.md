@@ -257,7 +257,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.4.4", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.4.5", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",
@@ -311,16 +311,18 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. Absent when none. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`. |
 
 ### Verification Status Mapping
 
-| Lean status | `verification-status` | Meaning |
-|-------------|----------------------|---------|
-| Axiom or `*External.lean` | `"trusted"` | Assumed correct (trust base) |
-| No sorry | `"verified"` | Proof is complete |
-| Has sorry | `"unverified"` | Proof deliberately incomplete |
-| Build failure | `"failed"` | Compilation error |
-| (skipped) | absent | Verification was skipped (`--skip-verify`) |
+| Lean status | `verification-status` | `trusted-reason` | Meaning |
+|-------------|----------------------|------------------|---------|
+| Axiom (`kind: "axiom"`) | `"trusted"` | `"axiom"` | Lean `axiom` keyword -- unproven assumption |
+| `*External.lean` file | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
+| No sorry | `"verified"` | absent | Proof is complete |
+| Has sorry | `"unverified"` | absent | Proof deliberately incomplete |
+| Build failure | `"failed"` | absent | Compilation error |
+| (skipped) | absent | absent | Verification was skipped (`--skip-verify`) |
 
 Trusted status takes precedence: axioms and declarations from `*External.lean` files are always `"trusted"` regardless of sorry detection results.
 
