@@ -629,9 +629,13 @@ def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
     | .ok .failed => true | _ => false
   let wvsUnverified := match Lean.FromJson.fromJson? (Lean.toJson WebVerificationStatus.unverified) (α := WebVerificationStatus) with
     | .ok .unverified => true | _ => false
+  let wvsTrusted := match Lean.FromJson.fromJson? (Lean.toJson WebVerificationStatus.trusted) (α := WebVerificationStatus) with
+    | .ok .trusted => true | _ => false
   result ← test "WebVerificationStatus verified round-trips" wvsVerified result
   result ← test "WebVerificationStatus failed round-trips" wvsFailed result
   result ← test "WebVerificationStatus unverified round-trips" wvsUnverified result
+  result ← test "WebVerificationStatus trusted round-trips" wvsTrusted result
+  result ← test "WebVerificationStatus trusted toJson" (Lean.toJson WebVerificationStatus.trusted == "trusted") result
 
   IO.println ""
   IO.println "Testing UnifiedAtomsOutput FromJson round-trip..."
@@ -1174,6 +1178,73 @@ def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
     | none => false) result
   return result
 
+def testTrustedStatus (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing isTrustedAtom..."
+  let mkAtomWith (kind : DeclKind) (codePath : String) : Atom :=
+    { name := "probe:Test.x", displayName := "x", dependencies := #[],
+      codeModule := "Test", codePath, codeText := some { linesStart := 1, linesEnd := 5 },
+      kind }
+  result ← test "axiom kind is trusted" (isTrustedAtom (mkAtomWith .axiom "Test.lean")) result
+  result ← test "axiom in External is trusted" (isTrustedAtom (mkAtomWith .axiom "Pkg/FunsExternal.lean")) result
+  result ← test "def in FunsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/FunsExternal.lean")) result
+  result ← test "theorem in TypesExternal.lean is trusted" (isTrustedAtom (mkAtomWith .theorem "Pkg/TypesExternal.lean")) result
+  result ← test "def in Funs.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/Funs.lean")) result
+  result ← test "theorem in Specs.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .theorem "Pkg/Specs.lean")) result
+  result ← test "def in ExternallyVerified.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/ExternallyVerified.lean")) result
+
+  IO.println ""
+  IO.println "Testing unifyAtom trusted override..."
+  let axiomAtom := mkAtomWith .axiom "Test.lean"
+  let proofOk : ProofEntry := { verified := true, status := .success, codePath := "Test.lean", codeLine := 1, sorries := #[] }
+  let unified1 := unifyAtom axiomAtom (some proofOk)
+  result ← test "axiom overrides success to trusted" (unified1.verificationStatus == some .trusted) result
+
+  let externalDef := mkAtomWith .def "Pkg/FunsExternal.lean"
+  let unified2 := unifyAtom externalDef (some proofOk)
+  result ← test "FunsExternal def overrides to trusted" (unified2.verificationStatus == some .trusted) result
+
+  let externalDefNoProof := mkAtomWith .def "Pkg/FunsExternal.lean"
+  let unified3 := unifyAtom externalDefNoProof none
+  result ← test "FunsExternal def with no proof entry is trusted" (unified3.verificationStatus == some .trusted) result
+
+  let normalDef := mkAtomWith .def "Pkg/Funs.lean"
+  let unified4 := unifyAtom normalDef (some proofOk)
+  result ← test "normal def stays verified" (unified4.verificationStatus == some .verified) result
+
+  let normalDefNone := mkAtomWith .def "Pkg/Funs.lean"
+  let unified5 := unifyAtom normalDefNone none
+  result ← test "normal def with no proof entry stays none" (unified5.verificationStatus == none) result
+
+  IO.println ""
+  IO.println "Testing trusted override with non-success proof entries..."
+  let proofSorries : ProofEntry := { verified := false, status := .sorries, codePath := "Test.lean", codeLine := 1, sorries := #[{ line := 3, message := "uses sorry" }] }
+  let proofFailure : ProofEntry := { verified := false, status := .failure, codePath := "Test.lean", codeLine := 1, sorries := #[] }
+
+  let axiomWithSorries := mkAtomWith .axiom "Test.lean"
+  let unified6 := unifyAtom axiomWithSorries (some proofSorries)
+  result ← test "axiom overrides sorries to trusted" (unified6.verificationStatus == some .trusted) result
+
+  let axiomWithFailure := mkAtomWith .axiom "Test.lean"
+  let unified7 := unifyAtom axiomWithFailure (some proofFailure)
+  result ← test "axiom overrides failure to trusted" (unified7.verificationStatus == some .trusted) result
+
+  let externalWithSorries := mkAtomWith .def "Pkg/FunsExternal.lean"
+  let unified8 := unifyAtom externalWithSorries (some proofSorries)
+  result ← test "External def overrides sorries to trusted" (unified8.verificationStatus == some .trusted) result
+
+  let externalWithFailure := mkAtomWith .def "Pkg/TypesExternal.lean"
+  let unified9 := unifyAtom externalWithFailure (some proofFailure)
+  result ← test "External def overrides failure to trusted" (unified9.verificationStatus == some .trusted) result
+
+  IO.println ""
+  IO.println "Testing non-conventional External.lean suffix..."
+  result ← test "ModelsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/ModelsExternal.lean")) result
+  result ← test "CustomExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Deep/Path/CustomExternal.lean")) result
+
+  return result
+
 def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -1293,17 +1364,20 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
     match data.getObj? with
     | .error _ => return result.add false
     | .ok obj => do
-      let validStatuses := ["verified", "unverified", "failed"]
+      let validStatuses := ["verified", "unverified", "failed", "trusted"]
       let mut allValid := true
       let mut hasVerified := false
+      let mut hasTrusted := false
       for (_, val) in obj.toArray do
         match val.getObjValAs? String "verification-status" with
         | .ok s =>
           if !validStatuses.contains s then allValid := false
           if s == "verified" then hasVerified := true
+          if s == "trusted" then hasTrusted := true
         | .error _ => allValid := false
       result ← test "all atoms have valid verification-status" allValid result
       result ← test "at least some atoms are verified" hasVerified result
+      result ← test "at least some atoms are trusted" hasTrusted result
       return result
 
 def testReadToolchain (result : TestResult) : IO TestResult := do
@@ -1565,11 +1639,12 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
   result ← test "sorries maps to unverified" (vs2 == .unverified) result
   result ← test "failure maps to failed" (vs3 == .failed) result
 
-  let validStatuses := #["verified", "unverified", "failed"]
+  let validStatuses := #["verified", "unverified", "failed", "trusted"]
   let vsJson1 := Lean.toJson vs1
   let vsJson2 := Lean.toJson vs2
   let vsJson3 := Lean.toJson vs3
-  let allValid := [vsJson1, vsJson2, vsJson3].all fun j =>
+  let vsJson4 := Lean.toJson WebVerificationStatus.trusted
+  let allValid := [vsJson1, vsJson2, vsJson3, vsJson4].all fun j =>
     match j with
     | .str s => validStatuses.contains s
     | _ => false
@@ -1709,6 +1784,7 @@ def main : IO UInt32 := do
   result ← testFindDefaultAtomsPath result
   result ← testTypedDependencies result
   result ← testPrimarySpecHeuristic result
+  result ← testTrustedStatus result
   result ← testExampleJsonEnvelopeStructure result
   result ← testExampleJsonLoadAtoms result
   result ← testExampleJsonAtomRequiredFields result

@@ -11,15 +11,15 @@ lake build tests
 
 | Layer | Count | Location | Requires |
 |-------|-------|----------|----------|
-| Unit tests | 186 | `Tests/Main.lean` | Nothing |
-| Integration tests (example JSON) | 20 | `Tests/Main.lean` | Nothing |
-| **Total** | **206** | | |
+| Unit tests | 192 | `Tests/Main.lean` | Nothing |
+| Integration tests (example JSON) | 21 | `Tests/Main.lean` | Nothing |
+| **Total** | **213** | | |
 
 All tests run without external tools.
 
 ## Unit tests
 
-186 tests across 20 test functions in `Tests/Main.lean`:
+192 tests across 21 test functions in `Tests/Main.lean`:
 
 | Test function | What it covers |
 |---------------|---------------|
@@ -43,10 +43,11 @@ All tests run without external tools.
 | `testFindDefaultAtomsPath` | Exact path, fallback with alternative files, newest-file selection |
 | `testTypedDependencies` | `type-dependencies` / `term-dependencies` serialization, backward compatibility with legacy JSON |
 | `testPrimarySpecHeuristic` | `_spec` suffix heuristic, attribute override, no-match fallback |
+| `testTrustedStatus` | `isTrustedAtom` (axiom, `*External.lean`, negatives), `unifyAtom` trusted override (success/sorries/failure proof entries, no proof entry) |
 
 ## Integration tests (example JSON)
 
-20 tests across 4 test functions that load
+21 tests across 4 test functions that load
 `examples/lean_Curve25519Dalek_0.1.0.json` and validate the real
 extract output:
 
@@ -55,7 +56,7 @@ extract output:
 | `testExampleJsonEnvelopeStructure` | 8 | Schema is `probe-lean/extract`, version `2.0`, non-empty timestamp, tool name/command, source package/language, data object present |
 | `testExampleJsonLoadAtoms` | 4 | `loadAtoms` succeeds, >1000 atoms, all keys start with `probe:`, all atoms have language `"lean"` |
 | `testExampleJsonAtomRequiredFields` | 6 | Non-empty `display-name`, `code-module`, `code-path`; valid `DeclKind`; has both `def` and `theorem` atoms |
-| `testExampleJsonVerificationStatus` | 2 | All atoms have valid `verification-status` (verified/unverified/failed); at least some are `"verified"` |
+| `testExampleJsonVerificationStatus` | 3 | All atoms have valid `verification-status` (verified/unverified/failed/trusted); at least some are `"verified"`, at least some are `"trusted"` |
 
 ## CI
 

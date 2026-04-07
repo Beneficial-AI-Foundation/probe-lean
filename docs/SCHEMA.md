@@ -18,7 +18,7 @@ A complete probe-lean extract output with the Schema 2.0 envelope:
   "schema-version": "2.0",
   "tool": {
     "name": "probe-lean",
-    "version": "0.4.2",
+    "version": "0.4.3",
     "command": "extract"
   },
   "source": {
@@ -113,7 +113,7 @@ Surveyed projects:
 
 | Project | Has `version`? | Value |
 |---------|---------------|-------|
-| probe-lean | yes | `0.4.2` |
+| probe-lean | yes | `0.4.3` |
 | curve25519-dalek-lean-verify | yes | `0.1.0` |
 | ArkLib | no | -- |
 | katydid-proofs | no | -- |
@@ -191,7 +191,7 @@ the generic interchange spec, using Lean-native terminology.
 | `structure` | `structure` | Record type |
 | `inductive` | `inductive` | Inductive type |
 | `instance` | `instance` | Type class instance |
-| `axiom` | `axiom` | Axiom (trusted, no proof) |
+| `axiom` | `axiom` | Axiom (assumed without proof; always `"trusted"`) |
 | `opaque` | `opaque` | Opaque definition (no unfolding) |
 | `quot` | `Quot` | Quotient type (built-in) |
 
@@ -271,7 +271,7 @@ Each value contains all atom fields plus verification status and specs:
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. |
-| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
+| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms and declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. |
 
 ### `probe-lean/viewify` (molecules)
 

@@ -380,6 +380,7 @@ inductive WebVerificationStatus where
   | verified
   | failed
   | unverified
+  | trusted
   deriving Repr, BEq
 
 instance : Lean.ToJson WebVerificationStatus where
@@ -387,6 +388,7 @@ instance : Lean.ToJson WebVerificationStatus where
     | .verified => "verified"
     | .failed => "failed"
     | .unverified => "unverified"
+    | .trusted => "trusted"
 
 instance : Lean.FromJson WebVerificationStatus where
   fromJson? json := do
@@ -395,6 +397,7 @@ instance : Lean.FromJson WebVerificationStatus where
     | "verified" => return .verified
     | "failed" => return .failed
     | "unverified" => return .unverified
+    | "trusted" => return .trusted
     | _ => throw s!"Unknown WebVerificationStatus: {s}"
 
 /-- A unified atom combining all atom fields with verification and specification status -/

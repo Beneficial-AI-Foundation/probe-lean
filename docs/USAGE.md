@@ -257,7 +257,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.4.2", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.4.3", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",
@@ -310,16 +310,19 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. Absent when none. |
-| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, or absent if skipped |
+| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
 
 ### Verification Status Mapping
 
 | Lean status | `verification-status` | Meaning |
 |-------------|----------------------|---------|
+| Axiom or `*External.lean` | `"trusted"` | Assumed correct (trust base) |
 | No sorry | `"verified"` | Proof is complete |
 | Has sorry | `"unverified"` | Proof deliberately incomplete |
 | Build failure | `"failed"` | Compilation error |
 | (skipped) | absent | Verification was skipped (`--skip-verify`) |
+
+Trusted status takes precedence: axioms and declarations from `*External.lean` files are always `"trusted"` regardless of sorry detection results.
 
 ---
 
