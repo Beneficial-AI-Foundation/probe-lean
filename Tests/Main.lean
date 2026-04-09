@@ -58,6 +58,9 @@ def testAnalysisHelpers (result : TestResult) : IO TestResult := do
   result ← test "injEq" (isInternalName `Tree.leaf.injEq) result
   result ← test "sizeOf_spec" (isInternalName `Point.mk.sizeOf_spec) result
   result ← test "eq_1" (isInternalName `foo.eq_1) result
+  result ← test "elim" (isInternalName `Color.elim) result
+  result ← test "ctorIdx" (isInternalName `Point.ctorIdx) result
+  result ← test "toCtorIdx" (isInternalName `Point.toCtorIdx) result
 
   IO.println ""
   IO.println "Testing getDisplayName..."
@@ -1292,6 +1295,32 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   result ← test "ModelsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/ModelsExternal.lean")) result
   result ← test "CustomExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Deep/Path/CustomExternal.lean")) result
 
+  IO.println ""
+  IO.println "Testing auto-generated atoms (no source location) are trusted..."
+  let mkAutoGen (kind : DeclKind) : Atom :=
+    { name := "probe:Test.auto", displayName := "auto", dependencies := #[],
+      codeModule := "Test", codePath := "", codeText := none, kind }
+  result ← test "def without source is trusted" (isTrustedAtom (mkAutoGen .def)) result
+  result ← test "theorem without source is trusted" (isTrustedAtom (mkAutoGen .theorem)) result
+  result ← test "inductive without source is trusted" (isTrustedAtom (mkAutoGen .inductive)) result
+
+  IO.println ""
+  IO.println "Testing trustedReason for auto-generated..."
+  result ← test "auto-gen def reason is \"auto-generated\"" (trustedReason (mkAutoGen .def) == some "auto-generated") result
+  result ← test "auto-gen theorem reason is \"auto-generated\"" (trustedReason (mkAutoGen .theorem) == some "auto-generated") result
+  result ← test "axiom without source reason is \"axiom\" (priority)" (trustedReason (mkAutoGen .axiom) == some "axiom") result
+
+  IO.println ""
+  IO.println "Testing unifyAtom auto-generated override..."
+  let autoGenDef := mkAutoGen .def
+  let proofSorriesAutoGen : ProofEntry := { verified := false, status := .sorries, codePath := "", codeLine := 0, sorries := #[] }
+  let unifiedAutoGen := unifyAtom autoGenDef (some proofSorriesAutoGen)
+  result ← test "auto-gen overrides sorries to trusted" (unifiedAutoGen.verificationStatus == some .trusted) result
+  result ← test "auto-gen trusted-reason is \"auto-generated\"" (unifiedAutoGen.trustedReason == some "auto-generated") result
+
+  let unifiedAutoGenNone := unifyAtom autoGenDef none
+  result ← test "auto-gen with no proof entry is trusted" (unifiedAutoGenNone.verificationStatus == some .trusted) result
+
   return result
 
 def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
@@ -1414,7 +1443,7 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
     | .error _ => return result.add false
     | .ok obj => do
       let validStatuses := ["verified", "unverified", "failed", "trusted"]
-      let validReasons := ["axiom", "external"]
+      let validReasons := ["axiom", "external", "auto-generated"]
       let mut allValid := true
       let mut hasVerified := false
       let mut hasTrusted := false

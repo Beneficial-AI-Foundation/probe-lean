@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.6] - 2026-04-09
+
+### Fixed
+
+- **False "unverified" atoms for auto-generated declarations**: Declarations
+  without source location (kernel-synthesized congruence lemmas, mutual recursion
+  helpers, etc.) were incorrectly marked `"unverified"`. They are now marked
+  `"trusted"` with `trusted-reason: "auto-generated"` since they are
+  kernel-checked and guaranteed sound. Additionally, `.elim`, `.ctorIdx`, and
+  `.toCtorIdx` suffixes are now filtered out as internal noise (like `.casesOn`,
+  `.rec`, etc. already were). Fixes [#16](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/16).
+
 ## [0.4.5] - 2026-04-07
 
 ### Added

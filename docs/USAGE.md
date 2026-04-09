@@ -311,7 +311,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. Absent when none. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`. |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`, `"auto-generated"`. |
 
 ### Verification Status Mapping
 
@@ -319,6 +319,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 |-------------|----------------------|------------------|---------|
 | Axiom (`kind: "axiom"`) | `"trusted"` | `"axiom"` | Lean `axiom` keyword -- unproven assumption |
 | `*External.lean` file | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
+| No source location | `"trusted"` | `"auto-generated"` | Kernel-synthesized declaration (e.g., congruence lemma, mutual recursion helper) |
 | No sorry | `"verified"` | absent | Proof is complete |
 | Has sorry | `"unverified"` | absent | Proof deliberately incomplete |
 | Build failure | `"failed"` | absent | Compilation error |
