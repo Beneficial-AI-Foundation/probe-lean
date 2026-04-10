@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.7] - 2026-04-10
+
+### Fixed
+
+- **Instance kind detection**: Auto-named type class instances (e.g.,
+  `instAddNat`, `instDecidableValidLengths`) were incorrectly classified as
+  `"def"` or `"abbrev"`. They are now reported as `"instance"` in the JSON
+  output. Detection uses a naming heuristic (`inst` prefix) since Lean's
+  instance extension state is not preserved in `.olean` files after
+  `importModules`. User-named instances (without `inst` prefix) are not
+  detected. Fixes [#17](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/17).
+
 ## [0.4.6] - 2026-04-09
 
 ### Fixed
