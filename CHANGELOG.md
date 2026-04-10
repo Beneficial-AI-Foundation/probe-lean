@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.8] - 2026-04-10
+
+### Added
+
+- **`projection` declaration kind**: Structure field projections and class method
+  projections are now classified as `kind: "projection"` instead of `"abbrev"`,
+  using Lean's built-in `env.isProjectionFn` API. This distinguishes compiler-
+  generated accessors (e.g., `EdwardsPoint.X`, `Add.add`) from genuine user-written
+  abbreviations. Fixes [#19](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/19).
+
+### Changed
+
+- **No-source declarations filtered entirely**: Declarations without source
+  location (kernel-synthesized congruence lemmas, mutual recursion helpers, etc.)
+  are now filtered from output entirely instead of being marked `"trusted"` with
+  `trusted-reason: "auto-generated"`. The `"auto-generated"` trusted reason is
+  removed from the schema. Refines the v0.4.6 fix for [#16](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/16).
+
 ## [0.4.7] - 2026-04-10
 
 ### Fixed

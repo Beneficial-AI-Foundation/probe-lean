@@ -147,6 +147,7 @@ inductive DeclKind where
   | «def»
   | «theorem»
   | «abbrev»
+  | «projection»
   | «class»
   | «structure»
   | «inductive»
@@ -161,6 +162,7 @@ instance : Lean.ToJson DeclKind where
     | .def => "def"
     | .theorem => "theorem"
     | .abbrev => "abbrev"
+    | .projection => "projection"
     | .class => "class"
     | .structure => "structure"
     | .inductive => "inductive"
@@ -176,6 +178,7 @@ instance : Lean.FromJson DeclKind where
     | "def" => return .def
     | "theorem" => return .theorem
     | "abbrev" => return .abbrev
+    | "projection" => return .projection
     | "class" => return .class
     | "structure" => return .structure
     | "inductive" => return .inductive

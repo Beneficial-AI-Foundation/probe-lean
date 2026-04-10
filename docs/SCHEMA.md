@@ -206,6 +206,7 @@ the generic interchange spec, using Lean-native terminology.
 | `def` | `def` | Computable definition |
 | `theorem` | `theorem` | Proven proposition (erased at runtime) |
 | `abbrev` | `abbrev` | Abbreviation (reducible definition) |
+| `projection` | (auto) | Structure field or class method projection (detected via `env.isProjectionFn`) |
 | `class` | `class` | Type class |
 | `structure` | `structure` | Record type |
 | `inductive` | `inductive` | Inductive type |
@@ -221,7 +222,7 @@ they reflect each language's native declaration taxonomy:
 
 | Concept | Verus `kind` | Lean `kind` |
 |---------|-------------|-------------|
-| Executable code | `exec` | `def`, `abbrev`, `instance` |
+| Executable code | `exec` | `def`, `abbrev`, `projection`, `instance` |
 | Specification | `spec` | `theorem`, `axiom` |
 | Proof | `proof` | (implicit in `theorem` -- the proof *is* the body) |
 | Type definition | -- | `class`, `structure`, `inductive` |
@@ -290,8 +291,8 @@ Each value contains all atom fields plus verification status and specs:
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. |
-| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms, declarations from `*External.lean` files, and auto-generated declarations without source location are always `"trusted"`. |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"external"` (file ends with `External.lean`), `"auto-generated"` (kernel-synthesized declaration with no source location). Enables automated trust-base classification. |
+| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms and declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"external"` (file ends with `External.lean`). Enables automated trust-base classification. |
 
 ### `probe-lean/viewify` (molecules)
 

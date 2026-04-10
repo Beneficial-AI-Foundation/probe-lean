@@ -15,63 +15,6 @@
  "schema-version": "2.0",
  "schema": "probe-lean/extract",
  "data": {
-  "probe:Aeneas.Std.Array.make.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Field.FieldElement51.Sub",
-   "trusted-reason": "auto-generated"
-  },
-  "probe:Aeneas.Std.I32.ofInt.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Field.FieldElement51.Reduce",
-   "trusted-reason": "auto-generated"
-  },
-  "probe:Aeneas.Std.Isize.ofInt.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Montgomery.MontgomeryPoint.Mul",
-   "trusted-reason": "auto-generated"
-  },
   "probe:Aeneas.Std.U64.shiftRight_51": {
    "verification-status": "verified",
    "type-dependencies": [],
@@ -92,25 +35,6 @@
    },
    "code-path": "Curve25519Dalek/Aux.lean",
    "code-module": "Curve25519Dalek.Aux"
-  },
-  "probe:Aeneas.Std.UScalar.ofNatCore.hcongr_3": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "hcongr_3",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Scalar.Scalar52.Sub",
-   "trusted-reason": "auto-generated"
   },
   "probe:Array.getElem_eq_getElem!": {
    "verification-status": "verified",
@@ -1857,44 +1781,6 @@
    "code-path": "Curve25519Dalek/Math/BitList.lean",
    "code-module": "Curve25519Dalek.Math.BitList"
   },
-  "probe:BitVec.ofNat.hcongr_2": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "hcongr_2",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Scalar.Scalar52.Sub",
-   "trusted-reason": "auto-generated"
-  },
-  "probe:BitVec.setWidth.hcongr_3": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "hcongr_3",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Scalar.Scalar52.Sub",
-   "trusted-reason": "auto-generated"
-  },
   "probe:Edwards.CurveField": {
    "verification-status": "verified",
    "type-dependencies": [],
@@ -2022,7 +1908,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.Z_ne_zero",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.on_curve",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.isValid_iff",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.IsValid.Z_ne_zero",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.IsValid.on_curve",
@@ -2052,7 +1937,6 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_cofactor_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_pow_2_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_clamped_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_montgomery_spec",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.CoreCmpPartialEqAffinePoint.eq_spec",
@@ -2240,7 +2124,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.T2d_relation",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.on_curve",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.isValid_iff",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.IsValid.on_curve",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.double_spec",
@@ -2266,7 +2149,6 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_cofactor_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_pow_2_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_clamped_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_montgomery_spec",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.CoreCmpPartialEqAffinePoint.eq_spec",
@@ -2386,7 +2268,6 @@
    "specs": [
     "probe:Edwards.Point.ext",
     "probe:Edwards.Point.ext_iff",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.Point.on_curve",
     "probe:Edwards.add_closure",
     "probe:Edwards.add_coords_mk",
@@ -2419,7 +2300,6 @@
    ],
    "specs": [
     "probe:Edwards.Point.ext",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.Point.on_curve",
     "probe:Edwards.add_closure",
     "probe:Edwards.add_closure_Ed25519",
@@ -2501,7 +2381,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -2529,7 +2409,6 @@
    "specs": [
     "probe:Edwards.Ed25519.denomsNeZero",
     "probe:Edwards.Point.ext",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.Point.on_curve",
     "probe:Edwards.add_closure",
     "probe:Edwards.add_closure_Ed25519",
@@ -2622,7 +2501,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -2694,7 +2573,6 @@
     "probe:Edwards.Ed25519.denomsNeZero",
     "probe:Edwards.Point.ext",
     "probe:Edwards.Point.ext_iff",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.Point.on_curve",
     "probe:Edwards.add_assoc_Ed25519",
     "probe:Edwards.add_closure",
@@ -2789,7 +2667,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.as_projective_spec",
     "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.toPoint_eq_coe",
     "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.toPoint_of_isValid",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.double_spec",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.toPoint_eq_coe",
@@ -2810,7 +2687,6 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_cofactor_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_pow_2_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_clamped_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_montgomery_spec",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.Insts.CoreCmpPartialEqAffinePoint.eq_spec",
@@ -2947,40 +2823,6 @@
    "attributes": [
     "ext"
    ]
-  },
-  "probe:Edwards.Point.mk.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:Edwards.EdwardsCurve",
-    "probe:Edwards.EdwardsCurve.a",
-    "probe:Edwards.EdwardsCurve.d",
-    "probe:Edwards.Point"
-   ],
-   "term-dependencies": [
-    "probe:Edwards.EdwardsCurve",
-    "probe:Edwards.EdwardsCurve.a",
-    "probe:Edwards.EdwardsCurve.d",
-    "probe:Edwards.Point"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [
-    "probe:Edwards.EdwardsCurve",
-    "probe:Edwards.EdwardsCurve.a",
-    "probe:Edwards.EdwardsCurve.d",
-    "probe:Edwards.Point"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Math.Edwards.Representation",
-   "trusted-reason": "auto-generated"
   },
   "probe:Edwards.Point.on_curve": {
    "verification-status": "verified",
@@ -3122,7 +2964,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -3245,7 +3087,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -6130,7 +5972,6 @@
     "probe:Montgomery.id_6",
     "probe:Montgomery.inver_Ad",
     "probe:Montgomery.inver_Ad_eq",
-    "probe:Montgomery.mk_point.congr_simp",
     "probe:Montgomery.mk_point_neq",
     "probe:Montgomery.mk_point_neq_T_of_u",
     "probe:Montgomery.mk_point_neq_neg",
@@ -6340,7 +6181,6 @@
     "probe:Montgomery.lift_mod_eq_iff",
     "probe:Montgomery.lift_mod_mul",
     "probe:Montgomery.map_zero",
-    "probe:Montgomery.mk_point.congr_simp",
     "probe:Montgomery.mk_point_T",
     "probe:Montgomery.mk_point_def",
     "probe:Montgomery.mk_point_neq",
@@ -6712,7 +6552,6 @@
     "probe:Montgomery.get_u_zero",
     "probe:Montgomery.get_v_zero",
     "probe:Montgomery.map_zero",
-    "probe:Montgomery.mk_point.congr_simp",
     "probe:Montgomery.mk_point_T",
     "probe:Montgomery.mk_point_def",
     "probe:Montgomery.mk_point_neq",
@@ -11349,7 +11188,6 @@
     "probe:Montgomery.ext",
     "probe:Montgomery.get_u_mk_point",
     "probe:Montgomery.get_v_mk_point",
-    "probe:Montgomery.mk_point.congr_simp",
     "probe:Montgomery.mk_point_def",
     "probe:Montgomery.mk_point_neq",
     "probe:Montgomery.mk_point_neq_T_of_u",
@@ -11380,46 +11218,6 @@
    },
    "code-path": "Curve25519Dalek/Math/Montgomery/Curve.lean",
    "code-module": "Curve25519Dalek.Math.Montgomery.Curve"
-  },
-  "probe:Montgomery.mk_point.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:Montgomery.Curve25519.A",
-    "probe:Montgomery.CurveField",
-    "probe:Montgomery.Point",
-    "probe:Montgomery.instFactPrimeP",
-    "probe:Montgomery.mk_point",
-    "probe:p"
-   ],
-   "term-dependencies": [
-    "probe:Montgomery.Curve25519.A",
-    "probe:Montgomery.CurveField",
-    "probe:Montgomery.Point",
-    "probe:Montgomery.instFactPrimeP",
-    "probe:Montgomery.mk_point",
-    "probe:p"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [
-    "probe:Montgomery.Curve25519.A",
-    "probe:Montgomery.CurveField",
-    "probe:Montgomery.Point",
-    "probe:Montgomery.instFactPrimeP",
-    "probe:Montgomery.mk_point",
-    "probe:p"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Montgomery.ProjectivePoint.DifferentialAddAndDouble",
-   "trusted-reason": "auto-generated"
   },
   "probe:Montgomery.mk_point_T": {
    "verification-status": "verified",
@@ -13469,53 +13267,6 @@
    },
    "code-path": "Curve25519Dalek/Math/Montgomery/Representation.lean",
    "code-module": "Curve25519Dalek.Math.Montgomery.Representation"
-  },
-  "probe:PUnit.enumToBitVec": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
-   "term-dependencies": [],
-   "specs": [
-    "probe:PUnit.eq_iff_enumToBitVec_eq"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "enumToBitVec",
-   "dependencies": [],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Field.FieldElement51.ToBytes",
-   "trusted-reason": "auto-generated"
-  },
-  "probe:PUnit.eq_iff_enumToBitVec_eq": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:PUnit.enumToBitVec"
-   ],
-   "term-dependencies": [
-    "probe:PUnit.enumToBitVec"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "eq_iff_enumToBitVec_eq",
-   "dependencies": [
-    "probe:PUnit.enumToBitVec"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.U64.Field.FieldElement51.ToBytes",
-   "trusted-reason": "auto-generated"
   },
   "probe:R": {
    "verification-status": "verified",
@@ -16347,7 +16098,6 @@
     "probe:Edwards.EdwardsCurve.d",
     "probe:Edwards.Point",
     "probe:Edwards.Point.ext",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.Point.x",
     "probe:Edwards.instNegPointCurveFieldEd25519",
     "probe:Edwards.instZeroPointCurveFieldEd25519",
@@ -16394,7 +16144,6 @@
     "probe:Edwards.EdwardsCurve.d",
     "probe:Edwards.Point",
     "probe:Edwards.Point.ext",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.Point.x",
     "probe:Edwards.instNegPointCurveFieldEd25519",
     "probe:Edwards.instZeroPointCurveFieldEd25519",
@@ -19569,7 +19318,6 @@
     "probe:curve25519_dalek.montgomery.ProjectivePoint"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.Shared1MontgomeryPoint.Insts.CoreOpsArithMulShared0ScalarMontgomeryPoint.mul_loop.mutual",
     "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
     "probe:curve25519_dalek.montgomery.ProjectivePoint"
    ],
@@ -19588,7 +19336,6 @@
    "is-extraction-artifact": false,
    "display-name": "mul_loop",
    "dependencies": [
-    "probe:curve25519_dalek.Shared1MontgomeryPoint.Insts.CoreOpsArithMulShared0ScalarMontgomeryPoint.mul_loop.mutual",
     "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
     "probe:curve25519_dalek.montgomery.ProjectivePoint"
    ],
@@ -19601,42 +19348,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.Shared1MontgomeryPoint.Insts.CoreOpsArithMulShared0ScalarMontgomeryPoint.mul_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
-    "probe:curve25519_dalek.montgomery.ProjectivePoint"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
-    "probe:curve25519_dalek.montgomery.ProjectivePoint",
-    "probe:curve25519_dalek.montgomery.ProjectivePoint.Insts.SubtleConditionallySelectable.conditional_swap",
-    "probe:curve25519_dalek.montgomery.differential_add_and_double",
-    "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8"
-   ],
-   "rust-source": "curve25519-dalek/src/montgomery.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
-    "probe:curve25519_dalek.montgomery.ProjectivePoint",
-    "probe:curve25519_dalek.montgomery.ProjectivePoint.Insts.SubtleConditionallySelectable.conditional_swap",
-    "probe:curve25519_dalek.montgomery.differential_add_and_double",
-    "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.Shared1MontgomeryPoint.Insts.CoreOpsArithMulShared0ScalarMontgomeryPoint.mul_loop_spec": {
    "verification-status": "unverified",
@@ -19770,7 +19481,6 @@
     "probe:curve25519_dalek.scalar.Scalar.bytes",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val",
     "probe:curve25519_dalek.zeroize.DefaultIsZeroes.coredefaultDefaultInst",
     "probe:curve25519_dalek.zeroize.Zeroize.Blanket.zeroize",
@@ -19826,7 +19536,6 @@
     "probe:curve25519_dalek.scalar.Scalar.bytes",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val",
     "probe:curve25519_dalek.zeroize.DefaultIsZeroes.coredefaultDefaultInst",
     "probe:curve25519_dalek.zeroize.Zeroize.Blanket.zeroize",
@@ -23031,7 +22740,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -23070,7 +22779,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -23109,7 +22818,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -23611,7 +23320,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -23662,7 +23371,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -23713,7 +23422,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -23765,7 +23474,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -24841,7 +24550,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.Z_ne_zero",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.on_curve",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.isValid_iff",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.as_projective_niels_spec"
    ],
@@ -25613,7 +25321,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.Z_ne_zero",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.on_curve",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.isValid_iff",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.as_projective_niels_spec"
    ],
@@ -25942,7 +25649,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -25991,7 +25698,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -26040,7 +25747,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -26090,7 +25797,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -26317,7 +26024,6 @@
     "probe:p"
    ],
    "specs": [
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.as_projective_niels_spec"
    ],
@@ -26349,52 +26055,6 @@
    },
    "code-path": "Curve25519Dalek/Math/Edwards/Representation.lean",
    "code-module": "Curve25519Dalek.Math.Edwards.Representation"
-  },
-  "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:Edwards.CurveField",
-    "probe:Edwards.Ed25519",
-    "probe:Edwards.Point",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'",
-    "probe:instFactPrimeP",
-    "probe:p"
-   ],
-   "term-dependencies": [
-    "probe:Edwards.CurveField",
-    "probe:Edwards.Ed25519",
-    "probe:Edwards.Point",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'",
-    "probe:instFactPrimeP",
-    "probe:p"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [
-    "probe:Edwards.CurveField",
-    "probe:Edwards.Ed25519",
-    "probe:Edwards.Point",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'",
-    "probe:instFactPrimeP",
-    "probe:p"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Edwards.EdwardsPoint.AsProjectiveNiels",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid": {
    "verification-status": "verified",
@@ -26839,7 +26499,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -26881,7 +26541,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -26924,7 +26584,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -29917,8 +29577,7 @@
     "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51.Insts.CoreOpsArithAddAssignSharedAFieldElement51.add_assign_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"
    ],
    "specs": [
     "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.add_assign_spec'",
@@ -29938,8 +29597,7 @@
    "is-extraction-artifact": false,
    "display-name": "add_assign_loop",
    "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51",
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51.Insts.CoreOpsArithAddAssignSharedAFieldElement51.add_assign_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"
    ],
    "code-text": {
     "lines-start": 426,
@@ -29950,31 +29608,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51.Insts.CoreOpsArithAddAssignSharedAFieldElement51.add_assign_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"
-   ],
-   "rust-source": "curve25519-dalek/src/backend/serial/u64/field.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.backend.serial.u64.field.FieldElement51.Insts.CoreOpsArithAddAssignSharedAFieldElement51.add_assign_loop_spec": {
    "verification-status": "verified",
@@ -33658,8 +33291,7 @@
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.add_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "specs": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.add_loop_spec",
@@ -33676,8 +33308,7 @@
    "is-extraction-artifact": false,
    "display-name": "add_loop",
    "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.add_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "code-text": {
     "lines-start": 3121,
@@ -33688,35 +33319,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.add_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexMutUsizeU64.index_mut",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexUsizeU64.index"
-   ],
-   "rust-source": "curve25519-dalek/src/backend/serial/u64/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexMutUsizeU64.index_mut",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexUsizeU64.index"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.add_loop_spec": {
    "verification-status": "verified",
@@ -33939,7 +33541,6 @@
    ],
    "term-dependencies": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.conditional_add_l_loop.mutual",
     "probe:curve25519_dalek.subtle.Choice"
    ],
    "specs": [
@@ -33958,7 +33559,6 @@
    "display-name": "conditional_add_l_loop",
    "dependencies": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.conditional_add_l_loop.mutual",
     "probe:curve25519_dalek.subtle.Choice"
    ],
    "code-text": {
@@ -33970,42 +33570,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.conditional_add_l_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select",
-    "probe:curve25519_dalek.backend.serial.u64.constants.L",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexMutUsizeU64.index_mut",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexUsizeU64.index",
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "rust-source": "curve25519-dalek/src/backend/serial/u64/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.U64.Insts.SubtleConditionallySelectable.conditional_select",
-    "probe:curve25519_dalek.backend.serial.u64.constants.L",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexMutUsizeU64.index_mut",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexUsizeU64.index",
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.conditional_add_l_loop_spec": {
    "verification-status": "verified",
@@ -35371,8 +34935,7 @@
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "specs": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop_spec",
@@ -35389,8 +34952,7 @@
    "is-extraction-artifact": false,
    "display-name": "sub_loop",
    "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "code-text": {
     "lines-start": 2888,
@@ -35401,35 +34963,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexMutUsizeU64.index_mut",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexUsizeU64.index"
-   ],
-   "rust-source": "curve25519-dalek/src/backend/serial/u64/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexMutUsizeU64.index_mut",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.Insts.CoreOpsIndexIndexUsizeU64.index"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop_spec": {
    "verification-status": "verified",
@@ -35492,7 +35025,6 @@
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop_spec",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "rust-source": null,
@@ -35520,7 +35052,6 @@
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.sub_loop_spec",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "code-text": {
@@ -35986,7 +35517,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -36037,7 +35568,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -36088,7 +35619,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -36139,7 +35670,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -36190,7 +35721,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -36241,7 +35772,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -36292,7 +35823,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -38088,7 +37619,6 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_cofactor_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_pow_2_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_clamped_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_affine_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_montgomery_spec",
@@ -38281,7 +37811,6 @@
    "term-dependencies": [
     "probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "rust-source": null,
@@ -38296,7 +37825,6 @@
    "dependencies": [
     "probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "code-text": {
@@ -38319,7 +37847,6 @@
    "term-dependencies": [
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "rust-source": null,
@@ -38334,7 +37861,6 @@
    "dependencies": [
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "code-text": {
@@ -40253,7 +39779,6 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_cofactor_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_pow_2_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_clamped_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.affine.AffinePoint.to_edwards_spec",
     "probe:curve25519_dalek.montgomery.MontgomeryPoint.mul_base_spec",
@@ -40599,7 +40124,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -40670,7 +40195,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -40749,7 +40274,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -40827,7 +40352,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -41123,7 +40648,6 @@
     "probe:Edwards.EdwardsCurve.a",
     "probe:Edwards.EdwardsCurve.d",
     "probe:Edwards.Point",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.instNeZeroCurveFieldOfNat",
     "probe:Edwards.instZeroPointCurveFieldEd25519",
     "probe:Field51_as_Nat",
@@ -41186,7 +40710,6 @@
     "probe:Edwards.EdwardsCurve.a",
     "probe:Edwards.EdwardsCurve.d",
     "probe:Edwards.Point",
-    "probe:Edwards.Point.mk.congr_simp",
     "probe:Edwards.instNeZeroCurveFieldOfNat",
     "probe:Edwards.instZeroPointCurveFieldEd25519",
     "probe:Field51_as_Nat",
@@ -42647,7 +42170,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.as_extended_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.Insts.SubtleConstantTimeEq.ct_eq_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.as_projective_niels_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid"
    ],
    "rust-source": null,
@@ -42678,52 +42200,6 @@
    },
    "code-path": "Curve25519Dalek/Math/Edwards/Representation.lean",
    "code-module": "Curve25519Dalek.Math.Edwards.Representation"
-  },
-  "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:Edwards.CurveField",
-    "probe:Edwards.Ed25519",
-    "probe:Edwards.Point",
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.IsValid",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'",
-    "probe:instFactPrimeP",
-    "probe:p"
-   ],
-   "term-dependencies": [
-    "probe:Edwards.CurveField",
-    "probe:Edwards.Ed25519",
-    "probe:Edwards.Point",
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.IsValid",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'",
-    "probe:instFactPrimeP",
-    "probe:p"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [
-    "probe:Edwards.CurveField",
-    "probe:Edwards.Ed25519",
-    "probe:Edwards.Point",
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.IsValid",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'",
-    "probe:instFactPrimeP",
-    "probe:p"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Specs.Backend.Serial.CurveModels.CompletedPoint.AsExtended",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid": {
    "verification-status": "verified",
@@ -43280,7 +42756,6 @@
    "term-dependencies": [
     "probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "rust-source": null,
@@ -43295,7 +42770,6 @@
    "dependencies": [
     "probe:curve25519_dalek.Choice.one",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "code-text": {
@@ -43318,7 +42792,6 @@
    "term-dependencies": [
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "rust-source": null,
@@ -43333,7 +42806,6 @@
    "dependencies": [
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "code-text": {
@@ -44928,7 +44400,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -44969,7 +44441,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -45640,7 +45112,6 @@
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val",
     "probe:p"
    ],
@@ -45664,7 +45135,6 @@
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreConvertFromU8.from",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val",
     "probe:p"
    ],
@@ -52494,7 +51964,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -52536,7 +52006,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -62174,7 +61644,6 @@
    ],
    "term-dependencies": [
     "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_select_loop.mutual",
     "probe:curve25519_dalek.subtle.Choice"
    ],
    "rust-source": "curve25519-dalek/src/scalar.rs",
@@ -62188,7 +61657,6 @@
    "display-name": "conditional_select_loop",
    "dependencies": [
     "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_select_loop.mutual",
     "probe:curve25519_dalek.subtle.Choice"
    ],
    "code-text": {
@@ -62200,38 +61668,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_select_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.bytes",
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "rust-source": "curve25519-dalek/src/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.U8.Insts.SubtleConditionallySelectable.conditional_select",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.bytes",
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.scalar.Scalar.Insts.SubtleConditionallySelectable.conditional_swap": {
    "verification-status": "trusted",
@@ -62950,34 +62386,6 @@
   "probe:curve25519_dalek.scalar.Scalar.as_radix_2w_loop": {
    "verification-status": "verified",
    "type-dependencies": [],
-   "term-dependencies": [
-    "probe:curve25519_dalek.scalar.Scalar.as_radix_2w_loop.mutual"
-   ],
-   "rust-source": "curve25519-dalek/src/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "as_radix_2w_loop",
-   "dependencies": [
-    "probe:curve25519_dalek.scalar.Scalar.as_radix_2w_loop.mutual"
-   ],
-   "code-text": {
-    "lines-start": 7804,
-    "lines-end": 7855
-   },
-   "code-path": "Curve25519Dalek/Funs.lean",
-   "code-module": "Curve25519Dalek.Funs",
-   "attributes": [
-    "rust_loop"
-   ]
-  },
-  "probe:curve25519_dalek.scalar.Scalar.as_radix_2w_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
    "term-dependencies": [],
    "rust-source": "curve25519-dalek/src/scalar.rs",
    "language": "lean",
@@ -62987,12 +62395,17 @@
    "is-ignored": false,
    "is-hidden": false,
    "is-extraction-artifact": false,
-   "display-name": "mutual",
+   "display-name": "as_radix_2w_loop",
    "dependencies": [],
-   "code-text": null,
-   "code-path": "",
+   "code-text": {
+    "lines-start": 7804,
+    "lines-end": 7855
+   },
+   "code-path": "Curve25519Dalek/Funs.lean",
    "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
+   "attributes": [
+    "rust_loop"
+   ]
   },
   "probe:curve25519_dalek.scalar.Scalar.batch_invert": {
    "verification-status": "verified",
@@ -63056,8 +62469,7 @@
     "probe:curve25519_dalek.scalar.Scalar"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop0.mutual"
+    "probe:curve25519_dalek.scalar.Scalar"
    ],
    "rust-source": "curve25519-dalek/src/scalar.rs",
    "language": "lean",
@@ -63070,8 +62482,7 @@
    "display-name": "batch_invert_loop0",
    "dependencies": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop0.mutual"
+    "probe:curve25519_dalek.scalar.Scalar"
    ],
    "code-text": {
     "lines-start": 7583,
@@ -63083,42 +62494,6 @@
     "rust_loop"
    ]
   },
-  "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop0.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.as_montgomery",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.montgomery_mul",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.unpack",
-    "probe:curve25519_dalek.scalar.Scalar52.pack"
-   ],
-   "rust-source": "curve25519-dalek/src/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.as_montgomery",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.montgomery_mul",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.unpack",
-    "probe:curve25519_dalek.scalar.Scalar52.pack"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
-  },
   "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop1": {
    "verification-status": "verified",
    "type-dependencies": [
@@ -63127,8 +62502,7 @@
    ],
    "term-dependencies": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop1.mutual"
+    "probe:curve25519_dalek.scalar.Scalar"
    ],
    "rust-source": "curve25519-dalek/src/scalar.rs",
    "language": "lean",
@@ -63141,8 +62515,7 @@
    "display-name": "batch_invert_loop1",
    "dependencies": [
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop1.mutual"
+    "probe:curve25519_dalek.scalar.Scalar"
    ],
    "code-text": {
     "lines-start": 7610,
@@ -63153,40 +62526,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.scalar.Scalar.batch_invert_loop1.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.montgomery_mul",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.unpack",
-    "probe:curve25519_dalek.scalar.Scalar52.pack"
-   ],
-   "rust-source": "curve25519-dalek/src/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.montgomery_mul",
-    "probe:curve25519_dalek.scalar.Scalar",
-    "probe:curve25519_dalek.scalar.Scalar.unpack",
-    "probe:curve25519_dalek.scalar.Scalar52.pack"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.scalar.Scalar.bytes": {
    "verification-status": "verified",
@@ -63258,7 +62597,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -63810,34 +63149,6 @@
   "probe:curve25519_dalek.scalar.Scalar.non_adjacent_form_loop": {
    "verification-status": "verified",
    "type-dependencies": [],
-   "term-dependencies": [
-    "probe:curve25519_dalek.scalar.Scalar.non_adjacent_form_loop.mutual"
-   ],
-   "rust-source": "curve25519-dalek/src/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "non_adjacent_form_loop",
-   "dependencies": [
-    "probe:curve25519_dalek.scalar.Scalar.non_adjacent_form_loop.mutual"
-   ],
-   "code-text": {
-    "lines-start": 7708,
-    "lines-end": 7760
-   },
-   "code-path": "Curve25519Dalek/Funs.lean",
-   "code-module": "Curve25519Dalek.Funs",
-   "attributes": [
-    "rust_loop"
-   ]
-  },
-  "probe:curve25519_dalek.scalar.Scalar.non_adjacent_form_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [],
    "term-dependencies": [],
    "rust-source": "curve25519-dalek/src/scalar.rs",
    "language": "lean",
@@ -63847,12 +63158,17 @@
    "is-ignored": false,
    "is-hidden": false,
    "is-extraction-artifact": false,
-   "display-name": "mutual",
+   "display-name": "non_adjacent_form_loop",
    "dependencies": [],
-   "code-text": null,
-   "code-path": "",
+   "code-text": {
+    "lines-start": 7708,
+    "lines-end": 7760
+   },
+   "code-path": "Curve25519Dalek/Funs.lean",
    "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
+   "attributes": [
+    "rust_loop"
+   ]
   },
   "probe:curve25519_dalek.scalar.Scalar.reduce": {
    "verification-status": "verified",
@@ -64459,8 +63775,7 @@
     "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar52.montgomery_invert.square_multiply_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "specs": [
     "probe:curve25519_dalek.scalar.Scalar52.square_multiply_loop_spec",
@@ -64476,8 +63791,7 @@
    "is-extraction-artifact": false,
    "display-name": "square_multiply_loop",
    "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.scalar.Scalar52.montgomery_invert.square_multiply_loop.mutual"
+    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
    ],
    "code-text": {
     "lines-start": 7484,
@@ -64488,33 +63802,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.scalar.Scalar52.montgomery_invert.square_multiply_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.montgomery_square"
-   ],
-   "rust-source": "curve25519-dalek/src/scalar.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52",
-    "probe:curve25519_dalek.backend.serial.u64.scalar.Scalar52.montgomery_square"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.scalar.Scalar52.montgomery_invert_spec": {
    "verification-status": "verified",
@@ -65140,7 +64427,6 @@
     "probe:curve25519_dalek.scalar.Scalar.is_canonical_spec",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitBitAndChoiceChoice.bitand_spec",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitNotChoice.not_spec",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.ne_zero_iff_eq_one",
     "probe:curve25519_dalek.subtle.Choice.valid",
     "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_assign.default_spec",
@@ -65295,7 +64581,6 @@
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitBitAndChoiceChoice.bitand",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "rust-source": null,
@@ -65312,7 +64597,6 @@
     "probe:curve25519_dalek.Choice.zero",
     "probe:curve25519_dalek.subtle.Choice",
     "probe:curve25519_dalek.subtle.Choice.Insts.CoreOpsBitBitAndChoiceChoice.bitand",
-    "probe:curve25519_dalek.subtle.Choice.mk.congr_simp",
     "probe:curve25519_dalek.subtle.Choice.val"
    ],
    "code-text": {
@@ -65453,31 +64737,6 @@
     "step"
    ]
   },
-  "probe:curve25519_dalek.subtle.Choice.mk.congr_simp": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "rust-source": null,
-   "language": "lean",
-   "kind": "theorem",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "congr_simp",
-   "dependencies": [
-    "probe:curve25519_dalek.subtle.Choice"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.FunsExternal",
-   "trusted-reason": "auto-generated"
-  },
   "probe:curve25519_dalek.subtle.Choice.ne_zero_iff_eq_one": {
    "verification-status": "verified",
    "type-dependencies": [
@@ -65613,7 +64872,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -65738,7 +64997,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -65851,7 +65110,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -65880,7 +65139,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -65988,7 +65247,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66044,7 +65303,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66104,7 +65363,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66219,7 +65478,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66271,7 +65530,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66361,7 +65620,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66458,8 +65717,7 @@
    ],
    "term-dependencies": [
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
-    "probe:curve25519_dalek.window.LookupTable",
-    "probe:curve25519_dalek.window.LookupTable.select_loop.mutual"
+    "probe:curve25519_dalek.window.LookupTable"
    ],
    "rust-source": "curve25519-dalek/src/window.rs",
    "language": "lean",
@@ -66472,8 +65730,7 @@
    "display-name": "select_loop",
    "dependencies": [
     "probe:curve25519_dalek.subtle.ConditionallySelectable",
-    "probe:curve25519_dalek.window.LookupTable",
-    "probe:curve25519_dalek.window.LookupTable.select_loop.mutual"
+    "probe:curve25519_dalek.window.LookupTable"
    ],
    "code-text": {
     "lines-start": 610,
@@ -66484,40 +65741,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.window.LookupTable.select_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.subtle.ConditionallySelectable",
-    "probe:curve25519_dalek.window.LookupTable"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.U16.Insts.SubtleConstantTimeEq.ct_eq",
-    "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.ConditionallySelectable",
-    "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_assign",
-    "probe:curve25519_dalek.window.LookupTable"
-   ],
-   "rust-source": "curve25519-dalek/src/window.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.U16.Insts.SubtleConstantTimeEq.ct_eq",
-    "probe:curve25519_dalek.subtle.Choice",
-    "probe:curve25519_dalek.subtle.ConditionallySelectable",
-    "probe:curve25519_dalek.subtle.ConditionallySelectable.conditional_assign",
-    "probe:curve25519_dalek.window.LookupTable"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.window.LookupTableProjectiveNielsPoint.Insts.CoreConvertFromSharedAEdwardsPoint.from": {
    "verification-status": "verified",
@@ -66563,8 +65786,7 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint"
    ],
    "term-dependencies": [
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.window.LookupTableProjectiveNielsPoint.Insts.CoreConvertFromSharedAEdwardsPoint.from_loop.mutual"
+    "probe:curve25519_dalek.edwards.EdwardsPoint"
    ],
    "rust-source": "curve25519-dalek/src/window.rs",
    "language": "lean",
@@ -66577,8 +65799,7 @@
    "display-name": "from_loop",
    "dependencies": [
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.window.LookupTableProjectiveNielsPoint.Insts.CoreConvertFromSharedAEdwardsPoint.from_loop.mutual"
+    "probe:curve25519_dalek.edwards.EdwardsPoint"
    ],
    "code-text": {
     "lines-start": 570,
@@ -66589,42 +65810,6 @@
    "attributes": [
     "rust_loop"
    ]
-  },
-  "probe:curve25519_dalek.window.LookupTableProjectiveNielsPoint.Insts.CoreConvertFromSharedAEdwardsPoint.from_loop.mutual": {
-   "verification-status": "trusted",
-   "type-dependencies": [
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint"
-   ],
-   "term-dependencies": [
-    "probe:curve25519_dalek.Shared0EdwardsPoint.Insts.CoreOpsArithAddSharedAProjectiveNielsPointCompletedPoint.add",
-    "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint",
-    "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.as_extended",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.as_projective_niels"
-   ],
-   "rust-source": "curve25519-dalek/src/window.rs",
-   "language": "lean",
-   "kind": "def",
-   "is-relevant": true,
-   "is-in-package": true,
-   "is-ignored": false,
-   "is-hidden": false,
-   "is-extraction-artifact": false,
-   "display-name": "mutual",
-   "dependencies": [
-    "probe:curve25519_dalek.Shared0EdwardsPoint.Insts.CoreOpsArithAddSharedAProjectiveNielsPointCompletedPoint.add",
-    "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint",
-    "probe:curve25519_dalek.backend.serial.curve_models.CompletedPoint.as_extended",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.as_projective_niels"
-   ],
-   "code-text": null,
-   "code-path": "",
-   "code-module": "Curve25519Dalek.Funs",
-   "trusted-reason": "auto-generated"
   },
   "probe:curve25519_dalek.zeroize.DefaultIsZeroes": {
    "verification-status": "verified",
@@ -66663,7 +65848,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66690,7 +65875,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -66812,7 +65997,7 @@
    ],
    "rust-source": null,
    "language": "lean",
-   "kind": "abbrev",
+   "kind": "projection",
    "is-relevant": true,
    "is-in-package": true,
    "is-ignored": false,
@@ -67359,7 +66544,6 @@
     "probe:Montgomery.lift_mod_eq_iff",
     "probe:Montgomery.lift_mod_mul",
     "probe:Montgomery.map_zero",
-    "probe:Montgomery.mk_point.congr_simp",
     "probe:Montgomery.mk_point_T",
     "probe:Montgomery.mk_point_def",
     "probe:Montgomery.mk_point_neq",
@@ -67442,7 +66626,6 @@
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.Z_ne_zero",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.IsValid.on_curve",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.isValid_iff",
-    "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectiveNielsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.IsValid.Z_ne_zero",
     "probe:curve25519_dalek.backend.serial.curve_models.ProjectivePoint.IsValid.on_curve",
@@ -67496,7 +66679,6 @@
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_cofactor_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_by_pow_2_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.mul_clamped_spec",
-    "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint'.congr_simp",
     "probe:curve25519_dalek.edwards.EdwardsPoint.toPoint_of_isValid",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_affine_spec",
     "probe:curve25519_dalek.edwards.EdwardsPoint.to_montgomery_spec",

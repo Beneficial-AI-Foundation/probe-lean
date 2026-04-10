@@ -104,6 +104,10 @@ def testTypeJsonSerialization (result : TestResult) : IO TestResult := do
   result ← test "def toJson" (Lean.toJson DeclKind.def == "def") result
   result ← test "theorem toJson" (Lean.toJson DeclKind.theorem == "theorem") result
   result ← test "structure toJson" (Lean.toJson DeclKind.structure == "structure") result
+  result ← test "projection toJson" (Lean.toJson DeclKind.projection == "projection") result
+  let projRt := match Lean.FromJson.fromJson? (Lean.toJson DeclKind.projection) (α := DeclKind) with
+    | .ok .projection => true | _ => false
+  result ← test "projection round-trips through JSON" projRt result
 
   IO.println ""
   IO.println "Testing ToolInfo JSON serialization..."
@@ -1295,32 +1299,6 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   result ← test "ModelsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/ModelsExternal.lean")) result
   result ← test "CustomExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Deep/Path/CustomExternal.lean")) result
 
-  IO.println ""
-  IO.println "Testing auto-generated atoms (no source location) are trusted..."
-  let mkAutoGen (kind : DeclKind) : Atom :=
-    { name := "probe:Test.auto", displayName := "auto", dependencies := #[],
-      codeModule := "Test", codePath := "", codeText := none, kind }
-  result ← test "def without source is trusted" (isTrustedAtom (mkAutoGen .def)) result
-  result ← test "theorem without source is trusted" (isTrustedAtom (mkAutoGen .theorem)) result
-  result ← test "inductive without source is trusted" (isTrustedAtom (mkAutoGen .inductive)) result
-
-  IO.println ""
-  IO.println "Testing trustedReason for auto-generated..."
-  result ← test "auto-gen def reason is \"auto-generated\"" (trustedReason (mkAutoGen .def) == some "auto-generated") result
-  result ← test "auto-gen theorem reason is \"auto-generated\"" (trustedReason (mkAutoGen .theorem) == some "auto-generated") result
-  result ← test "axiom without source reason is \"axiom\" (priority)" (trustedReason (mkAutoGen .axiom) == some "axiom") result
-
-  IO.println ""
-  IO.println "Testing unifyAtom auto-generated override..."
-  let autoGenDef := mkAutoGen .def
-  let proofSorriesAutoGen : ProofEntry := { verified := false, status := .sorries, codePath := "", codeLine := 0, sorries := #[] }
-  let unifiedAutoGen := unifyAtom autoGenDef (some proofSorriesAutoGen)
-  result ← test "auto-gen overrides sorries to trusted" (unifiedAutoGen.verificationStatus == some .trusted) result
-  result ← test "auto-gen trusted-reason is \"auto-generated\"" (unifiedAutoGen.trustedReason == some "auto-generated") result
-
-  let unifiedAutoGenNone := unifyAtom autoGenDef none
-  result ← test "auto-gen with no proof entry is trusted" (unifiedAutoGenNone.verificationStatus == some .trusted) result
-
   return result
 
 def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
@@ -1410,10 +1388,11 @@ def testExampleJsonAtomRequiredFields (result : TestResult) : IO TestResult := d
     let nonStubsHaveCodePath := ao.atoms.all fun a =>
       a.codeText.isNone || !a.codePath.isEmpty
     result ← test "non-stub atoms have non-empty code-path" nonStubsHaveCodePath result
-    let validKinds := ["def", "theorem", "abbrev", "class", "structure",
+    let validKinds := ["def", "theorem", "abbrev", "projection", "class", "structure",
                        "inductive", "instance", "axiom", "opaque", "quot"]
     let kindStr (k : DeclKind) : String := match k with
       | .def => "def" | .theorem => "theorem" | .abbrev => "abbrev"
+      | .projection => "projection"
       | .class => "class" | .structure => "structure" | .inductive => "inductive"
       | .instance => "instance" | .axiom => "axiom" | .opaque => "opaque"
       | .quot => "quot"
@@ -1421,8 +1400,12 @@ def testExampleJsonAtomRequiredFields (result : TestResult) : IO TestResult := d
     result ← test "all atoms have valid DeclKind" allValidKinds result
     let hasDefs := ao.atoms.any fun a => a.kind == .def
     let hasTheorems := ao.atoms.any fun a => a.kind == .theorem
+    let hasProjections := ao.atoms.any fun a => a.kind == .projection
     result ← test "has def atoms" hasDefs result
     result ← test "has theorem atoms" hasTheorems result
+    result ← test "has projection atoms" hasProjections result
+    let allHaveSource := ao.atoms.all fun a => a.codeText.isSome
+    result ← test "all atoms have source location (no auto-generated)" allHaveSource result
     return result
 
 def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := do
@@ -1443,7 +1426,7 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
     | .error _ => return result.add false
     | .ok obj => do
       let validStatuses := ["verified", "unverified", "failed", "trusted"]
-      let validReasons := ["axiom", "external", "auto-generated"]
+      let validReasons := ["axiom", "external"]
       let mut allValid := true
       let mut hasVerified := false
       let mut hasTrusted := false

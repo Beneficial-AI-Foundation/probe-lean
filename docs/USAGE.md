@@ -295,7 +295,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | Field | Type | Description |
 |-------|------|-------------|
 | `display-name` | string | Last component of the name |
-| `kind` | string | `def`, `theorem`, `abbrev`, `class`, `structure`, `inductive`, `instance`, `axiom`, `opaque`, `quot` |
+| `kind` | string | `def`, `theorem`, `abbrev`, `projection`, `class`, `structure`, `inductive`, `instance`, `axiom`, `opaque`, `quot` |
 | `language` | string | Always `"lean"` |
 | `dependencies` | array | Code-names this declaration depends on (union of type + term) |
 | `type-dependencies` | array | Code-names referenced in the declaration's type signature |
@@ -311,7 +311,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. Absent when none. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`, `"auto-generated"`. |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`. |
 
 ### Verification Status Mapping
 
@@ -319,10 +319,10 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 |-------------|----------------------|------------------|---------|
 | Axiom (`kind: "axiom"`) | `"trusted"` | `"axiom"` | Lean `axiom` keyword -- unproven assumption |
 | `*External.lean` file | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
-| No source location | `"trusted"` | `"auto-generated"` | Kernel-synthesized declaration (e.g., congruence lemma, mutual recursion helper) |
 | No sorry | `"verified"` | absent | Proof is complete |
 | Has sorry | `"unverified"` | absent | Proof deliberately incomplete |
 | Build failure | `"failed"` | absent | Compilation error |
+| No source location | (filtered) | -- | Kernel-synthesized declarations are excluded from output |
 | (skipped) | absent | absent | Verification was skipped (`--skip-verify`) |
 
 Trusted status takes precedence: axioms and declarations from `*External.lean` files are always `"trusted"` regardless of sorry detection results.
