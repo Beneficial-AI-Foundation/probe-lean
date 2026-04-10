@@ -60,12 +60,23 @@ def isProjectDecl (env : Environment) (projectModules : Array Name) (name : Name
     -- This shouldn't happen for our use case where we import modules
     false
 
+/-- Check if a declaration is an auto-named type class instance.
+    Lean auto-names instances with an `inst` prefix (e.g., `instAddNat`,
+    `instDecidableValidLengths`). User-named instances are not detected
+    by this heuristic. -/
+def isInstanceName (name : Name) : Bool :=
+  match name.componentsRev.head? with
+  | some (.str _ s) => s.startsWith "inst"
+  | _ => false
+
 /-- Determine the kind of a declaration -/
 def getDeclKind (env : Environment) (name : Name) (info : ConstantInfo) : DeclKind :=
   match info with
   | .defnInfo defInfo =>
-    -- Check if it's an abbreviation (reducible)
-    if defInfo.hints.isAbbrev then
+    -- Check instance first (before abbrev, since instances can be either)
+    if isInstanceName name then
+      .instance
+    else if defInfo.hints.isAbbrev then
       .abbrev
     else
       .def
