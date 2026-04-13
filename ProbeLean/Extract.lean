@@ -81,7 +81,8 @@ def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
 
 /-- Check if project depends on Mathlib and auto-download the olean cache if missing.
     Without the pre-built cache, `lake build` compiles Mathlib from source (hours). -/
-def ensureMathlibCache (projectPath : System.FilePath) : IO Unit := do
+def ensureMathlibCache (projectPath : System.FilePath)
+    (nixMode : Option NixMode := none) : IO Unit := do
   let manifestPath := projectPath / "lake-manifest.json"
   if !(← manifestPath.pathExists) then return
   let content ← IO.FS.readFile manifestPath
@@ -92,7 +93,7 @@ def ensureMathlibCache (projectPath : System.FilePath) : IO Unit := do
   IO.println "Mathlib dependency detected but no pre-built cache found."
   IO.println "Running `lake exe cache get` to download pre-built .olean files..."
   IO.println ""
-  let (_, stderr, exitCode) ← runCmd "lake" #["exe", "cache", "get"] (some projectPath)
+  let (_, stderr, exitCode) ← runLakeCmd #["exe", "cache", "get"] (some projectPath) nixMode
   if exitCode != 0 then
     IO.eprintln s!"⚠ `lake exe cache get` failed (exit {exitCode}):"
     IO.eprintln stderr
@@ -108,6 +109,20 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if !(← isLakeProject config.projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
     return 1
+
+  let nixMode ← do
+    match ← detectNixShell config.projectPath with
+    | some mode =>
+      if ← isNixAvailable mode then
+        IO.println s!"Nix environment detected ({mode}.nix), lake commands will run inside it."
+        IO.println "  (first run may be slow while Nix downloads dependencies)"
+        pure (some mode)
+      else
+        let bin := match mode with | .flake => "nix" | .shell => "nix-shell"
+        IO.eprintln s!"Warning: Project has {mode}.nix but `{bin}` is not installed."
+        IO.eprintln "  System dependencies may be missing. Install Nix or install deps manually."
+        pure none
+    | none => pure none
 
   let probeLeanVersion := Lean.versionString
   let targetTC ← readToolchain config.projectPath
@@ -126,12 +141,12 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     | some cached => pure cached
     | none => pure ""
   else do
-    ensureMathlibCache config.projectPath
+    ensureMathlibCache config.projectPath nixMode
     let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
     if !libs.isEmpty then
       IO.println s!"Building libraries: {", ".intercalate libs.toList}"
     IO.println s!"Building project at {config.projectPath}..."
-    let (buildStdout, buildStderr, buildExit) ← runCmd "lake" buildArgs (some config.projectPath)
+    let (buildStdout, buildStderr, buildExit) ← runLakeCmd buildArgs (some config.projectPath) nixMode
     if buildExit != 0 then
       IO.eprintln s!"Lake build failed:\n{buildStderr}"
       return 1
@@ -143,7 +158,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   IO.println "=== Step 1/3: Atomize ==="
 
   IO.println "Getting project modules..."
-  let modules ← match ← getProjectModules config.projectPath with
+  let modules ← match ← getProjectModules config.projectPath nixMode with
     | .error msg =>
       IO.eprintln msg
       return 1
@@ -170,7 +185,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let userConfig ← loadUserConfig config.projectPath
   let crate := loadRelevantCrate userConfig
 
-  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate with
+  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate nixMode with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1

@@ -1918,6 +1918,42 @@ def testCheckFilesSkipsDotDirs (result : TestResult) : IO TestResult := do
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
+def testNixEnv (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing Nix environment detection..."
+
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-nix-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll tmpBase
+
+  let r1 ← detectNixShell tmpBase
+  result ← test "empty dir → none" (r1 == none) result
+
+  IO.FS.writeFile (tmpBase / "shell.nix") "{ pkgs ? import <nixpkgs> {} }: pkgs.mkShell {}"
+  let r2 ← detectNixShell tmpBase
+  result ← test "shell.nix only → some .shell" (r2 == some .shell) result
+
+  IO.FS.removeFile (tmpBase / "shell.nix")
+  IO.FS.writeFile (tmpBase / "flake.nix") "{ outputs = { self }: {}; }"
+  let r3 ← detectNixShell tmpBase
+  result ← test "flake.nix only → some .flake" (r3 == some .flake) result
+
+  IO.FS.writeFile (tmpBase / "shell.nix") "{ pkgs ? import <nixpkgs> {} }: pkgs.mkShell {}"
+  let r4 ← detectNixShell tmpBase
+  result ← test "both present → flake takes precedence" (r4 == some .flake) result
+
+  let _ ← isNixAvailable .shell
+  result ← test "isNixAvailable .shell does not crash" true result
+
+  let _ ← isNixAvailable .flake
+  result ← test "isNixAvailable .flake does not crash" true result
+
+  let (_, _, exitCode) ← runLakeCmd #["--version"] none none
+  result ← test "runLakeCmd none behaves like direct lake" (exitCode == 0) result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -1955,6 +1991,7 @@ def main : IO UInt32 := do
   result ← testVersionConsistency result
   result ← testCacheValidity result
   result ← testCheckFilesSkipsDotDirs result
+  result ← testNixEnv result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

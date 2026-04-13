@@ -1,4 +1,5 @@
 import ProbeLean.Types
+import ProbeLean.NixEnv
 import ProbeLean.Environment
 import ProbeLean.Analysis
 import ProbeLean.Loader

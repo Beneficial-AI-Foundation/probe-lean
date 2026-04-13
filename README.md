@@ -125,6 +125,24 @@ probe-lean will warn you if it detects a missing Mathlib cache.
 
 For detailed walkthroughs with real projects (curve25519-dalek-lean-verify, ArkLib, VCV-io), see **[docs/USAGE.md](docs/USAGE.md)**.
 
+### Projects with FFI / system dependencies (Nix support)
+
+Some Lean projects depend on C libraries via FFI (e.g., zlib, OpenSSL). These system dependencies are not managed by Lake and must be installed separately. If the target project ships a `shell.nix` or `flake.nix`, probe-lean **automatically detects** it and wraps all `lake` invocations inside the Nix environment, so system deps are available without manual installation.
+
+**How it works:**
+
+- probe-lean checks for `flake.nix` (preferred) or `shell.nix` in the project root
+- If found and `nix` / `nix-shell` is installed, all `lake` commands run inside the Nix environment
+- If the Nix file exists but `nix` is not installed, a warning is printed and `lake` runs directly (system deps must be installed manually)
+- Projects without Nix files are unaffected
+
+**Docker guidance:** The default probe-lean Docker image does not include Nix. If your target project requires Nix for system deps, you have two options:
+
+1. **Install Nix in your Docker image** -- base on `nixos/nix` or add Nix to your image. probe-lean will then auto-detect and use the project's Nix environment.
+2. **Install system deps directly** -- add `apt-get install` commands to your Dockerfile for the required libraries (check the project's `shell.nix` or README for the package list).
+
+**CI guidance:** Use [`cachix/install-nix-action`](https://github.com/cachix/install-nix-action) in your GitHub Actions workflow to make Nix available. probe-lean will then wrap `lake` commands automatically.
+
 ## Commands
 
 | Command | Description |

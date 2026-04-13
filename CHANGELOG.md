@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.5.0] - 2026-04-13
+
+### Added
+
+- **Nix environment auto-detection**: When a target Lean project ships a
+  `shell.nix` or `flake.nix`, probe-lean automatically wraps all `lake`
+  invocations inside the Nix environment so that FFI system dependencies
+  (zlib, OpenSSL, etc.) are available without manual installation. If the
+  Nix file is present but `nix` / `nix-shell` is not installed, a warning
+  is printed and `lake` runs directly.
+  Fixes [#24](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/24).
+
 ## [0.4.8] - 2026-04-10
 
 ### Added
