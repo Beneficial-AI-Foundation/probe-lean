@@ -2,6 +2,7 @@
   Environment loading for external Lean projects.
 -/
 import Lean
+import ProbeLean.NixEnv
 
 namespace ProbeLean
 
@@ -26,6 +27,22 @@ def runCmd (cmd : String) (args : Array String) (cwd : Option System.FilePath :=
   let stderr ← proc.stderr.readToEnd
   let exitCode ← proc.wait
   return (stdout, stderr, exitCode)
+
+/-- Run a lake command, optionally wrapping it in nix-shell / nix develop
+    when the project provides a Nix environment and nix is installed. -/
+def runLakeCmd (args : Array String) (cwd : Option System.FilePath := none)
+    (nixMode : Option NixMode := none) : IO (String × String × UInt32) :=
+  match nixMode with
+  | some .flake =>
+    let nixArgs := #["develop", "path:.",
+      "--extra-experimental-features", "nix-command flakes",
+      "--command", "lake"] ++ args
+    runCmd "nix" nixArgs cwd
+  | some .shell =>
+    let cmdStr := " ".intercalate (["lake"] ++ args.toList)
+    runCmd "nix-shell" #["--run", cmdStr] cwd
+  | none =>
+    runCmd "lake" args cwd
 
 /-- Build the target project using lake, returning combined stdout+stderr on success -/
 def buildProject (projectPath : System.FilePath) : IO (Except String String) := do
@@ -115,9 +132,9 @@ partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System
   return result
 
 /-- Get the list of modules in the project by parsing lake output -/
-def getProjectModules (projectPath : System.FilePath) : IO (Except String (Array Lean.Name)) := do
-  -- Use lake to print the environment and extract LEAN_PATH
-  let (stdout, stderr, exitCode) ← runCmd "lake" #["env", "printenv", "LEAN_PATH"] projectPath
+def getProjectModules (projectPath : System.FilePath)
+    (nixMode : Option NixMode := none) : IO (Except String (Array Lean.Name)) := do
+  let (stdout, stderr, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] projectPath nixMode
   if exitCode != 0 then
     return .error s!"Failed to get LEAN_PATH:\n{stderr}"
 

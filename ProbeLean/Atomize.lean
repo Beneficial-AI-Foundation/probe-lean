@@ -165,14 +165,15 @@ def findProbeLeanLib : IO (List System.FilePath) := do
   return paths
 
 /-- Run analysis via lake env to get correct search paths -/
-def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String) : IO (Except String (Array Atom)) := do
+def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String)
+    (nixMode : Option NixMode := none) : IO (Except String (Array Atom)) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
 
   let probeLeanPaths ← findProbeLeanLib
 
-  let (leanPathOut, _, exitCode) ← runCmd "lake" #["env", "printenv", "LEAN_PATH"] (some absProjectPath)
+  let (leanPathOut, _, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] (some absProjectPath) nixMode
   if exitCode != 0 then
     return .error "Failed to get LEAN_PATH from target project"
 

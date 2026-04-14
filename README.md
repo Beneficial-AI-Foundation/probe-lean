@@ -125,6 +125,24 @@ probe-lean will warn you if it detects a missing Mathlib cache.
 
 For detailed walkthroughs with real projects (curve25519-dalek-lean-verify, ArkLib, VCV-io), see **[docs/USAGE.md](docs/USAGE.md)**.
 
+### Projects with FFI / system dependencies (Nix support)
+
+Some Lean projects depend on C libraries via FFI (e.g., zlib, OpenSSL). These system dependencies are not managed by Lake and must be installed separately. If the target project ships a `shell.nix` or `flake.nix`, probe-lean **automatically detects** it and wraps all `lake` invocations inside the Nix environment, so system deps are available without manual installation.
+
+**How it works:**
+
+- probe-lean checks for `flake.nix` (preferred) or `shell.nix` in the project root
+- If found and `nix` / `nix-shell` is installed, all `lake` commands run inside the Nix environment
+- If the Nix file exists but `nix` is not installed, a warning is printed and `lake` runs directly (system deps must be installed manually)
+- Projects without Nix files are unaffected
+
+**Docker guidance:** The default probe-lean Docker image does not include Nix. If your target project requires Nix for system deps, you have two options:
+
+1. **Install Nix in your Docker image** -- base on `nixos/nix` or add Nix to your image. probe-lean will then auto-detect and use the project's Nix environment.
+2. **Install system deps directly** -- add `apt-get install` commands to your Dockerfile for the required libraries (check the project's `shell.nix` or README for the package list).
+
+**CI guidance:** Use [`cachix/install-nix-action`](https://github.com/cachix/install-nix-action) in your GitHub Actions workflow to make Nix available. probe-lean will then wrap `lake` commands automatically.
+
 ## Commands
 
 | Command | Description |
@@ -193,7 +211,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
-4. **Verify** -- parses sorry warnings from build output to determine verification status; axioms, `*External.lean` declarations, and auto-generated declarations without source location are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"external"`, or `"auto-generated"`) for trust-base classification (skippable via `--skip-verify`)
+4. **Verify** -- parses sorry warnings from build output to determine verification status; axioms and `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"` or `"external"`) for trust-base classification; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
 5. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom. 
     - To identify the primary specification for a definition, tag the theorem with `@[primary_spec]` (requires `import ProbeLean.Attrs` in the target project). 
     - If no `@[primary_spec]` attribute is found, probe-lean falls back to a naming heuristic: a theorem named `<def>_spec` is automatically assigned as the primary spec.

@@ -89,6 +89,8 @@ Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (o
 
 - `ProbeLean/Analysis.lean` — Core analysis: walks Lean environment, extracts dependencies (type vs term)
 - `ProbeLean/Atomize.lean` — Converts declarations to `Atom` structs, applies filtering flags
+- `ProbeLean/NixEnv.lean` — Nix environment detection (`NixMode`, `detectNixShell`, `isNixAvailable`)
+- `ProbeLean/Environment.lean` — Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), build cache
 - `ProbeLean/VerifyInternal.lean` — Parses sorry warnings from build output
 - `ProbeLean/Extract.lean` — Orchestrates the pipeline, produces `UnifiedAtom` output
 - `ProbeLean/Version.lean` — Single version constant, generated from `lakefile.toml`
