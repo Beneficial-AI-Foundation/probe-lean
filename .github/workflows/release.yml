@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v0.5.0)"
+        required: true
 
 permissions:
   contents: write
@@ -12,12 +17,15 @@ jobs:
   build:
     name: Build probe-lean (${{ matrix.lean-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
         lean-version:
           - v4.28.0-rc1
           - v4.28.0
+          - v4.29.0-rc4
           - v4.29.0-rc8
         os:
           - ubuntu-latest
@@ -59,10 +67,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" --generate-notes 2>/dev/null || true
+          gh release create "$RELEASE_TAG" --generate-notes 2>/dev/null || true
 
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.ref_name }}" "$ARTIFACT" --clobber
+          gh release upload "$RELEASE_TAG" "$ARTIFACT" --clobber
