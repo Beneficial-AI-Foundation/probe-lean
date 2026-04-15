@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-04-15
+
+### Fixed
+
+- **Theorems in `*External.lean` no longer overridden to trusted**: Previously,
+  all declarations in Aeneas `*External.lean` files were blanket-marked as
+  `"trusted"` with `trusted-reason: "external"`. This was incorrect for theorems,
+  which carry real Lean proofs checked by the kernel. Theorems in these files now
+  receive their normal verification status from sorry detection (`"verified"`,
+  `"unverified"`, or `"failed"`). Axioms and non-theorem declarations (defs,
+  instances, etc.) remain `"trusted"` as before.
+
 ## [0.6.0] - 2026-04-15
 
 ### Added

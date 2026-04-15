@@ -45,7 +45,7 @@ All tests run without external tools.
 | `testPrimarySpecHeuristic` | `_spec` suffix heuristic, `@[primary_spec]` attribute override, no-match fallback |
 | `testPrimarySpecKnownAttribute` | Known-attribute boost (`@[progress]`, `@[pspec]`, `@[step]`), ambiguity fallthrough, precedence vs `_spec` and `@[primary_spec]` |
 | `testPrimarySpecSoleSpec` | Sole-spec inference, multiple-specs no-match, `_spec` beats sole-spec, invariant check |
-| `testTrustedStatus` | `isTrustedAtom` (axiom, `*External.lean`, negatives), `unifyAtom` trusted override (success/sorries/failure proof entries, no proof entry) |
+| `testTrustedStatus` | `isTrustedAtom` (axiom, non-theorem `*External.lean`, negatives incl. theorem-in-External), `unifyAtom` trusted override (success/sorries/failure proof entries, no proof entry), theorem-in-External normal verification status |
 
 ## Integration tests (example JSON)
 

@@ -291,8 +291,8 @@ Each value contains all atom fields plus verification status and specs:
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. |
-| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms and declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"external"` (file ends with `External.lean`). Enables automated trust-base classification. |
+| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |
 
 ### `probe-lean/viewify` (molecules)
 

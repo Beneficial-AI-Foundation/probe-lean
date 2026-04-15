@@ -31,10 +31,13 @@ def mapVerifyStatus : VerifyStatus → WebVerificationStatus
   | .failure => .failed
 
 /-- Determine why an atom is trusted, if at all. Axioms take precedence
-    over the `*External.lean` file convention when both apply. -/
+    over the `*External.lean` file convention when both apply.
+    Theorems in `*External.lean` are *not* trusted — they carry real proofs
+    and should receive their normal verification status from sorry detection. -/
 def trustedReason (atom : Atom) : Option String :=
   if atom.kind == .axiom then some "axiom"
-  else if atom.codePath.endsWith "External.lean" then some "external"
+  else if atom.codePath.endsWith "External.lean" && atom.kind != .theorem
+    then some "external"
   else none
 
 /-- Backward-compatible wrapper: `true` when the atom belongs to the trust base. -/
@@ -42,8 +45,9 @@ def isTrustedAtom (atom : Atom) : Bool :=
   (trustedReason atom).isSome
 
 /-- Combine an Atom with its optional proof entry into a UnifiedAtom,
-    preserving all atom fields. Axioms and declarations from `*External.lean`
-    files are overridden to `trusted` regardless of sorry detection. -/
+    preserving all atom fields. Axioms and non-theorem declarations from
+    `*External.lean` files are overridden to `trusted` regardless of sorry
+    detection. Theorems in those files keep their normal verification status. -/
 def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     : UnifiedAtom :=
   let baseStatus := proofEntry.map fun p => mapVerifyStatus p.status

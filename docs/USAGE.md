@@ -318,14 +318,15 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | Lean status | `verification-status` | `trusted-reason` | Meaning |
 |-------------|----------------------|------------------|---------|
 | Axiom (`kind: "axiom"`) | `"trusted"` | `"axiom"` | Lean `axiom` keyword -- unproven assumption |
-| `*External.lean` file | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
+| Non-theorem in `*External.lean` | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
+| Theorem in `*External.lean` | normal | absent | Real proof -- verified/unverified/failed via sorry detection |
 | No sorry | `"verified"` | absent | Proof is complete |
 | Has sorry | `"unverified"` | absent | Proof deliberately incomplete |
 | Build failure | `"failed"` | absent | Compilation error |
 | No source location | (filtered) | -- | Kernel-synthesized declarations are excluded from output |
 | (skipped) | absent | absent | Verification was skipped (`--skip-verify`) |
 
-Trusted status takes precedence: axioms and declarations from `*External.lean` files are always `"trusted"` regardless of sorry detection results.
+Trusted status takes precedence: axioms and non-theorem declarations from `*External.lean` files are always `"trusted"` regardless of sorry detection results. Theorems in `*External.lean` carry real proofs and receive their normal verification status.
 
 ---
 

@@ -1368,7 +1368,7 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   result ← test "axiom kind is trusted" (isTrustedAtom (mkAtomWith .axiom "Test.lean")) result
   result ← test "axiom in External is trusted" (isTrustedAtom (mkAtomWith .axiom "Pkg/FunsExternal.lean")) result
   result ← test "def in FunsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/FunsExternal.lean")) result
-  result ← test "theorem in TypesExternal.lean is trusted" (isTrustedAtom (mkAtomWith .theorem "Pkg/TypesExternal.lean")) result
+  result ← test "theorem in TypesExternal.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .theorem "Pkg/TypesExternal.lean")) result
   result ← test "def in Funs.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/Funs.lean")) result
   result ← test "theorem in Specs.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .theorem "Pkg/Specs.lean")) result
   result ← test "def in ExternallyVerified.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/ExternallyVerified.lean")) result
@@ -1379,7 +1379,7 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   result ← test "external def reason is \"external\"" (trustedReason (mkAtomWith .def "Pkg/FunsExternal.lean") == some "external") result
   result ← test "axiom in External reason is \"axiom\" (precedence)" (trustedReason (mkAtomWith .axiom "Pkg/FunsExternal.lean") == some "axiom") result
   result ← test "normal def reason is none" (trustedReason (mkAtomWith .def "Pkg/Funs.lean") == none) result
-  result ← test "theorem in External reason is \"external\"" (trustedReason (mkAtomWith .theorem "Pkg/TypesExternal.lean") == some "external") result
+  result ← test "theorem in External reason is none" (trustedReason (mkAtomWith .theorem "Pkg/TypesExternal.lean") == none) result
 
   IO.println ""
   IO.println "Testing unifyAtom trusted override..."
@@ -1429,6 +1429,21 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   let externalWithFailure := mkAtomWith .def "Pkg/TypesExternal.lean"
   let unified9 := unifyAtom externalWithFailure (some proofFailure)
   result ← test "External def overrides failure to trusted" (unified9.verificationStatus == some .trusted) result
+
+  IO.println ""
+  IO.println "Testing theorems in *External.lean get normal verification status..."
+  let externalThm := mkAtomWith .theorem "Pkg/FunsExternal.lean"
+  let unified10 := unifyAtom externalThm (some proofOk)
+  result ← test "External theorem with success is verified" (unified10.verificationStatus == some .verified) result
+  result ← test "External theorem trusted-reason is none" (unified10.trustedReason == none) result
+
+  let externalThmSorries := mkAtomWith .theorem "Pkg/FunsExternal.lean"
+  let unified11 := unifyAtom externalThmSorries (some proofSorries)
+  result ← test "External theorem with sorries is unverified" (unified11.verificationStatus == some .unverified) result
+
+  let externalThmNone := mkAtomWith .theorem "Pkg/TypesExternal.lean"
+  let unified12 := unifyAtom externalThmNone none
+  result ← test "External theorem with no proof entry is none" (unified12.verificationStatus == none) result
 
   IO.println ""
   IO.println "Testing non-conventional External.lean suffix..."
