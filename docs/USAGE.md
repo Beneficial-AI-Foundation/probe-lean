@@ -309,7 +309,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | `is-relevant` | bool | Rust source is from the target crate (Aeneas projects only) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
-| `primary-spec` | string or absent | Code-name of the primary specification theorem. Set by `@[primary_spec]` attribute, or inferred when `<name>_spec` exists in `specs`. Absent when none. |
+| `primary-spec` | string or absent | Code-name of the primary specification theorem. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. Absent when none. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
 | `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`. |
 

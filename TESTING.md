@@ -11,15 +11,15 @@ lake build tests
 
 | Layer | Count | Location | Requires |
 |-------|-------|----------|----------|
-| Unit tests | 192 | `Tests/Main.lean` | Nothing |
-| Integration tests (example JSON) | 21 | `Tests/Main.lean` | Nothing |
-| **Total** | **213** | | |
+| Unit tests | 305 | `Tests/Main.lean` | Nothing |
+| Integration tests (example JSON) | 26 | `Tests/Main.lean` | Nothing |
+| **Total** | **331** | | |
 
 All tests run without external tools.
 
 ## Unit tests
 
-192 tests across 21 test functions in `Tests/Main.lean`:
+305 tests across 34 test functions in `Tests/Main.lean`:
 
 | Test function | What it covers |
 |---------------|---------------|
@@ -42,7 +42,9 @@ All tests run without external tools.
 | `testMetadataHelpers` | TOML name/version parsing, output filename generation, atoms file matching |
 | `testFindDefaultAtomsPath` | Exact path, fallback with alternative files, newest-file selection |
 | `testTypedDependencies` | `type-dependencies` / `term-dependencies` serialization, backward compatibility with legacy JSON |
-| `testPrimarySpecHeuristic` | `_spec` suffix heuristic, attribute override, no-match fallback |
+| `testPrimarySpecHeuristic` | `_spec` suffix heuristic, `@[primary_spec]` attribute override, no-match fallback |
+| `testPrimarySpecKnownAttribute` | Known-attribute boost (`@[progress]`, `@[pspec]`, `@[step]`), ambiguity fallthrough, precedence vs `_spec` and `@[primary_spec]` |
+| `testPrimarySpecSoleSpec` | Sole-spec inference, multiple-specs no-match, `_spec` beats sole-spec, invariant check |
 | `testTrustedStatus` | `isTrustedAtom` (axiom, `*External.lean`, negatives), `unifyAtom` trusted override (success/sorries/failure proof entries, no proof entry) |
 
 ## Integration tests (example JSON)

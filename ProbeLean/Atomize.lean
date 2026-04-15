@@ -86,12 +86,28 @@ def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (artifactSuff
     let isIgnored := ignoredList.contains nameWithoutPrefix
     { atom with isHidden := isHidden, isExtractionArtifact := isExtractionArtifact, isIgnored := isIgnored }
 
+/-- Attributes from verification frameworks that indicate a theorem is a
+    primary specification. Used as a signal in primary-spec detection.
+    Precedence: @[primary_spec] > known-attribute > _spec suffix > sole-spec. -/
+def primarySpecAttributes : List String :=
+  ["progress", "pspec", "step"]
+
+/-- Check if an atom carries any of the known primary-spec attributes. -/
+def hasKnownSpecAttribute (attrs : Array String) : Bool :=
+  primarySpecAttributes.any fun a => attrs.contains a
+
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
-    list of every non-theorem dependency. Also propagate `primarySpec` from
-    `@[primary_spec]`-tagged theorems and the `_spec` suffix heuristic. -/
+    list of every non-theorem dependency. Also propagate `primarySpec` using
+    a multi-signal precedence chain:
+    1. `@[primary_spec]` attribute (always wins)
+    2. Known verification-framework attributes (`primarySpecAttributes`)
+    3. `_spec` suffix naming convention
+    4. Sole-spec inference (exactly one spec) -/
 def computeSpecs (atoms : Array Atom) : Array Atom :=
   let kindMap : Lean.RBMap String DeclKind compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.kind
+  let attrsMap : Lean.RBMap String (Array String) compare :=
+    atoms.foldl (init := .empty) fun m a => m.insert a.name a.attributes
   let specsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem then
@@ -104,6 +120,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
               m.insert dep (cur.push a.name)
           | none => m
       else m
+  -- Signal 0: @[primary_spec] attribute (always wins)
   let attrPrimarySpecMap : Lean.RBMap String String compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem && a.isPrimarySpec then
@@ -114,6 +131,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
             else m.insert dep a.name
           | none => m
       else m
+  -- Signals 1-3: known-attribute > _spec suffix > sole-spec
   let primarySpecMap :=
     atoms.foldl (init := attrPrimarySpecMap) fun m a =>
       if a.kind == DeclKind.theorem then m
@@ -121,11 +139,22 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
         match m.find? a.name with
         | some _ => m
         | none =>
-          let candidate := a.name ++ "_spec"
           match specsMap.find? a.name with
           | some specs =>
-            if specs.contains candidate then m.insert a.name candidate
-            else m
+            -- Signal 1: known-attribute boost
+            let knownAttrMatches := specs.filter fun s =>
+              match attrsMap.find? s with
+              | some attrs => hasKnownSpecAttribute attrs
+              | none => false
+            if knownAttrMatches.size == 1 then m.insert a.name knownAttrMatches[0]!
+            else
+              -- Signal 2: _spec suffix
+              let candidate := a.name ++ "_spec"
+              if specs.contains candidate then m.insert a.name candidate
+              else
+                -- Signal 3: sole spec
+                if specs.size == 1 then m.insert a.name specs[0]!
+                else m
           | none => m
   atoms.map fun a =>
     let a := match specsMap.find? a.name with

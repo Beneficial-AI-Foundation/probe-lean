@@ -212,10 +212,11 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
 4. **Verify** -- parses sorry warnings from build output to determine verification status; axioms and `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"` or `"external"`) for trust-base classification; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
-5. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom. 
-    - To identify the primary specification for a definition, tag the theorem with `@[primary_spec]` (requires `import ProbeLean.Attrs` in the target project). 
-    - If no `@[primary_spec]` attribute is found, probe-lean falls back to a naming heuristic: a theorem named `<def>_spec` is automatically assigned as the primary spec.
-    - Only one primary spec per definition. If multiple `@[primary_spec]` theorems reference the same definition, the last one encountered is used.
+5. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom using a multi-signal precedence chain:
+    1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
+    2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
+    3. `_spec` suffix — a theorem named `<def>_spec` is assigned as primary spec
+    4. Sole spec — if a definition has exactly one spec theorem, it is used as primary spec
 6. **Schema 2.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 
 ## Testing

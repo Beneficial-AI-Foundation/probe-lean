@@ -1172,12 +1172,16 @@ def testTypedDependencies (result : TestResult) : IO TestResult := do
 
   return result
 
+def mkSpecAtom (name : String) (kind : DeclKind) (deps : Array String)
+    (isPrimarySpec : Bool := false) (attributes : Array String := #[]) : Atom :=
+  { name, displayName := name, dependencies := deps, codeModule := "Test",
+    codePath := "Test.lean", codeText := none, kind, isPrimarySpec, attributes }
+
 def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
   let mut result := result
   let mkAtom (name : String) (kind : DeclKind) (deps : Array String)
       (isPrimarySpec : Bool := false) : Atom :=
-    { name, displayName := name, dependencies := deps, codeModule := "Test",
-      codePath := "Test.lean", codeText := none, kind, isPrimarySpec }
+    mkSpecAtom name kind deps isPrimarySpec
 
   IO.println ""
   IO.println "Testing primary-spec _spec suffix heuristic..."
@@ -1201,12 +1205,13 @@ def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
     | none => false) result
 
   IO.println ""
-  IO.println "Testing primary-spec heuristic no match..."
+  IO.println "Testing primary-spec heuristic no match (multiple non-matching specs)..."
   let defC := mkAtom "probe:Test.baz" .def #[]
-  let thmOther := mkAtom "probe:Test.baz_lemma" .theorem #["probe:Test.baz"]
-  let res3 := computeSpecs #[defC, thmOther]
+  let thmOther1 := mkAtom "probe:Test.baz_lemma" .theorem #["probe:Test.baz"]
+  let thmOther2 := mkAtom "probe:Test.baz_aux" .theorem #["probe:Test.baz"]
+  let res3 := computeSpecs #[defC, thmOther1, thmOther2]
   let defRes3 := res3.find? fun a => a.name == "probe:Test.baz"
-  result ← test "no heuristic match when no _spec theorem" (match defRes3 with
+  result ← test "no heuristic match when no _spec and multiple specs" (match defRes3 with
     | some a => a.primarySpec.isNone
     | none => false) result
 
@@ -1219,6 +1224,137 @@ def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
   result ← test "attribute-tagged theorem sets primarySpec on def" (match defRes4 with
     | some a => a.primarySpec == some "probe:Test.qux_spec"
     | none => false) result
+  return result
+
+def testPrimarySpecKnownAttribute (result : TestResult) : IO TestResult := do
+  let mut result := result
+
+  IO.println ""
+  IO.println "Testing primary-spec known-attribute boost (single @[progress])..."
+  let defA := mkSpecAtom "probe:Test.foo" .def #[]
+  let thmProgress := mkSpecAtom "probe:Test.foo_progress" .theorem #["probe:Test.foo"]
+    (attributes := #["progress"])
+  let res1 := computeSpecs #[defA, thmProgress]
+  let defRes1 := res1.find? fun a => a.name == "probe:Test.foo"
+  result ← test "single @[progress] theorem becomes primary-spec" (match defRes1 with
+    | some a => a.primarySpec == some "probe:Test.foo_progress"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing primary-spec known-attribute ambiguity (two @[progress])..."
+  let thmProgress2 := mkSpecAtom "probe:Test.foo_alt" .theorem #["probe:Test.foo"]
+    (attributes := #["progress"])
+  let res2 := computeSpecs #[defA, thmProgress, thmProgress2]
+  let defRes2 := res2.find? fun a => a.name == "probe:Test.foo"
+  result ← test "two @[progress] theorems → ambiguous, no primary-spec" (match defRes2 with
+    | some a => a.primarySpec.isNone
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing known-attribute beats _spec suffix..."
+  let defB := mkSpecAtom "probe:Test.bar" .def #[]
+  let thmSuffix := mkSpecAtom "probe:Test.bar_spec" .theorem #["probe:Test.bar"]
+  let thmAttr := mkSpecAtom "probe:Test.bar_progress" .theorem #["probe:Test.bar"]
+    (attributes := #["progress"])
+  let res3 := computeSpecs #[defB, thmSuffix, thmAttr]
+  let defRes3 := res3.find? fun a => a.name == "probe:Test.bar"
+  result ← test "known-attribute wins over _spec suffix" (match defRes3 with
+    | some a => a.primarySpec == some "probe:Test.bar_progress"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing @[primary_spec] beats known-attribute..."
+  let defC := mkSpecAtom "probe:Test.qux" .def #[]
+  let thmExplicit := mkSpecAtom "probe:Test.qux_main" .theorem #["probe:Test.qux"]
+    (isPrimarySpec := true)
+  let thmProgressC := mkSpecAtom "probe:Test.qux_progress" .theorem #["probe:Test.qux"]
+    (attributes := #["progress"])
+  let res4 := computeSpecs #[defC, thmExplicit, thmProgressC]
+  let defRes4 := res4.find? fun a => a.name == "probe:Test.qux"
+  result ← test "@[primary_spec] beats @[progress]" (match defRes4 with
+    | some a => a.primarySpec == some "probe:Test.qux_main"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing known-attribute with @[pspec]..."
+  let defD := mkSpecAtom "probe:Test.alpha" .def #[]
+  let thmPspec := mkSpecAtom "probe:Test.alpha_ok" .theorem #["probe:Test.alpha"]
+    (attributes := #["pspec"])
+  let res5 := computeSpecs #[defD, thmPspec]
+  let defRes5 := res5.find? fun a => a.name == "probe:Test.alpha"
+  result ← test "@[pspec] also triggers known-attribute boost" (match defRes5 with
+    | some a => a.primarySpec == some "probe:Test.alpha_ok"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing known-attribute with @[step]..."
+  let defE := mkSpecAtom "probe:Test.beta" .def #[]
+  let thmStep := mkSpecAtom "probe:Test.beta_ok" .theorem #["probe:Test.beta"]
+    (attributes := #["step"])
+  let res6 := computeSpecs #[defE, thmStep]
+  let defRes6 := res6.find? fun a => a.name == "probe:Test.beta"
+  result ← test "@[step] also triggers known-attribute boost" (match defRes6 with
+    | some a => a.primarySpec == some "probe:Test.beta_ok"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing ambiguous known-attr falls through to _spec..."
+  let defF := mkSpecAtom "probe:Test.gamma" .def #[]
+  let thmP1 := mkSpecAtom "probe:Test.gamma_spec" .theorem #["probe:Test.gamma"]
+    (attributes := #["progress"])
+  let thmP2 := mkSpecAtom "probe:Test.gamma_alt" .theorem #["probe:Test.gamma"]
+    (attributes := #["progress"])
+  let res7 := computeSpecs #[defF, thmP1, thmP2]
+  let defRes7 := res7.find? fun a => a.name == "probe:Test.gamma"
+  result ← test "ambiguous known-attr falls through to _spec suffix" (match defRes7 with
+    | some a => a.primarySpec == some "probe:Test.gamma_spec"
+    | none => false) result
+
+  return result
+
+def testPrimarySpecSoleSpec (result : TestResult) : IO TestResult := do
+  let mut result := result
+
+  IO.println ""
+  IO.println "Testing primary-spec sole-spec signal..."
+  let defA := mkSpecAtom "probe:Test.solo" .def #[]
+  let thmOnly := mkSpecAtom "probe:Test.solo_lemma" .theorem #["probe:Test.solo"]
+  let res1 := computeSpecs #[defA, thmOnly]
+  let defRes1 := res1.find? fun a => a.name == "probe:Test.solo"
+  result ← test "single spec becomes primary-spec (sole-spec)" (match defRes1 with
+    | some a => a.primarySpec == some "probe:Test.solo_lemma"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing sole-spec does not fire with multiple specs..."
+  let defB := mkSpecAtom "probe:Test.multi" .def #[]
+  let thm1 := mkSpecAtom "probe:Test.multi_lemma1" .theorem #["probe:Test.multi"]
+  let thm2 := mkSpecAtom "probe:Test.multi_lemma2" .theorem #["probe:Test.multi"]
+  let res2 := computeSpecs #[defB, thm1, thm2]
+  let defRes2 := res2.find? fun a => a.name == "probe:Test.multi"
+  result ← test "multiple specs → no sole-spec primary" (match defRes2 with
+    | some a => a.primarySpec.isNone
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing _spec suffix beats sole-spec..."
+  let defC := mkSpecAtom "probe:Test.xyz" .def #[]
+  let thmSuffix := mkSpecAtom "probe:Test.xyz_spec" .theorem #["probe:Test.xyz"]
+  let res3 := computeSpecs #[defC, thmSuffix]
+  let defRes3 := res3.find? fun a => a.name == "probe:Test.xyz"
+  result ← test "_spec suffix fires before sole-spec (same result)" (match defRes3 with
+    | some a => a.primarySpec == some "probe:Test.xyz_spec"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing sole-spec invariant: primary-spec is in specs..."
+  let solePsResult := computeSpecs #[defA, thmOnly]
+  let primarySpecInSpecs := solePsResult.all fun a =>
+    match a.primarySpec with
+    | none => true
+    | some ps => a.specs.contains ps
+  result ← test "sole-spec: primary-spec is always in specs" primarySpecInSpecs result
+
   return result
 
 def testTrustedStatus (result : TestResult) : IO TestResult := do
@@ -1976,6 +2112,8 @@ def main : IO UInt32 := do
   result ← testFindDefaultAtomsPath result
   result ← testTypedDependencies result
   result ← testPrimarySpecHeuristic result
+  result ← testPrimarySpecKnownAttribute result
+  result ← testPrimarySpecSoleSpec result
   result ← testTrustedStatus result
   result ← testExampleJsonEnvelopeStructure result
   result ← testExampleJsonLoadAtoms result

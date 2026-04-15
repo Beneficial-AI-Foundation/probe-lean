@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-15
+
+### Added
+
+- **Improved primary-spec detection**: `computeSpecs` now uses a multi-signal
+  precedence chain instead of just the `_spec` suffix heuristic:
+  1. `@[primary_spec]` attribute (always wins)
+  2. Known verification-framework attributes (`@[progress]`, `@[pspec]`,
+     `@[step]`) — if exactly one spec theorem carries one of these, it
+     becomes primary spec
+  3. `_spec` suffix naming convention (existing heuristic)
+  4. Sole-spec inference — if a definition has exactly one spec theorem, it
+     is used as primary spec
+
+  A centralized `primarySpecAttributes` constant in `ProbeLean/Atomize.lean`
+  lists the known spec-indicating attributes, making it easy to extend for
+  future verification frameworks.
+
 ## [0.5.0] - 2026-04-13
 
 ### Added
