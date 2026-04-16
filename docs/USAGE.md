@@ -311,22 +311,23 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 | `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. Absent when none. |
 | `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"external"`. |
+| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"externally_verified"`, `"external"`. |
 
 ### Verification Status Mapping
 
 | Lean status | `verification-status` | `trusted-reason` | Meaning |
 |-------------|----------------------|------------------|---------|
 | Axiom (`kind: "axiom"`) | `"trusted"` | `"axiom"` | Lean `axiom` keyword -- unproven assumption |
+| `@[externally_verified]` | `"trusted"` | `"externally_verified"` | Proof discharged outside Lean (e.g., Verus); `sorry` is intentional |
 | Non-theorem in `*External.lean` | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
-| Theorem in `*External.lean` | normal | absent | Real proof -- verified/unverified/failed via sorry detection |
+| Theorem in `*External.lean` (no `@[externally_verified]`) | normal | absent | Real proof -- verified/unverified/failed via sorry detection |
 | No sorry | `"verified"` | absent | Proof is complete |
 | Has sorry | `"unverified"` | absent | Proof deliberately incomplete |
 | Build failure | `"failed"` | absent | Compilation error |
 | No source location | (filtered) | -- | Kernel-synthesized declarations are excluded from output |
 | (skipped) | absent | absent | Verification was skipped (`--skip-verify`) |
 
-Trusted status takes precedence: axioms and non-theorem declarations from `*External.lean` files are always `"trusted"` regardless of sorry detection results. Theorems in `*External.lean` carry real proofs and receive their normal verification status.
+Trusted-reason precedence when multiple signals apply: (1) `axiom`, (2) `externally_verified`, (3) `external`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status.
 
 ---
 

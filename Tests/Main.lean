@@ -1450,6 +1450,36 @@ def testTrustedStatus (result : TestResult) : IO TestResult := do
   result ← test "ModelsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/ModelsExternal.lean")) result
   result ← test "CustomExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Deep/Path/CustomExternal.lean")) result
 
+  IO.println ""
+  IO.println "Testing @[externally_verified] attribute..."
+  let mkAttrAtom (kind : DeclKind) (codePath : String) (attrs : Array String) : Atom :=
+    { name := "probe:Test.x", displayName := "x", dependencies := #[],
+      codeModule := "Test", codePath, codeText := some { linesStart := 1, linesEnd := 5 },
+      kind, attributes := attrs }
+  let extVerifiedThm := mkAttrAtom .theorem "Pkg/Proofs.lean" #["externally_verified"]
+  result ← test "externally_verified theorem reason is \"externally_verified\""
+    (trustedReason extVerifiedThm == some "externally_verified") result
+  result ← test "externally_verified theorem is trusted" (isTrustedAtom extVerifiedThm) result
+  let unifiedExtSorries := unifyAtom extVerifiedThm (some proofSorries)
+  result ← test "externally_verified theorem with sorries overrides to trusted"
+    (unifiedExtSorries.verificationStatus == some .trusted) result
+  result ← test "externally_verified theorem trusted-reason is \"externally_verified\""
+    (unifiedExtSorries.trustedReason == some "externally_verified") result
+  let unifiedExtOk := unifyAtom extVerifiedThm (some proofOk)
+  result ← test "externally_verified theorem with success still trusted"
+    (unifiedExtOk.verificationStatus == some .trusted) result
+  let extInNormalFile := mkAttrAtom .theorem "Pkg/Specs.lean" #["externally_verified"]
+  result ← test "externally_verified fires regardless of file path"
+    (trustedReason extInNormalFile == some "externally_verified") result
+  let axiomWithAttr := mkAttrAtom .axiom "Test.lean" #["externally_verified"]
+  result ← test "axiom precedence beats externally_verified"
+    (trustedReason axiomWithAttr == some "axiom") result
+  let defWithAttrInExternal := mkAttrAtom .def "Pkg/FunsExternal.lean" #["externally_verified"]
+  result ← test "externally_verified precedence beats external-file convention"
+    (trustedReason defWithAttrInExternal == some "externally_verified") result
+  let noAttrs := mkAttrAtom .theorem "Pkg/Specs.lean" #["progress"]
+  result ← test "unrelated attribute does not trigger trusted" (trustedReason noAttrs == none) result
+
   return result
 
 def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
@@ -1577,7 +1607,7 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
     | .error _ => return result.add false
     | .ok obj => do
       let validStatuses := ["verified", "unverified", "failed", "trusted"]
-      let validReasons := ["axiom", "external"]
+      let validReasons := ["axiom", "external", "externally_verified"]
       let mut allValid := true
       let mut hasVerified := false
       let mut hasTrusted := false

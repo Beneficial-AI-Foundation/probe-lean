@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-04-16
+
+### Fixed
+
+- **`@[externally_verified]` attribute now recognized by trust-base classification**:
+  The attribute was already registered in `ProbeLean/Attrs.lean` but was not wired
+  into `trustedReason`, so theorems carrying `@[externally_verified]` (e.g., proofs
+  discharged outside Lean in Verus) were reported as `"unverified"` when they
+  contained the expected `sorry`. They now get `verification-status: "trusted"`
+  with `trusted-reason: "externally_verified"`. Precedence when multiple signals
+  apply: (1) `axiom`, (2) `externally_verified`, (3) `external`.
+
 ## [0.6.1] - 2026-04-15
 
 ### Fixed
