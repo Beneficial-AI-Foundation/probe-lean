@@ -1,5 +1,5 @@
 name = "probe-lean"
-version = "0.6.1"
+version = "0.6.2"
 defaultTargets = ["probe-lean"]
 
 [[require]]
