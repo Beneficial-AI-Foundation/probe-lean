@@ -6,7 +6,7 @@ When `.olean` files are missing or stale (e.g., after `lake clean` or a toolchai
 
 ## Requirements
 
-- [ ] `isCacheValid` must verify that the project's `.olean` build directory exists, not just that the cache file is newer than `.lean` sources
+- [x] `isCacheValid` must verify that the project's `.olean` build directory exists, not just that the cache file is newer than `.lean` sources
 - [ ] When `incompatible header` occurs but the toolchain versions match, suggest `lake clean` instead of "update probe-lean's lean-toolchain"
 - [ ] The bash install script's cleanup bug (local variables in EXIT trap) must be fixed
 

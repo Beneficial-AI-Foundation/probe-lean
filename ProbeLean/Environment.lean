@@ -75,15 +75,35 @@ partial def checkFilesNewerThan (dir : System.FilePath) (cacheTime : IO.FS.Syste
       if fileMeta.modified > cacheTime then return true
   return false
 
-/-- Check if cache is valid: cache file exists, build output directory exists,
-    config files (lean-toolchain, lakefile) haven't changed, and no .lean source
-    is newer than the cache. -/
+/-- Recursively check whether `dir` contains at least one `.olean` file.
+    Short-circuits on the first hit. Used by `isCacheValid` to detect
+    `lake clean` having removed build artifacts while leaving the directory
+    tree (or cache file) in place. -/
+partial def hasAnyOlean (dir : System.FilePath) : IO Bool := do
+  let entries ← dir.readDir
+  for entry in entries do
+    let path := entry.path
+    if ← path.isDir then
+      if ← hasAnyOlean path then return true
+    else if path.extension == some "olean" then
+      return true
+  return false
+
+/-- Check if cache is valid: cache file exists, build output directory contains
+    at least one `.olean`, config files (lean-toolchain, lakefile) haven't changed,
+    and no .lean source is newer than the cache. -/
 def isCacheValid (projectPath : System.FilePath) : IO Bool := do
   let (outputCache, _) := getCacheFiles projectPath
   if !(← outputCache.pathExists) then return false
   let buildLibLean := projectPath / ".lake" / "build" / "lib" / "lean"
   let buildLib := projectPath / ".lake" / "build" / "lib"
-  if !(← buildLibLean.pathExists) && !(← buildLib.pathExists) then return false
+  let buildDir ←
+    if ← buildLibLean.pathExists then pure (some buildLibLean)
+    else if ← buildLib.pathExists then pure (some buildLib)
+    else pure none
+  match buildDir with
+  | none => return false
+  | some d => unless ← hasAnyOlean d do return false
   let cacheMeta ← outputCache.metadata
   let cacheTime := cacheMeta.modified
   let configFiles := #[

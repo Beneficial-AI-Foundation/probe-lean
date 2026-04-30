@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale build cache hit after `lake clean`** ([#15](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/15)):
+  `isCacheValid` now requires at least one `.olean` file in the project's build
+  directory, not just that the directory exists. Previously, after `lake clean`
+  removed `.olean` artifacts (while the cache file at `.lake/probe-lean/build_output.txt`
+  and the `.lake/build/lib/` directory survived), `probe-lean extract` would skip
+  `lake build` and then fail with "No modules found in project". Added a
+  `hasAnyOlean` helper that short-circuits on the first `.olean` found.
+
 ## [0.6.2] - 2026-04-16
 
 ### Fixed
