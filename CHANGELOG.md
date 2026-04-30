@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-04-30
+
 ### Fixed
 
 - **Stale build cache hit after `lake clean`** ([#15](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/15)):
