@@ -27,6 +27,7 @@ jobs:
           - v4.28.0
           - v4.29.0-rc4
           - v4.29.0-rc8
+          - v4.29.0
         os:
           - ubuntu-latest
           - macos-latest
