@@ -49,7 +49,7 @@ All tests run without external tools.
 
 ## Integration tests (example JSON)
 
-21 tests across 4 test functions that load
+26 tests across 4 test functions that load
 `examples/lean_Curve25519Dalek_0.1.0.json` and validate the real
 extract output:
 
@@ -57,8 +57,8 @@ extract output:
 |---------------|--------|-------------------|
 | `testExampleJsonEnvelopeStructure` | 8 | Schema is `probe-lean/extract`, version `2.0`, non-empty timestamp, tool name/command, source package/language, data object present |
 | `testExampleJsonLoadAtoms` | 4 | `loadAtoms` succeeds, >1000 atoms, all keys start with `probe:`, all atoms have language `"lean"` |
-| `testExampleJsonAtomRequiredFields` | 6 | Non-empty `display-name`, `code-module`, `code-path`; valid `DeclKind`; has both `def` and `theorem` atoms |
-| `testExampleJsonVerificationStatus` | 3 | All atoms have valid `verification-status` (verified/unverified/failed/trusted); at least some are `"verified"`, at least some are `"trusted"` |
+| `testExampleJsonAtomRequiredFields` | 8 | Non-empty `display-name`, `code-module`, `code-path`; valid `DeclKind`; has `def`, `theorem`, and `projection` atoms; all atoms have source location |
+| `testExampleJsonVerificationStatus` | 6 | All atoms have valid `verification-status` (verified/unverified/failed/trusted); at least some `"verified"` and `"trusted"`; all trusted have valid `trusted-reason`; non-trusted have no `trusted-reason` |
 
 ## CI
 
@@ -81,4 +81,3 @@ Tests live in `Tests/Main.lean`. To add a new test:
 ## See also
 
 - `docs/test-projects.md` -- Lean 4 test projects for manual validation
-- `docs/manual-test-schema-2.0.md` -- manual test report for schema 2.0

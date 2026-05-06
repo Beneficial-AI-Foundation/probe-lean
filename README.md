@@ -36,36 +36,7 @@ Ensure `~/.local/bin` is in your `PATH`:
 export PATH="$PATH:$HOME/.local/bin"
 ```
 
-### How it works
-
-The installer:
-1. Detects the required Lean version (from `--from-project`, `--lean-version`, or interactive menu)
-2. Checks if `probe-lean-<version>` is already installed (skips if so, unless `--force`)
-3. Downloads a pre-built binary from GitHub releases
-4. Falls back to building from source if no pre-built binary is available
-
-The binary is installed to `~/.local/bin/probe-lean-<version>` with a symlink at `~/.local/bin/probe-lean`. Interpreter `.olean` files are installed to `~/.local/lib/probe-lean-<version>/` (per-version, so multiple versions can coexist).
-
-### Installer options
-
-| Option | Description |
-|--------|-------------|
-| `--from-project <path>` | Auto-detect Lean version from target project's `lean-toolchain` |
-| `--lean-version <ver>` | Explicit Lean version (e.g., `v4.28.0-rc1`) |
-| `--force` | Rebuild/reinstall even if already installed |
-| `[VERSION]` | Positional version argument (same as `--lean-version`) |
-
-### From a cloned repo
-
-If you have the repository cloned (e.g., for development), you can run the scripts directly:
-
-```bash
-git clone https://github.com/Beneficial-AI-Foundation/probe-lean
-cd probe-lean
-./tools/bash/install.sh --from-project ../my-lean-project
-# or with Python:
-uv run tools/python/install.py --from-project ../my-lean-project
-```
+For all installer options (`--force`, `--lean-version`, cloned-repo usage, etc.), see **[docs/USAGE.md](docs/USAGE.md#installer-flags)**.
 
 ### Docker
 
@@ -103,45 +74,7 @@ probe-lean extract ./my-lean-project --library "Extraction,Spqr"
 
 Output lands in `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json` by default.
 
-### Analyzing a project with Mathlib dependencies
-
-Most Lean verification projects depend on Mathlib. To check whether a target project uses Mathlib, look in its lakefile:
-
-- **`lakefile.toml`**: a `[[require]]` block with `name = "mathlib"`
-- **`lakefile.lean`**: a line like `require mathlib from git ...`
-
-You can also check `lake-manifest.json` for a `"mathlib"` entry (this file is generated and lists all resolved dependencies).
-
-If Mathlib is present, **always download the pre-built cache first** -- compiling Mathlib from source is extremely slow:
-
-```bash
-cd ../my-lean-project
-lake exe cache get   # download pre-built Mathlib .olean files (~5 min)
-cd ../probe-lean
-probe-lean extract ../my-lean-project
-```
-
-probe-lean will warn you if it detects a missing Mathlib cache.
-
-For detailed walkthroughs with real projects (curve25519-dalek-lean-verify, ArkLib, VCV-io), see **[docs/USAGE.md](docs/USAGE.md)**.
-
-### Projects with FFI / system dependencies (Nix support)
-
-Some Lean projects depend on C libraries via FFI (e.g., zlib, OpenSSL). These system dependencies are not managed by Lake and must be installed separately. If the target project ships a `shell.nix` or `flake.nix`, probe-lean **automatically detects** it and wraps all `lake` invocations inside the Nix environment, so system deps are available without manual installation.
-
-**How it works:**
-
-- probe-lean checks for `flake.nix` (preferred) or `shell.nix` in the project root
-- If found and `nix` / `nix-shell` is installed, all `lake` commands run inside the Nix environment
-- If the Nix file exists but `nix` is not installed, a warning is printed and `lake` runs directly (system deps must be installed manually)
-- Projects without Nix files are unaffected
-
-**Docker guidance:** The default probe-lean Docker image does not include Nix. If your target project requires Nix for system deps, you have two options:
-
-1. **Install Nix in your Docker image** -- base on `nixos/nix` or add Nix to your image. probe-lean will then auto-detect and use the project's Nix environment.
-2. **Install system deps directly** -- add `apt-get install` commands to your Dockerfile for the required libraries (check the project's `shell.nix` or README for the package list).
-
-**CI guidance:** Use [`cachix/install-nix-action`](https://github.com/cachix/install-nix-action) in your GitHub Actions workflow to make Nix available. probe-lean will then wrap `lake` commands automatically.
+For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **[docs/USAGE.md](docs/USAGE.md)**.
 
 ## Commands
 
@@ -211,7 +144,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
-4. **Verify** -- parses sorry warnings from build output to determine verification status; axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
+4. **Verify** -- parses sorry warnings from build output to determine verification status (shallow: checks only the declaration's own body, not its dependencies); axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
 5. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
     2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match

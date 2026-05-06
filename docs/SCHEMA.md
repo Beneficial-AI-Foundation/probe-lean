@@ -291,7 +291,7 @@ Each value contains all atom fields plus verification status and specs:
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. |
-| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
+| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. Verification is **shallow**: it reflects whether the declaration's own body contains `sorry`, but does not check whether any of its dependencies are unverified. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
 | `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"externally_verified"` (declaration tagged `@[externally_verified]` — proof discharged outside Lean), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |
 
 ### `probe-lean/viewify` (molecules)
@@ -327,7 +327,8 @@ Key changes:
    `stubify`) are replaced by two: `extract` (combined pipeline) and `viewify` (filtered output).
 5. **Schema identifiers**: Changed from per-step schemas (`probe-lean/atoms`, `probe-lean/specs`,
    etc.) to per-command schemas (`probe-lean/extract`, `probe-lean/viewify`).
-6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`.
+6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`,
+   `ProjectMetadata` → `SourceInfo`.
 7. **Bug fix**: `markAtomFlags` is now correctly called in the combined pipeline (was
    previously missing from the old `pipeline` command).
 8. **New per-atom fields**: `type-dependencies` and `term-dependencies` split the flat
@@ -336,3 +337,6 @@ Key changes:
 9. **Removed `specified` field**: The `specified` boolean was always `true` in Lean (all
    declarations have type signatures). Whether an atom has specifications is now inferred
    from `specs != []`, aligning with probe-verus v5.0.0 which also dropped `specified`.
+10. **`SourceInfo` fields now required**: `repo` and `commit` changed from `Option String`
+    to `String` (empty string when unavailable), conforming to the `probe` repository's
+    JSON schema which declares these fields as required.

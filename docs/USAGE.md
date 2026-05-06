@@ -290,44 +290,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 }
 ```
 
-### Atom Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `display-name` | string | Last component of the name |
-| `kind` | string | `def`, `theorem`, `abbrev`, `projection`, `class`, `structure`, `inductive`, `instance`, `axiom`, `opaque`, `quot` |
-| `language` | string | Always `"lean"` |
-| `dependencies` | array | Code-names this declaration depends on (union of type + term) |
-| `type-dependencies` | array | Code-names referenced in the declaration's type signature |
-| `term-dependencies` | array | Code-names referenced in the declaration's body/proof |
-| `code-module` | string | Module name containing the declaration |
-| `code-path` | string | Relative path to source file |
-| `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
-| `is-hidden` | bool | From config's `is-hidden` list |
-| `is-extraction-artifact` | bool | Name ends with suffix from `extraction-artifact-suffixes` |
-| `is-ignored` | bool | From config's `is-ignored` list |
-| `is-relevant` | bool | Rust source is from the target crate (Aeneas projects only) |
-| `rust-source` | string or null | Rust source path from Aeneas docstring |
-| `specs` | array or absent | Code-names of theorem atoms that spec this atom. Absent when empty. |
-| `primary-spec` | string or absent | Code-name of the primary specification theorem. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. Absent when none. |
-| `verification-status` | string or absent | `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"`, `"externally_verified"`, `"external"`. |
-
-### Verification Status Mapping
-
-| Lean status | `verification-status` | `trusted-reason` | Meaning |
-|-------------|----------------------|------------------|---------|
-| Axiom (`kind: "axiom"`) | `"trusted"` | `"axiom"` | Lean `axiom` keyword -- unproven assumption |
-| `@[externally_verified]` | `"trusted"` | `"externally_verified"` | Proof discharged outside Lean (e.g., Verus); `sorry` is intentional |
-| Non-theorem in `*External.lean` | `"trusted"` | `"external"` | Aeneas hand-written model (trust base) |
-| Theorem in `*External.lean` (no `@[externally_verified]`) | normal | absent | Real proof -- verified/unverified/failed via sorry detection |
-| No sorry | `"verified"` | absent | Proof is complete |
-| Has sorry | `"unverified"` | absent | Proof deliberately incomplete |
-| Build failure | `"failed"` | absent | Compilation error |
-| No source location | (filtered) | -- | Kernel-synthesized declarations are excluded from output |
-| (skipped) | absent | absent | Verification was skipped (`--skip-verify`) |
-
-Trusted-reason precedence when multiple signals apply: (1) `axiom`, (2) `externally_verified`, (3) `external`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status.
+For the full atom field reference and verification-status mapping, see [SCHEMA.md](SCHEMA.md).
 
 ---
 

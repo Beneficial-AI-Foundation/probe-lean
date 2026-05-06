@@ -1,7 +1,7 @@
 # Lean 4 Test Projects for probe-lean
 
 Curated list of open-source Lean 4 projects suitable for testing probe-lean commands
-(`atomize`, `specify`, `extract`, `pipeline`, `stubify`).
+(`extract`, `viewify`).
 
 probe-lean toolchain: **v4.29.0-rc3**. Must be recompiled per target toolchain (see notes below).
 
@@ -11,7 +11,7 @@ probe-lean toolchain: **v4.29.0-rc3**. Must be recompiled per target toolchain (
 - Builds with `lake build`
 - 3+ modules with a mix of `def`, `theorem`, `structure`, `inductive`, `class`, `instance`
 - Some `sorry` usage is ideal for testing `extract`
-- Smaller projects preferred for fast iteration (dalek-lean takes ~2h for `atomize`)
+- Smaller projects preferred for fast iteration
 - Lean version close to v4.29.0-rc3 avoids compat fixes when rebuilding probe-lean
 
 ## Compatible projects (Lean v4.28--v4.29)
@@ -65,20 +65,20 @@ Likely to require significant compat work. Low priority.
 ## Aeneas projects (Rust -> Lean verification)
 
 Aeneas translates Rust programs into Lean for formal verification. These are especially
-relevant for `stubify` testing (Lean<->Rust mappings).
+relevant for `viewify` testing (Lean<->Rust mappings).
 
 | Project | Lean | Stars | Notes |
 |---------|------|-------|-------|
 | [AeneasVerif/aeneas](https://github.com/AeneasVerif/aeneas) `tests/lean/` | v4.28.0-rc1 | 586 | Main test suite: Hashmap, AVL trees, Loops, Iterators, Closures, Curve25519, Traits, etc. 60+ Lean targets generated from Rust. |
 | [AeneasVerif/aeneas](https://github.com/AeneasVerif/aeneas) `backends/lean/` | v4.28.0-rc1 | 586 | Base library (`Aeneas.Std`). Primitives, scalars, array/slice models. |
 | [AeneasVerif/icfp-tutorial](https://github.com/AeneasVerif/icfp-tutorial) | v4.11.0-rc2 | 11 | Tutorial examples. Old toolchain. |
-| [Beneficial-AI-Foundation/curve25519-dalek-lean-verify](https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify) | -- | -- | Already referenced in probe-lean specs for `stubify`. Takes ~2h for `atomize`. |
+| [Beneficial-AI-Foundation/curve25519-dalek-lean-verify](https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify) | -- | -- | Already referenced in probe-lean specs for `viewify`. |
 
 ## Special resources
 
 | Resource | Notes |
 |----------|-------|
-| [sorrydb/sorrydb](https://github.com/sorrydb/sorrydb) | Indexes `sorry` statements across public Lean repos. Source of projects with incomplete proofs (ideal for `verify` testing). |
+| [sorrydb/sorrydb](https://github.com/sorrydb/sorrydb) | Indexes `sorry` statements across public Lean repos. Source of projects with incomplete proofs (ideal for `extract` testing). |
 | [Reservoir](https://reservoir.lean-lang.org/packages) | Lean package registry. Filter by version to find compatible projects. |
 
 ## Suggested test progression
@@ -86,14 +86,14 @@ relevant for `stubify` testing (Lean<->Rust mappings).
 1. **CertifyingDatalog** (v4.28.0) -- closest compatible version, no mathlib, small
 2. **VCV-io** (v4.28.0) -- crypto proofs, oracle computations, moderate size
 3. **ArkLib** (v4.28.0) -- large crypto project, SNARKs, deep dependency graph
-4. **Aeneas tests/lean** (v4.28.0-rc1) -- rich Rust->Lean content, good for stubify exploration
+4. **Aeneas tests/lean** (v4.28.0-rc1) -- rich Rust->Lean content, good for viewify exploration
 5. **SafeVerify** or **lean4lean** (v4.26-v4.27) -- minor compat fixes
 6. **mathlib4** (v4.29.0-rc3) -- exact match, stress test at scale
-7. **curve25519-dalek-lean-verify** -- stubify-specific testing (slow build)
+7. **curve25519-dalek-lean-verify** -- viewify-specific testing (slow build)
 
 ## Test results
 
-| Project | Lean | atomize | specify | extract | pipeline | stubify | Notes |
-|---------|------|---------|---------|--------|----------|---------|-------|
-| katydid/proofs | v4.22.0 | 589 atoms, 28 modules, 8s | 589 specs | 573/589 verified, 16 sorry | N/A | N/A | Depends on mathlib4. Build ~3.5min. Required probe-lean compat fixes for 4.22.0 (trimAscii, dropPrefix, toString). Default atoms.json path mismatch between atomize (.verilib/) and specify/extract (project root) -- needs `-a` flag. |
-| Verified-zkEVM/ArkLib | v4.28.0 | 4024 atoms, 162 modules | 4024 specs | 3654/4024 verified, 370 sorry | 4024 enriched atoms, 3654 verified / 370 unverified | N/A | Depends on mathlib. Build ~4.5min with cache. Pipeline tested locally end-to-end. |
+| Project | Lean | extract | viewify | Notes |
+|---------|------|---------|---------|-------|
+| katydid/proofs | v4.22.0 | 589 atoms, 573/589 verified, 16 sorry | N/A | Depends on mathlib4. Build ~3.5min. Required probe-lean compat fixes for 4.22.0 (trimAscii, dropPrefix, toString). |
+| Verified-zkEVM/ArkLib | v4.28.0 | 4024 atoms, 3654 verified / 370 unverified | N/A | Depends on mathlib. Build ~4.5min with cache. Tested locally end-to-end. |

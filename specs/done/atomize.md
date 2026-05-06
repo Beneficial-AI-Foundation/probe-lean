@@ -1,3 +1,7 @@
+> **Superseded.** The `atomize` subcommand was folded into `extract` in Schema 2.0.
+> The current `extract` command is documented in [docs/SCHEMA.md](../../docs/SCHEMA.md)
+> and [docs/USAGE.md](../../docs/USAGE.md).
+
 # Feature: atomize
 
 ## Summary
