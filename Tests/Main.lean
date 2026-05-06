@@ -2038,11 +2038,24 @@ def testCacheValidity (result : TestResult) : IO TestResult := do
   let v2 ← isCacheValid tmpBase
   result ← test "cache file but no build dir → invalid" (!v2) result
 
-  -- Create build dir → valid (no .lean files to be newer)
+  -- Create empty build dir (post-`lake clean` scenario) → invalid
   let buildDir := tmpBase / ".lake" / "build" / "lib" / "lean"
   IO.FS.createDirAll buildDir
   let v3 ← isCacheValid tmpBase
-  result ← test "cache file + build dir → valid" v3 result
+  result ← test "empty build dir (post lake clean) → invalid" (!v3) result
+
+  -- Add an .olean → valid
+  IO.FS.writeFile (buildDir / "Foo.olean") ""
+  let v3b ← isCacheValid tmpBase
+  result ← test "cache file + build dir with .olean → valid" v3b result
+
+  -- Remove the .olean (simulating lake clean leaving the dir behind) → invalid
+  IO.FS.removeFile (buildDir / "Foo.olean")
+  let v3c ← isCacheValid tmpBase
+  result ← test "olean removed but dir kept → invalid" (!v3c) result
+
+  -- Restore .olean for the remaining timestamp-based assertions
+  IO.FS.writeFile (buildDir / "Foo.olean") ""
 
   -- Touch lean-toolchain after cache → invalid
   IO.sleep 1100
