@@ -11,6 +11,30 @@ Analyze Lean 4 projects: extract dependency graphs with verification status and 
 - **Toolchain match**: probe-lean must be installed for the same Lean version as the target project (`.olean` files are version-specific). Check with `cat <target-project>/lean-toolchain`.
 - For large projects using Mathlib, run `lake exe cache get` in the target project first to download pre-built `.olean` files
 
+## Supported Projects
+
+probe-lean can analyze any Lean 4 project that meets these requirements:
+
+| Requirement | Detail |
+|-------------|--------|
+| **Lean version** | **≥ v4.28.0-rc1** — the `.olean` binary format is not compatible across Lean versions, and probe-lean cannot be built for older toolchains |
+| **Buildable Lean libraries** | probe-lean only needs the `.olean` files from `lake build <lib>`. If the Lean library targets compile but the final executable linking fails (e.g., missing GPU drivers), extraction can still succeed — use `--library <lib>` to build only the library |
+
+### Projects with native dependencies
+
+Some Lean projects depend on system-level C/C++ libraries (Vulkan, CUDA, OpenSSL, etc.) via FFI. probe-lean does not manage these dependencies — **the project's own build must succeed before probe-lean can analyze it.**
+
+- **Check the project's docs first.** Look for a `shell.nix`, `flake.nix`, `Dockerfile`, or README section listing required system packages. These are the authoritative source for what needs to be installed.
+- **Nix environments are auto-detected.** If the target project ships a `shell.nix` or `flake.nix`, probe-lean wraps `lake` commands inside the Nix shell so that system dependencies are available automatically. This requires `nix-shell` or `nix` to be installed on your system.
+- **Without Nix, install deps manually.** You'll need to install the project's system dependencies yourself (e.g., `apt install libvulkan-dev`). If `lake build` fails with missing headers or libraries, those errors come from the project's build system, not from probe-lean.
+- **Pre-build the project separately.** For complex projects, run `lake build` (or `lake build <lib>`) inside the target project directory first. Once the Lean modules are compiled, `probe-lean extract` will detect the up-to-date build cache and skip the build step.
+
+### What won't work
+
+- **Projects on Lean < v4.28.0-rc1** — probe-lean uses stdlib APIs introduced in v4.28; there are no pre-built binaries for older versions, and source builds will fail
+- **Projects whose Lean libraries don't compile** — if `lake build <lib>` can't produce `.olean` files, extraction cannot proceed. Note: linking failures for executables don't matter if the library targets succeed
+- **Toolchain mismatches** — even a patch-level difference (e.g., v4.28.0-rc1 vs v4.29.0) requires a matching probe-lean build. Use the installer's `--from-project` flag to auto-install the right version
+
 ## Installation
 
 No git clone required — the installer downloads a pre-built binary directly from GitHub releases.
