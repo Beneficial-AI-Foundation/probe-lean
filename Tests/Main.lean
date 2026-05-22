@@ -1606,7 +1606,7 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
     match data.getObj? with
     | .error _ => return result.add false
     | .ok obj => do
-      let validStatuses := ["verified", "unverified", "failed", "trusted", "transitively-verified"]
+      let validStatuses := ["verified", "unverified", "failed", "trusted"]
       let validReasons := ["axiom", "external", "externally_verified"]
       let mut allValid := true
       let mut hasVerified := false
@@ -1976,7 +1976,7 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
   result ← test "sorries maps to unverified" (vs2 == .unverified) result
   result ← test "failure maps to failed" (vs3 == .failed) result
 
-  let validStatuses := #["verified", "unverified", "failed", "trusted", "transitively-verified"]
+  let validStatuses := #["verified", "unverified", "failed", "trusted"]
   let vsJson1 := Lean.toJson vs1
   let vsJson2 := Lean.toJson vs2
   let vsJson3 := Lean.toJson vs3
@@ -2148,227 +2148,6 @@ def testNixEnv (result : TestResult) : IO TestResult := do
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
-private def mkUnified (name : String) (deps : Array String)
-    (status : Option WebVerificationStatus := none) : UnifiedAtom :=
-  { name, displayName := name, dependencies := deps,
-    codeModule := "Test", codePath := "Test.lean",
-    codeText := some { linesStart := 1, linesEnd := 5 },
-    kind := .def, verificationStatus := status }
-
-private def getVS (atom : UnifiedAtom) : Option WebVerificationStatus :=
-  atom.verificationStatus
-
-private def findUA (atoms : Array UnifiedAtom) (name : String) : Option UnifiedAtom :=
-  atoms.find? fun a => a.name == name
-
-def testTransitiveVerificationBasic (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification basic cases..."
-
-  -- Leaf verified atom -> transitively-verified
-  let a := mkUnified "a" #[] (some .verified)
-  let (res, t, l) := enrichTransitiveVerification #[a]
-  result ← test "leaf verified -> transitively-verified"
-    (getVS (findUA res "a").get! == some .transitivelyVerified) result
-  result ← test "leaf counts: transitive=1, local=0" (t == 1 && l == 0) result
-
-  -- All deps verified -> all transitively-verified
-  let a2 := mkUnified "a" #["b"] (some .verified)
-  let b2 := mkUnified "b" #["c"] (some .verified)
-  let c2 := mkUnified "c" #[] (some .verified)
-  let (res2, t2, l2) := enrichTransitiveVerification #[a2, b2, c2]
-  result ← test "all verified chain -> all transitively-verified"
-    (getVS (findUA res2 "a").get! == some .transitivelyVerified &&
-     getVS (findUA res2 "b").get! == some .transitivelyVerified &&
-     getVS (findUA res2 "c").get! == some .transitivelyVerified) result
-  result ← test "all verified counts: transitive=3, local=0" (t2 == 3 && l2 == 0) result
-
-  -- One dep failed -> caller stays verified (locally)
-  let a3 := mkUnified "a" #["b"] (some .verified)
-  let b3 := mkUnified "b" #[] (some .failed)
-  let (res3, _, _) := enrichTransitiveVerification #[a3, b3]
-  result ← test "dep failed -> caller stays verified"
-    (getVS (findUA res3 "a").get! == some .verified) result
-  result ← test "failed dep unchanged"
-    (getVS (findUA res3 "b").get! == some .failed) result
-
-  -- One dep unverified -> caller stays verified (locally)
-  let a4 := mkUnified "a" #["b"] (some .verified)
-  let b4 := mkUnified "b" #[] (some .unverified)
-  let (res4, _, _) := enrichTransitiveVerification #[a4, b4]
-  result ← test "dep unverified -> caller stays verified"
-    (getVS (findUA res4 "a").get! == some .verified) result
-  result ← test "unverified dep unchanged"
-    (getVS (findUA res4 "b").get! == some .unverified) result
-  return result
-
-def testTransitiveVerificationTrust (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification trust and missing..."
-
-  -- Trusted dep does not block
-  let a := mkUnified "a" #["b"] (some .verified)
-  let b := mkUnified "b" #[] (some .trusted)
-  let (res, _, _) := enrichTransitiveVerification #[a, b]
-  result ← test "trusted dep -> caller transitively-verified"
-    (getVS (findUA res "a").get! == some .transitivelyVerified) result
-
-  -- Missing dep (not in map) does not block
-  let a2 := mkUnified "a" #["nonexistent"] (some .verified)
-  let (res2, _, _) := enrichTransitiveVerification #[a2]
-  result ← test "missing dep -> caller transitively-verified"
-    (getVS (findUA res2 "a").get! == some .transitivelyVerified) result
-
-  -- Missing status does not contaminate
-  let a3 := mkUnified "a" #["b"] (some .verified)
-  let b3 := mkUnified "b" #[] none
-  let (res3, _, _) := enrichTransitiveVerification #[a3, b3]
-  result ← test "missing status dep -> caller transitively-verified"
-    (getVS (findUA res3 "a").get! == some .transitivelyVerified) result
-
-  -- Non-verified atoms untouched
-  let a4 := mkUnified "a" #[] (some .unverified)
-  let b4 := mkUnified "b" #[] (some .failed)
-  let c4 := mkUnified "c" #[] none
-  let (res4, _, _) := enrichTransitiveVerification #[a4, b4, c4]
-  result ← test "unverified atom untouched"
-    (getVS (findUA res4 "a").get! == some .unverified) result
-  result ← test "failed atom untouched"
-    (getVS (findUA res4 "b").get! == some .failed) result
-  result ← test "none-status atom untouched"
-    (getVS (findUA res4 "c").get! == none) result
-  return result
-
-def testTransitiveVerificationGraph (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification graph patterns..."
-
-  -- Transitive chain: A->B->C, C unverified
-  let a := mkUnified "a" #["b"] (some .verified)
-  let b := mkUnified "b" #["c"] (some .verified)
-  let c := mkUnified "c" #[] (some .unverified)
-  let (res, _, _) := enrichTransitiveVerification #[a, b, c]
-  result ← test "transitive chain: A stays verified"
-    (getVS (findUA res "a").get! == some .verified) result
-  result ← test "transitive chain: B stays verified"
-    (getVS (findUA res "b").get! == some .verified) result
-  result ← test "transitive chain: C stays unverified"
-    (getVS (findUA res "c").get! == some .unverified) result
-
-  -- Diamond dependency with unverified leaf
-  let a2 := mkUnified "a" #["b", "c"] (some .verified)
-  let b2 := mkUnified "b" #["d"] (some .verified)
-  let c2 := mkUnified "c" #["d"] (some .verified)
-  let d2 := mkUnified "d" #[] (some .unverified)
-  let (res2, _, _) := enrichTransitiveVerification #[a2, b2, c2, d2]
-  result ← test "diamond: A stays verified"
-    (getVS (findUA res2 "a").get! == some .verified) result
-  result ← test "diamond: B stays verified"
-    (getVS (findUA res2 "b").get! == some .verified) result
-  result ← test "diamond: C stays verified"
-    (getVS (findUA res2 "c").get! == some .verified) result
-  result ← test "diamond: D stays unverified"
-    (getVS (findUA res2 "d").get! == some .unverified) result
-
-  -- Cycle (all verified) -> transitively-verified
-  let a3 := mkUnified "a" #["b"] (some .verified)
-  let b3 := mkUnified "b" #["a"] (some .verified)
-  let (res3, _, _) := enrichTransitiveVerification #[a3, b3]
-  result ← test "cycle all verified: A transitively-verified"
-    (getVS (findUA res3 "a").get! == some .transitivelyVerified) result
-  result ← test "cycle all verified: B transitively-verified"
-    (getVS (findUA res3 "b").get! == some .transitivelyVerified) result
-
-  -- Cycle with unverified dep
-  let a4 := mkUnified "a" #["b"] (some .verified)
-  let b4 := mkUnified "b" #["c", "d"] (some .verified)
-  let c4 := mkUnified "c" #["a"] (some .verified)
-  let d4 := mkUnified "d" #[] (some .unverified)
-  let (res4, _, _) := enrichTransitiveVerification #[a4, b4, c4, d4]
-  result ← test "cycle with unverified: A stays verified"
-    (getVS (findUA res4 "a").get! == some .verified) result
-  result ← test "cycle with unverified: B stays verified"
-    (getVS (findUA res4 "b").get! == some .verified) result
-  result ← test "cycle with unverified: C stays verified"
-    (getVS (findUA res4 "c").get! == some .verified) result
-  return result
-
-def testTransitiveVerificationProperties (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification properties..."
-
-  -- Idempotency
-  let a := mkUnified "a" #["b"] (some .verified)
-  let b := mkUnified "b" #[] (some .unverified)
-  let (res1, _, _) := enrichTransitiveVerification #[a, b]
-  let (res2, _, _) := enrichTransitiveVerification res1
-  result ← test "idempotency: A unchanged after second run"
-    (getVS (findUA res2 "a").get! == getVS (findUA res1 "a").get!) result
-  result ← test "idempotency: B unchanged after second run"
-    (getVS (findUA res2 "b").get! == getVS (findUA res1 "b").get!) result
-
-  -- Idempotency for transitively-verified
-  let c := mkUnified "c" #[] (some .verified)
-  let (res3, _, _) := enrichTransitiveVerification #[c]
-  let (res4, _, _) := enrichTransitiveVerification res3
-  result ← test "idempotency: transitively-verified stays"
-    (getVS (findUA res4 "c").get! == some .transitivelyVerified) result
-
-  -- Counts are correct
-  let a5 := mkUnified "a" #[] (some .verified)
-  let b5 := mkUnified "b" #["c"] (some .verified)
-  let c5 := mkUnified "c" #[] (some .unverified)
-  let (_, t5, l5) := enrichTransitiveVerification #[a5, b5, c5]
-  result ← test "counts: transitive=1, local=1" (t5 == 1 && l5 == 1) result
-
-  -- Explicit unverified contaminates but missing does not
-  let a6 := mkUnified "a" #["b", "c"] (some .verified)
-  let b6 := mkUnified "b" #[] (some .unverified)
-  let c6 := mkUnified "c" #[] none
-  let (res6, _, _) := enrichTransitiveVerification #[a6, b6, c6]
-  result ← test "explicit unverified contaminates, missing does not"
-    (getVS (findUA res6 "a").get! == some .verified) result
-
-  return result
-
-def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing WebVerificationStatus transitively-verified JSON..."
-  let wvsTransitive := match Lean.FromJson.fromJson?
-      (Lean.toJson WebVerificationStatus.transitivelyVerified)
-      (α := WebVerificationStatus) with
-    | .ok .transitivelyVerified => true | _ => false
-  result ← test "transitivelyVerified round-trips through JSON" wvsTransitive result
-  result ← test "transitivelyVerified toJson"
-    (Lean.toJson WebVerificationStatus.transitivelyVerified == "transitively-verified") result
-
-  IO.println ""
-  IO.println "Testing UnifiedAtom with transitively-verified status..."
-  let tvAtom : UnifiedAtom := {
-    name := "probe:Test.tv"
-    displayName := "tv"
-    dependencies := #[]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := none
-    kind := .def
-    verificationStatus := some .transitivelyVerified
-  }
-  let tvJson := Lean.toJson tvAtom
-  let tvStatusOk := match tvJson.getObjValAs? String "verification-status" with
-    | .ok "transitively-verified" => true | _ => false
-  result ← test "UnifiedAtom transitively-verified in JSON" tvStatusOk result
-  let tvRtOk := match Lean.FromJson.fromJson? tvJson (α := UnifiedAtom) with
-    | .ok a => a.verificationStatus == some .transitivelyVerified
-    | .error _ => false
-  result ← test "UnifiedAtom transitively-verified round-trips" tvRtOk result
-  return result
-
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -2409,11 +2188,6 @@ def main : IO UInt32 := do
   result ← testCacheValidity result
   result ← testCheckFilesSkipsDotDirs result
   result ← testNixEnv result
-  result ← testTransitiveVerificationBasic result
-  result ← testTransitiveVerificationTrust result
-  result ← testTransitiveVerificationGraph result
-  result ← testTransitiveVerificationProperties result
-  result ← testTransitiveVerificationJson result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

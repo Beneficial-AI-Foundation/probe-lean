@@ -7,20 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-05-22
-
-### Added
-
-- **`transitively-verified` status**: Verified atoms whose transitive dependencies
-  are all verified or trusted are now upgraded to `"transitively-verified"` via
-  reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`). Atoms that
-  are locally sorry-free but have at least one unverified or failed transitive
-  dependency remain `"verified"`.
-- **`--skip-enrich` flag**: Skip the transitive verification enrichment step.
-  When passed, no atoms will be upgraded to `"transitively-verified"`.
-- **`ProbeLean/Transitive.lean`**: New module implementing the enrichment algorithm
-  using `Lean.RBMap` for deterministic iteration and an `Array`-backed BFS queue.
-
 ## [0.6.3] - 2026-04-30
 
 ### Fixed

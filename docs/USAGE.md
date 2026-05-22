@@ -71,7 +71,6 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--library <LIBS>` | `-l` | Comma-separated list of library names to build (default: `defaultTargets` from `lakefile.toml`, falling back to all `[[lean_lib]]` entries) |
 | `--skip-verify` | | Skip the sorry detection step (graph structure only) |
 | `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
-| `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
 
 ---
 
@@ -258,7 +257,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.7.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.4.5", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",

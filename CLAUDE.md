@@ -85,7 +85,7 @@ Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (o
 
 ### Extract pipeline
 
-`probe-lean extract` runs: **build → atomize → sorry detection → merge → enrich → envelope → write**
+`probe-lean extract` runs: **build → atomize → sorry detection → merge → envelope → write**
 
 - `ProbeLean/Analysis.lean` — Core analysis: walks Lean environment, extracts dependencies (type vs term)
 - `ProbeLean/Atomize.lean` — Converts declarations to `Atom` structs, applies filtering flags
@@ -93,7 +93,6 @@ Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (o
 - `ProbeLean/Environment.lean` — Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), build cache
 - `ProbeLean/VerifyInternal.lean` — Parses sorry warnings from build output
 - `ProbeLean/Extract.lean` — Orchestrates the pipeline, produces `UnifiedAtom` output
-- `ProbeLean/Transitive.lean` — Reverse-BFS contamination for `transitively-verified` status enrichment
 - `ProbeLean/Version.lean` — Single version constant, generated from `lakefile.toml`
 - `ProbeLean/Types.lean` — All data structures and JSON serialization
 - `ProbeLean/View.lean` — `viewify` command (filters atoms → molecules for web UI)
