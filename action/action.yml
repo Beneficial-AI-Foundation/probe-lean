@@ -23,7 +23,7 @@ inputs:
     required: false
     default: ''
   extract-args:
-    description: 'Extra arguments passed to probe-lean extract (e.g., --skip-verify --library Lib1)'
+    description: 'Extra arguments passed to probe-lean extract (e.g., --skip-verify --skip-enrich --library Lib1)'
     required: false
     default: ''
   output-dir:

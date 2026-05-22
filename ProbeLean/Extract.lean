@@ -9,6 +9,7 @@ import ProbeLean.Environment
 import ProbeLean.Metadata
 import ProbeLean.Atomize
 import ProbeLean.VerifyInternal
+import ProbeLean.Transitive
 
 namespace ProbeLean
 
@@ -22,6 +23,7 @@ structure ExtractConfig where
   skipVerify : Bool
   fromFile : Option System.FilePath
   libraries : Option (Array String) := none
+  skipEnrich : Bool := false
   deriving Repr
 
 /-- Map probe-lean VerifyStatus to the web frontend's verification status -/
@@ -111,7 +113,7 @@ def ensureMathlibCache (projectPath : System.FilePath)
     IO.println "  ✓ Mathlib cache downloaded"
     IO.println ""
 
-/-- Run the combined extract pipeline: build → atomize → markAtomFlags → sorry detection → merge → envelope → write -/
+/-- Run the combined extract pipeline: build → atomize → markAtomFlags → sorry detection → merge → enrich → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if !(← isLakeProject config.projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
@@ -237,6 +239,17 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let unifiedAtoms := atoms.mapIdx fun i atom =>
     let proof := proofEntries.bind fun ps => ps[i]?
     unifyAtom atom proof
+
+  -- === Enrich: transitive verification via reverse-BFS ===
+  let unifiedAtoms ← if config.skipEnrich then
+    IO.println "Enrichment skipped (--skip-enrich)"
+    pure unifiedAtoms
+  else do
+    IO.println "=== Enrich ==="
+    let (enriched, transitive, local_) := enrichTransitiveVerification unifiedAtoms
+    let notVerified := enriched.size - transitive - local_
+    IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
+    pure enriched
 
   let source ← collectSourceInfo config.projectPath
   let timestamp ← getCurrentTimestamp
