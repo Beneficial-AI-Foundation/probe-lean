@@ -30,6 +30,7 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
   let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
   let libraries := parsed.flag? "library" |>.map fun f =>
     (f.as! String).splitOn "," |>.map (fun s => s.trimAscii.toString) |>.toArray
+  let skipEnrich := parsed.hasFlag "skip-enrich"
 
   let config : ExtractConfig := {
     projectPath := projectPath
@@ -38,6 +39,7 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
     skipVerify := skipVerify
     fromFile := fromFile
     libraries := libraries
+    skipEnrich := skipEnrich
   }
 
   runExtractInProject config
@@ -53,6 +55,7 @@ def extractCmd : Cmd := `[Cli|
     "skip-verify"; "Skip the sorry detection step"
     "from-file" : String; "Use existing build output for sorry detection instead of running lake"
     l, library : String; "Comma-separated list of library names to build (default: auto-detect from lakefile.toml)"
+    "skip-enrich"; "Skip transitive verification enrichment"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to analyze"
