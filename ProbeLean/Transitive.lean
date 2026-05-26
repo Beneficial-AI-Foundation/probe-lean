@@ -27,17 +27,26 @@ private def isContaminationSource (status : Option WebVerificationStatus) : Bool
     **locally verified** (the atom itself is verified but at least one
     transitive dependency is not).
 
-    Returns `(enrichedAtoms, transitiveCount, localCount)`. -/
+    Returns `(enrichedAtoms, transitiveCount, localCount, missingDeps)`.
+    `missingDeps` lists dependency names not found in the atom map
+    (treated as trusted, matching `probe`'s `propagate.rs` behavior). -/
 def enrichTransitiveVerification (atoms : Array UnifiedAtom)
-    : Array UnifiedAtom × Nat × Nat := Id.run do
-  -- 1. Build reverse dependency index and verified set
+    : Array UnifiedAtom × Nat × Nat × Array String := Id.run do
+  -- 1. Build reverse dependency index, verified set, and track missing deps
   let mut reverseDeps : RBMap String (Array String) compare := .empty
   let mut verifiedSet : RBTree String compare := .empty
+  let mut atomNames : RBTree String compare := .empty
+  let mut missingDepsSet : RBTree String compare := .empty
+
+  for atom in atoms do
+    atomNames := atomNames.insert atom.name
 
   for atom in atoms do
     if isVerified atom.verificationStatus then
       verifiedSet := verifiedSet.insert atom.name
     for dep in atom.dependencies do
+      if !atomNames.contains dep then
+        missingDepsSet := missingDepsSet.insert dep
       let cur := (reverseDeps.find? dep).getD #[]
       reverseDeps := reverseDeps.insert dep (cur.push atom.name)
 
@@ -86,6 +95,6 @@ def enrichTransitiveVerification (atoms : Array UnifiedAtom)
         transitiveCount := transitiveCount + 1
         result := result.set! i { atom with verificationStatus := some .transitivelyVerified }
 
-  (result, transitiveCount, localCount)
+  (result, transitiveCount, localCount, missingDepsSet.toArray)
 
 end ProbeLean

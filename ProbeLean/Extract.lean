@@ -113,7 +113,7 @@ def ensureMathlibCache (projectPath : System.FilePath)
     IO.println "  ✓ Mathlib cache downloaded"
     IO.println ""
 
-/-- Run the combined extract pipeline: build → atomize → markAtomFlags → sorry detection → merge → enrich → envelope → write -/
+/-- Run the combined extract pipeline: build → atomize → markAtomFlags → specs → sorry detection → merge → enrich → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if !(← isLakeProject config.projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
@@ -246,7 +246,9 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     pure unifiedAtoms
   else do
     IO.println "=== Enrich ==="
-    let (enriched, transitive, local_) := enrichTransitiveVerification unifiedAtoms
+    let (enriched, transitive, local_, missingDeps) := enrichTransitiveVerification unifiedAtoms
+    for dep in missingDeps do
+      IO.eprintln s!"Warning: dependency \"{dep}\" not found in atom map (treated as trusted)"
     let notVerified := enriched.size - transitive - local_
     IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
     pure enriched

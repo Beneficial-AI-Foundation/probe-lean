@@ -169,13 +169,13 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
 3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
-4. **Verify** -- parses sorry warnings from build output to determine verification status (shallow: checks only the declaration's own body, not its dependencies); axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
-5. **Enrich** -- upgrades `"verified"` atoms to `"transitively-verified"` when all transitive dependencies are verified or trusted, using reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`; skippable via `--skip-enrich`)
-6. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom using a multi-signal precedence chain:
+4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
     2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
     3. `_spec` suffix — a theorem named `<def>_spec` is assigned as primary spec
     4. Sole spec — if a definition has exactly one spec theorem, it is used as primary spec
+5. **Verify** -- parses sorry warnings from build output to determine verification status (shallow: checks only the declaration's own body, not its dependencies); axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
+6. **Enrich** -- upgrades `"verified"` atoms to `"transitively-verified"` when all transitive dependencies are verified or trusted, using reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`; skippable via `--skip-enrich`)
 7. **Schema 2.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 
 ## Testing

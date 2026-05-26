@@ -85,7 +85,7 @@ Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (o
 
 ### Extract pipeline
 
-`probe-lean extract` runs: **build → atomize → sorry detection → merge → enrich → envelope → write**
+`probe-lean extract` runs: **build → atomize → specs → sorry detection → merge → enrich → envelope → write**
 
 - `ProbeLean/Analysis.lean` — Core analysis: walks Lean environment, extracts dependencies (type vs term)
 - `ProbeLean/Atomize.lean` — Converts declarations to `Atom` structs, applies filtering flags
