@@ -55,14 +55,22 @@ probe-lean viewify <PATH>  # Filter extract output → molecules for web UI
 
 ## Build Performance
 
+Every code change must be evaluated for its impact on `lake build` time. Lean's elaborator is sensitive to code structure — seemingly small additions can cause disproportionate compilation slowdowns. Follow Lean community best practices and prefer idiomatic patterns that the elaborator handles efficiently.
+
+### Elaboration depth
+
 Lean 4's `do` notation desugars each monadic bind (`x ← ...`) into a nested `>>= fun ... =>` call. The elaborator's type-checking cost grows superlinearly with nesting depth — a single function with 100+ binds can take **10+ minutes** to compile, while the same tests split across small functions compile in **under 2 seconds**.
 
-**Rules for fast builds:**
+### Rules for fast builds
 
 1. **Never put more than ~30 monadic binds in a single `do` block.** If a function is growing past this, extract a helper.
 2. **Tests/Main.lean uses one function per test section.** When adding tests, either add to an existing section function or create a new `testXxx` function and call it from `main`.
 3. **`main` must stay flat** — just a chain of `result ← testXxx result` calls, not inline test logic.
 4. **Never add `set_option maxRecDepth`** to work around slow compilation. If you need it, the `do` block is too deep — split it instead.
+5. **Prefer `Id.run do` for pure computations** instead of lifting into `IO` unnecessarily — it avoids monadic overhead and keeps functions testable without I/O.
+6. **Use `RBMap`/`RBTree` over `HashMap`** when deterministic output is needed (P14), but prefer `HashMap` for internal-only lookups where ordering doesn't matter and the dataset is large.
+7. **Avoid deep type-class synthesis chains.** If a function requires many type-class constraints, consider making them explicit parameters or using simpler concrete types.
+8. **Measure before and after.** When adding non-trivial logic, compare `lake build` times. A regression of more than a few seconds on incremental builds should be investigated and mitigated (split functions, simplify types, reduce instance search).
 
 ## Running extract on target projects
 
