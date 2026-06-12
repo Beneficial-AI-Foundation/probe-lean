@@ -20,10 +20,11 @@ VCVio); other project classes are handled separately.
 | **correctness** | a functional-correctness property | `Prop`/game + the theorem proving it | `AEADScheme.Correct`, `correctnessExp`, `Pr[correctnessExp wins] = 1` |
 | **security** | a security property (advantage bound) | probabilistic game + the theorem bounding advantage | `securityExp`, `securityAdvantage` |
 
-Each classified declaration is annotated with its `category` and with `via`, recording **how**
-the category was determined: `attribute`, `type`, or `naming` (defined next). A declaration
-that matches none of the four categories — invariant lemmas, helper definitions, game state
-records — is left unclassified (no annotation).
+Each classified declaration is annotated with its `category`, with `via` — recording **how** the
+category was determined: `attribute`, `type`, or `naming` (defined next) — and, where resolvable,
+with explicit **links** to the construction and scheme it is about (see *Output schema*). A
+declaration that matches none of the four categories — invariant lemmas, helper definitions, game
+state records — is left unclassified (no annotation).
 
 Classification is applied only to a project's **own** declarations — imported declarations (from
 VCVio, Mathlib, …) never receive a `classification`. They may, however, be *referenced* as
@@ -35,8 +36,22 @@ atoms — otherwise imported anchors such as `SecExp` would be invisible.
 
 ## How classification works
 
-Three signals are consulted, in decreasing order of reliability. The first that applies wins,
-and the signal used is recorded in `via`.
+For each declaration, three signals are consulted in decreasing order of reliability; the first
+that applies wins, and the signal used is recorded in `via`.
+
+Classification runs as a **staged pipeline**, because later categories depend on earlier ones:
+
+1. **schemes** — needed before constructions can be detected;
+2. **constructions** — detected by their return type being a scheme;
+3. **property definitions** — games, correctness predicates, advantage definitions. Project-own
+   property definitions classified in this stage are **promoted into the anchor set** (see the
+   promotion rule under *Correctness/Security* below);
+4. **theorems** — classified by walking their statements to the nearest anchor (catalogued or
+   promoted).
+
+The staging only fixes *when* each kind of declaration is classified — it does **not** force every
+theorem through a game: a theorem may reach a predicate anchor (`…Correct`) or an advantage
+definition directly, or be classified purely by attribute/naming with no anchor at all.
 
 ### Attributes (`via: attribute`) — authoritative
 
@@ -54,7 +69,7 @@ Tagging is optional and incremental — a single line per declaration. It is the
 to pin down anything the heuristics below get wrong or cannot see.
 
 **Registration.** Lean will not compile `@[scheme_def]` (etc.) unless the attribute is
-*registered* by some module the project imports. These attributes are registered in
+*registered* by some module the project imports. These attributes belong in
 probe-lean's attribute module (`ProbeLean.Attrs`), following the same pattern as `@[primary_spec]`,
 so a project that wants to tag its declarations imports that module (taking a dependency on
 probe-lean) and adds the tags. probe-lean then detects the tags directly from the built project —
@@ -101,24 +116,64 @@ auto-detected and must carry `@[scheme_def]`.
 
 #### Correctness
 
-- a `theorem`, or a `Prop`/game `def`.
-- its **statement reaches a correctness anchor** (below). Matching starts from the declaration's
+- a `theorem`, or a property-shaped `def` — a predicate (`Prop`-valued), a game (monadic-`Bool`
+  return-type head), or an advantage definition (real-/`ℝ≥0∞`-valued).
+- its **statement reaches a correctness anchor**. Matching starts from the declaration's
   **type-dependencies** (the statement), *not* its proof/body — so a proof that merely *uses* a
-  correctness lemma does not make an unrelated theorem "correctness". From the statement the walk
-  descends into the bodies of *game/experiment definitions* only, because a headline theorem names
-  the game rather than the anchor (e.g. `Pr[= true | correctnessExp ddhCKA] = 1` names
-  `correctnessExp`, whose body in turn reaches the anchor).
+  correctness lemma does not make an unrelated theorem "correctness".
 
 #### Security
 
-- a `theorem`, or a game `def`.
-- its **statement reaches a security anchor** (below), by the same type-dependency-rooted,
-  descend-into-games walk as correctness.
+- a `theorem`, or a property-shaped `def` (predicate, game, or advantage definition — as above).
+- its **statement reaches a security anchor**, by the same type-dependency-rooted walk as
+  correctness.
 
-**Walk semantics (both):** the walk is **bounded** — a fixed maximum depth plus a visited-set;
-cycles and the bound both terminate it, leaving the atom *unclassified* rather than hanging.
-"Nearest anchor wins" means the smallest number of hops; **a tie is left unclassified**. In
-particular, when a statement reaches *both* a correctness and a security anchor (e.g.
+#### Anchors, the promotion rule, and the walk (both categories)
+
+**The anchor set = the catalogued VCVio anchors (below) ∪ promoted project-local property
+definitions.** The catalogued VCVio anchors alone are *not* enough: empirically, project games
+are hand-rolled — e.g. secure-messaging's `correctnessExp`/`securityExp` are plain
+`ProbComp Bool` definitions built from `simulateQ` and project-local oracles, whose bodies never
+reference `SecExp`, `CorrectExp`, or any catalogued advantage. A walk that only targets VCVio
+anchors therefore dead-ends and classifies almost nothing.
+
+**Promotion rule:** when the *property-definitions* stage of the pipeline classifies a
+project-own game, predicate, or advantage definition as correctness/security — by any of the
+three signals (attribute, type, or naming; e.g. `correctnessExp` matches the `*correct*` naming
+pattern) — that definition is **added to the anchor set, in memory, for the remainder of the
+run**. A theorem whose statement reaches a promoted anchor counts as
+reaching an anchor of that category. No external file or configuration is involved; the anchor
+set is rebuilt from the catalogue + the project's own classified definitions on every run.
+
+To keep the result independent of declaration order, the property-definitions stage runs as two
+sub-passes: first the **anchor-independent signals** (attribute and naming) classify and promote;
+then the **type signal** classifies the remaining property definitions against the anchor set,
+**iterated to a fixed point** (a newly classified definition is promoted and may classify
+further ones). The anchor set only grows, so the fixed point is the same whatever order
+declarations are visited in; iteration is bounded by the number of declarations.
+
+**Provenance (weakest-tier inheritance):** a theorem classified through a *promoted* anchor
+inherits the **weakest signal in its chain** as its `via` — e.g. a theorem anchored on
+`correctnessExp` (itself classified `via: naming`) is emitted with `via: naming`, not
+`via: type`. This keeps the provenance honest: the walk was structural, but the anchor underneath
+was a naming inference, and a false-positive anchor name would otherwise confidently mislabel
+every theorem above it as structurally classified. A theorem anchored on a *catalogued VCVio*
+anchor keeps `via: type` (nothing heuristic in its chain), and an anchor pinned with an attribute
+upgrades the whole chain (theorems above it are then genuinely `via: type`).
+
+**Descent gate:** a headline theorem may name an intermediate definition rather than an anchor.
+The walk descends into the bodies of **game-shaped definitions only** — operationally, a `def`
+whose return-type head (after stripping binders) is a monadic `Bool` computation (e.g.
+`ProbComp Bool`, `OracleComp _ Bool`). This gate is purely structural, so it involves no
+circularity with classification; it exists for unconventionally-named intermediate games. Note
+that advantage definitions need no descent shape: they are typically anchors *themselves*
+(promoted via the `*advantage*` naming pattern), so the walk ends at them rather than stepping
+through them.
+
+**Walk semantics:** the walk is **bounded** — a fixed maximum depth plus a visited-set; cycles
+and the bound both terminate it, leaving the atom *unclassified* rather than hanging. "Nearest
+anchor wins" means the smallest number of hops; **a tie is left unclassified**. In particular,
+when a statement reaches *both* a correctness and a security anchor at equal distance (e.g.
 `correctness_implies_security`), neither dominates and the atom is left unclassified — resolve
 such cases with `@[correctness_spec]` / `@[security_spec]`.
 
@@ -152,32 +207,59 @@ redefine algebra-named structures in their *own* package.
 
 #### Correctness
 
-- **own name** matches `…_correct…`, `…Correct`, `…Complete`, or `correctnessExp`.
-- **guard**: kind is `theorem` or a `Prop`/game `def` — not a `structure`, `class`, `inductive`,
-  `instance`, or `axiom` (a data structure merely *named* `…Correct` is not a correctness
-  property). Note Lean `lemma`s are emitted as kind `theorem`, so they are covered.
+- **own name** contains `correct` or `complete` (case-insensitive substring — `*correct*` /
+  `*complete*`).
+- **guard**: kind is `theorem` or a property-shaped `def` (predicate, game, or advantage
+  definition) — not a `structure`, `class`, `inductive`, `instance`, or `axiom` (a data structure
+  merely *named* `…Correct` is not a correctness property). Note Lean `lemma`s are emitted as
+  kind `theorem`, so they are covered.
 
 #### Security
 
-- **own name** matches `*Advantage`, `*Adv`, `…_secur…`, or `securityExp…`.
-- **guard**: kind is `theorem` or a `Prop`/game `def` — not a `structure`, `class`, `inductive`,
-  `instance`, or `axiom` (a data record merely *named* `…Advantage` is not a security property).
+- **own name** contains `secur` or `advantage` (case-insensitive substring — `*secur*` /
+  `*advantage*`), or ends with `Adv` (suffix; the bare substring `adv` would over-match words
+  like "advance").
+- **guard**: kind is `theorem` or a property-shaped `def` (predicate, game, or advantage
+  definition — this explicitly admits numeric `…Advantage` defs, which are the anchors the
+  promotion rule depends on) — not a `structure`, `class`, `inductive`, `instance`, or `axiom`
+  (a data record merely *named* `…Advantage` is not a security property).
+
+Patterns are deliberately loose **substrings** rather than anchored affixes: real corpus names
+defeat affix patterns — the flagship theorems are named bare `correctness`
+(`CKA/FromDDH/Correctness.lean`, no underscore, no capital) and
+`security_reduces_to_ind_cpa_exists` (starts with "security", so `…_secur…` never matches). The
+kind guards and the attribute override carry the precision burden.
 
 ## Built-in anchor and type catalogue
 
 probe-lean ships with the stable **VCVio** symbols below baked in, so the *type* signal works on a
 VCVio project with no project-specific setup. These are VCVio symbols only — a project's *own*
 property definitions (e.g. secure-messaging's `correctnessExp`, `securityExp`, `ckaSecuritySpec`)
-are **not** in this catalogue; they are reached either transitively (a project game whose body
-reaches a catalogued VCVio anchor) or, failing that, by the *naming* fallback / attributes. This
-is why the examples elsewhere use lowercase project-local names like `correctnessExp` while the
-tables below list the VCVio anchors (`CorrectExp`, `SecExp`, …).
+are **not** in this catalogue; they enter the anchor set via the **promotion rule** above, once
+classified by attribute, type, or naming. This is why the examples elsewhere use lowercase
+project-local names like `correctnessExp` while the tables below list the VCVio anchors
+(`CorrectExp`, `SecExp`, …).
 
-To avoid collisions, catalogued anchors are matched by **fully-qualified name** (or VCVio module
-prefix) — *not* by bare last component. Names like `advantage`, `Correct`, and `Complete` are far
-too generic to match on the last component alone (they would hit unrelated project-local
-declarations). The reachability walk looks for a dependency whose fully-qualified name is one of
-the catalogued VCVio symbols.
+To avoid collisions, catalogued anchors are matched by **fully-qualified name** — *not* by bare
+last component. Names like `advantage`, `Correct`, and `Complete` are far too generic to match on
+the last component alone (they would hit unrelated project-local declarations). The reachability
+walk looks for a dependency whose fully-qualified name is one of the catalogued VCVio symbols, or
+a promoted project-local anchor.
+
+The tables below display the **final name component for readability only**; the implementation
+catalogue stores the fully-qualified names (the symbols live in the namespaces of their defining
+structures, e.g. `SymmEncAlg.Complete`, `AsymmEncAlg.Correct`, `PRFScheme.prfAdvantage`). The
+exact fully-qualified enumeration is fixed during implementation against the targeted VCVio
+version — and policed thereafter by the drift diagnostic below.
+
+**Drift diagnostic:** the catalogue names live in probe-lean while VCVio evolves independently, so
+renames upstream silently break individual anchors (this has already happened:
+`preimageFindingAdvantage` was renamed to `programmedPreimageAdvantage`). At classification start,
+probe-lean therefore **resolves every catalogued fully-qualified name against the loaded
+environment and emits a warning for each unresolved anchor** — converting silent drift into a
+visible diagnostic. The warning is informational, not an error: which names exist depends on the
+VCVio version the target project builds against. The catalogue should be re-verified against
+current VCVio whenever it is edited.
 
 ### VCVio correctness anchors
 
@@ -191,7 +273,7 @@ the catalogued VCVio symbols.
 | Symbol | Kind |
 |---|---|
 | `SecExp`, `SecurityExp`, `SecurityGame` | `structure` (experiment) |
-| `advantage`, `bindingAdvantage`, `hidingAdvantage`, `owfAdvantage`, `prfAdvantage`, `prgAdvantage`, `tdpAdvantage`, `preimageFindingAdvantage`, `ddhDistAdvantage`, `ddhGuessAdvantage` | `def` (advantage) |
+| `advantage`, `bindingAdvantage`, `hidingAdvantage`, `owfAdvantage`, `prfAdvantage`, `prgAdvantage`, `tdpAdvantage`, `programmedPreimageAdvantage`, `collisionFindingAdvantage`, `ddhDistAdvantage`, `ddhGuessAdvantage` | `def` (advantage) |
 
 ### VCVio scheme anchors
 
@@ -212,6 +294,15 @@ as scheme atoms themselves (only project-own declarations are classified — sch
 **own** schemes, so this catalogue only matters when a construction returns a VCVio scheme
 directly.
 
+## Class detection
+
+A project is treated as `security-protocol` when it **imports VCVio**, detected from the built
+environment's import graph (with the Lake manifest as a fallback signal — less robust against
+vendoring and renames). Detection is automatic: probe-lean runs unattended in the verilib
+backend, so no flag or configuration is required. An optional `--class` override may be offered
+for manual runs, but verilib never depends on it. When no class is detected, the classification
+stages do not run and the output carries no class fields.
+
 ## Output schema
 
 Classification is additive to the existing extract output: existing fields are unchanged, and
@@ -219,9 +310,45 @@ two new fields are introduced:
 
 - envelope **`source.class`** — the detected project class, `"security-protocol"` here. Absent
   when no class is detected.
-- per-atom **`classification`** — an object `{ "category": …, "via": … }` where `category` is one
-  of `scheme` / `construction` / `correctness` / `security` and `via` is `attribute` / `type` /
-  `naming`. **Absent** (not `null`) when the atom is unclassified.
+- per-atom **`classification`** — an object, **absent** (not `null`) when the atom is
+  unclassified, with the fields:
+
+  | field | meaning | when present |
+  |---|---|---|
+  | `category` | `scheme` / `construction` / `correctness` / `security` | always |
+  | `via` | the **weakest signal in the classification chain**: `attribute` / `type` / `naming` — a theorem anchored on a promoted anchor inherits that anchor's tier (see *Provenance* above) | always |
+  | `scheme` | code-name of the scheme this atom is about | when resolvable (see below) |
+  | `construction` | code-name of the construction this property is about | correctness/security atoms, when resolvable |
+
+**Explicit hierarchy links.** The accordion join is emitted by probe-lean, not left to a
+consumer-side dependency walk — flat `dependencies` are referenced constants with no application
+structure, so a consumer cannot tell a property's *subject* from its *ingredients*. The common
+counterexample is a reduction bound, the normal shape of a security theorem: a statement like
+`distAdvantage (etmAEAD se prf) adv ≤ prfAdvantage prf + …` references several schemes (the AEAD
+under proof as subject, the PRF/SE assumptions as ingredients), and a naive walk would nest it
+under all of them. probe-lean resolves the join while it still has the information:
+
+- **construction atom** → `scheme` = the scheme it instantiates (its return-type head).
+- **correctness/security atom** → `construction` = the **unique classified construction among the
+  statement's dependencies** (assumption schemes typically enter as bound variables, not
+  construction constants, so the subject construction is usually the only one); `scheme` = that
+  construction's scheme.
+- **Scheme-level properties carry `scheme` without `construction`.** Property *definitions*
+  (games, predicates, advantage definitions) are generic over constructions — `correctnessExp`
+  takes *any* `CKAScheme` — so they resolve no construction; their subject is the scheme itself.
+  They link to the **unique classified scheme among their statement's dependencies**. Likewise, a
+  theorem that resolves no construction but reaches a promoted anchor (e.g. a generic lemma about
+  `securityExp`) inherits that anchor's `scheme`. This distinguishes scheme-level properties from
+  true orphans.
+- **Fail-closed:** a link field is **absent** when unresolvable (zero candidates — orphans stay
+  visibly orphaned, never fabricated).
+- **JSON types:** each link field is a **string** when uniquely resolved and an **array of
+  strings** when genuinely ambiguous (two or more candidate constructions). With an ambiguous
+  construction set, `scheme` is the union of those constructions' schemes — again a string if
+  that union is a singleton, an array otherwise.
+- **Links always reference emitted atoms.** When a construction's return-type head is an
+  *imported* VCVio scheme (which is never emitted as an atom), its `scheme` link is **absent**
+  rather than a dangling name — consistent with fail-closed (see *Reliability and limitations*).
 
 No existing field changes; `verification-status` and the rest are emitted as before. When no
 class is detected, neither field appears and the output is unchanged. (Lean keyword note: the
@@ -243,12 +370,24 @@ envelope field is `sourceClass` in code, serialised to the JSON key `class`.)
       "verification-status": "verified",
       "classification": { "category": "scheme", "via": "attribute" }
     },
+    "probe:SecureMessaging.CKA.Defs.correctnessExp": {
+      "display-name": "correctnessExp",
+      "kind": "def",
+      "verification-status": "verified",
+      "classification": {
+        "category": "correctness", "via": "naming",
+        "scheme": "probe:SecureMessaging.CKA.Defs.CKAScheme"
+      }
+    },
     "probe:SecureMessaging.CKA.FromDDH.Construction.ddhCKA": {
       "display-name": "ddhCKA",
       "kind": "def",
       "dependencies": ["probe:SecureMessaging.CKA.Defs.CKAScheme"],
       "verification-status": "transitively-verified",
-      "classification": { "category": "construction", "via": "type" }
+      "classification": {
+        "category": "construction", "via": "type",
+        "scheme": "probe:SecureMessaging.CKA.Defs.CKAScheme"
+      }
     },
     "probe:SecureMessaging.CKA.FromDDH.Correctness.correctness": {
       "display-name": "correctness",
@@ -258,7 +397,11 @@ envelope field is `sourceClass` in code, serialised to the JSON key `class`.)
         "probe:SecureMessaging.CKA.FromDDH.Construction.ddhCKA"
       ],
       "verification-status": "verified",
-      "classification": { "category": "correctness", "via": "attribute" }
+      "classification": {
+        "category": "correctness", "via": "naming",
+        "construction": "probe:SecureMessaging.CKA.FromDDH.Construction.ddhCKA",
+        "scheme": "probe:SecureMessaging.CKA.Defs.CKAScheme"
+      }
     },
     "probe:SecureMessaging.CKA.FromKEM.Security.security_reduces_to_ind_cpa_exists": {
       "display-name": "security_reduces_to_ind_cpa_exists",
@@ -276,19 +419,44 @@ envelope field is `sourceClass` in code, serialised to the JSON key `class`.)
 }
 ```
 
-(`reachableInv_init` carries no `classification` key — an unclassified helper lemma.)
+Reading the example: `correctnessExp` is a project-own game classified by naming and **promoted to
+an anchor** — generic over constructions, so it carries a `scheme` link only (scheme-level). The
+`correctness` theorem is classified structurally by reaching it, but inherits the anchor's weaker
+tier (`via: naming`), and carries explicit links to its construction and scheme.
+`security_reduces_to_ind_cpa_exists` resolves no unique construction, so its link fields are
+**absent** — a visible orphan, nested nowhere rather than somewhere wrong. `reachableInv_init`
+carries no `classification` key at all — an unclassified helper lemma.
 
-A consumer reconstructs the `scheme → construction → {correctness, security}` hierarchy by walking
-the existing `dependencies` edges: a correctness/security atom links to its construction, and the
-construction to the scheme it returns. 
+### Building the accordion from the links
 
-**Caveat:** `dependencies` are referenced constants, not
-application edges, so this relies on the property's *statement* actually naming its construction —
-which it usually does (the construction appears as an argument), but is not guaranteed. A property
-that is generic over constructions, or that names only a game and not the construction, cannot be
-linked from dependencies alone. If validation shows this is common, probe-lean may need to emit
-**explicit** construction/scheme links rather than leaving the join to the consumer's graph walk
-(tracked as an open question for the verilib contract).
+Every classified atom carries its **full path** — a property links to both its construction and
+its scheme directly, so a consumer never chases chains or computes anything transitive. Assembling
+the `scheme → construction → {correctness, security}` view is a single linear pass with a
+group-by:
+
+```
+for each atom with a classification:
+  category == scheme         → create a root
+  category == construction   → place under its `scheme`
+  correctness / security     → place under its `construction`;
+                               if only `scheme` is present, place at scheme level;
+                               if neither, list as unattached
+```
+
+The link-presence pattern encodes the placement directly:
+
+| links present | placement |
+|---|---|
+| `construction` + `scheme` | property proved of a specific construction |
+| `scheme` only | scheme-level property (the games/predicates defining the property; generic lemmas) |
+| `construction` only | property of a construction whose scheme is not an emitted atom (e.g. imported VCVio scheme) — a construction-rooted subtree |
+| neither | unattached (orphan) — rendered as a bare leaf, never force-nested |
+
+A scheme atom is always a root; a construction roots its own subtree exactly when its `scheme`
+link is absent; a property is a bare leaf exactly when both links are absent. Nothing is ever
+fabricated to force a tree shape — an untagged project may legitimately render as bare property
+leaves (naming catches its theorems but not its schemes), and the view assembles into trees as the
+project adopts the attributes.
 
 ## Reliability and limitations
 
@@ -301,21 +469,39 @@ linked from dependencies alone. If validation shows this is common, probe-lean m
   return type being a scheme. If a scheme is missed, its constructions are missed too.
 - If a construction returns a **VCVio scheme directly** (rather than a project-own scheme), the
   construction itself is still classified (it's a project-own `def`), but the **returned scheme**
-  is an imported VCVio symbol — so that scheme is never classified and isn't emitted as an atom at
-  all. The accordion would then have a construction with no scheme atom above it to nest under.
-  The surveyed projects define their own schemes, so this does not arise in practice, but the
-  verilib contract should decide how to render such a case.
+  is an imported VCVio symbol — never classified, never emitted as an atom. The construction's
+  `scheme` link is therefore **absent** (links always reference emitted atoms), and the accordion
+  has a construction with no scheme above it to nest under. The surveyed projects define their own
+  schemes, so this does not arise in practice, but the verilib contract should decide how to
+  render such a case.
 - **Correctness vs security** at the theorem level relies on reaching the right anchor;
   stepping-stone lemmas that pass through a game can be tagged by reachability, so the walk is
   bounded and prefers the nearest anchor. `@[correctness_spec]` / `@[security_spec]` resolve any
   remaining ambiguity.
+- **Promoted anchors inherit naming risk.** Most project anchors enter the anchor set via the
+  naming pattern, so a false-positive anchor name would mislabel every theorem anchored on it.
+  Weakest-tier inheritance makes this visible — such theorems carry `via: naming`, so consumers
+  can discount or badge them — and an attribute on the anchor definition upgrades the whole
+  chain at once.
 - When VCVio renames or moves a baked-in symbol, the *type* signal for that symbol silently
-  stops matching until the catalogue is updated; diagnostics should log which anchors matched so
-  drift is visible.
+  stops matching until the catalogue is updated. The **resolve-at-start drift diagnostic**
+  (under *Built-in anchor and type catalogue*) turns this into a per-run warning; diagnostics
+  should additionally log which anchors matched, so both drift and over-matching are visible.
+- **Link-field resolution is heuristic.** The "unique classified construction among the
+  statement's dependencies" rule resolves the common shapes (direct properties; reduction bounds
+  whose assumption schemes enter as bound variables), but a statement referencing several
+  classified constructions yields an array, and a fully generic statement yields no link.
+  Application-position analysis of the elaborated statement (which argument slot the construction
+  occupies) is a possible refinement if validation shows the simple rule resolves too little.
+
+### Future signals
+
+- **Docstrings and Verso labels.** Project documentation (declaration docstrings, Verso blueprint
+  labels such as `:::theorem "…_security" (lean := …)`) could serve as an additional
+  classification signal — a possible fourth `via: docs` value. Deferred to a separate issue.
 
 ### Open decisions
 
-- **Hierarchy join.** Whether the `property → construction → scheme` join is left to the
-  consumer's dependency walk or emitted as explicit links (see the caveat under *Output schema*).
 - **Schema docs.** `docs/SCHEMA.md` and the test suite must be updated to declare `source.class`
-  and the per-atom `classification` object as optional fields when this is implemented.
+  and the per-atom `classification` object (including the link fields) as optional fields when
+  this is implemented.
