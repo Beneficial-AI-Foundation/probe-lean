@@ -178,6 +178,48 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 6. **Enrich** -- upgrades `"verified"` atoms to `"transitively-verified"` when all transitive dependencies are verified or trusted, using reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`; skippable via `--skip-enrich`)
 7. **Schema 2.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 
+## How probe-lean decides what to analyze
+
+probe-lean never reads your `.lean` source files to decide what to extract — it
+works entirely from the **lakefile and the compiled `.olean` build artifacts**.
+Knowing this is the difference between a correct run and a silently incomplete
+one.
+
+**Where the library list comes from** (in priority order):
+
+1. `--library <L1,L2,...>` if you pass it (explicit override).
+2. otherwise `defaultTargets` from `lakefile.toml`.
+3. otherwise all `[[lean_lib]]` entries in `lakefile.toml`.
+
+probe-lean then runs `lake build <those libs>`, collects **every `.olean` under
+`.lake/build/lib/lean`**, keeps the modules that **belong to the selected
+libraries** (a module `A.B` belongs to library `A`), optionally narrows further
+with `--module <prefix>`, and imports all surviving modules into a **single Lean
+environment** before atomizing.
+
+**Assumptions this bakes in — and how they bite:**
+
+- **A library you want extracted must be *selected*, not merely *built*.** If
+  library `A` is a default target and depends on library `B`, `lake build A`
+  compiles `B` too — but `B`'s modules are filtered out of the output because
+  `B` isn't in the selected set. **If a needed library is only a dependency of a
+  default target, list it in `defaultTargets` or pass it via `--library`.**
+  (Example: a project that moves Aeneas-generated code into its own `lean_lib`
+  for linting must still add that lib to `defaultTargets`, or its atoms vanish
+  from the output with no error.)
+- **All selected modules must be mutually importable.** Two modules may not
+  declare the same fully-qualified name, or the import aborts with
+  `environment already contains '<name>' from <module>`.
+- **Module discovery trusts the build directory, not git.** Because it scans
+  `.olean` files on disk, **orphan artifacts from modules you deleted or renamed
+  are still picked up until you `lake clean`.** An orphan that re-declares a
+  symbol is the most common cause of the duplicate-declaration import failure
+  above. When in doubt after a refactor, `lake clean` first.
+
+> Improving the first and third points (auto-including the dependency closure of
+> the selected libraries, and ignoring stale orphan oleans) is tracked in
+> [#40](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/40).
+
 ## Testing
 
 ```bash
