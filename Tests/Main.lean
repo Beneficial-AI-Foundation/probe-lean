@@ -803,11 +803,15 @@ def testClassificationJson (result : TestResult) : IO TestResult := do
   IO.println "Testing ClassCategory / ClassVia round-trips..."
   let catRt := match Lean.FromJson.fromJson? (Lean.toJson ClassCategory.construction) (α := ClassCategory) with
     | .ok .construction => true | _ => false
+  let ambRt := match Lean.FromJson.fromJson? (Lean.toJson ClassCategory.ambiguous) (α := ClassCategory) with
+    | .ok .ambiguous => true | _ => false
   let viaRt := match Lean.FromJson.fromJson? (Lean.toJson ClassVia.naming) (α := ClassVia) with
     | .ok .naming => true | _ => false
   result ← test "ClassCategory round-trips" catRt result
+  result ← test "ClassCategory ambiguous round-trips" ambRt result
   result ← test "ClassVia round-trips" viaRt result
   result ← test "ClassCategory scheme toJson" (Lean.toJson ClassCategory.scheme == "scheme") result
+  result ← test "ClassCategory ambiguous toJson" (Lean.toJson ClassCategory.ambiguous == "ambiguous") result
   result ← test "ClassVia attribute toJson" (Lean.toJson ClassVia.attribute == "attribute") result
 
   IO.println ""
@@ -1048,6 +1052,284 @@ def testDrift (result : TestResult) : IO TestResult := do
   result ← test "guardOf nested-namespaced anchor"
     (Catalogue.guardOf `AsymmEncAlg.ExplicitCoins.OW_CPA_Game == some `AsymmEncAlg.ExplicitCoins) result
   result ← test "guardOf top-level anchor is none" (Catalogue.guardOf `SecExp == none) result
+  return result
+
+/-- Build a synthetic `DeclInfo` for classifier tests. -/
+def mkDeclI (nm : String) (kind : DeclKind) (shape : CodomainShape := .other)
+    (head : Option String := none) (typeDeps : Array String := #[])
+    (termDeps : Array String := #[]) (attrs : Array String := #[]) : DeclInfo :=
+  { name := nm.toName
+    displayName := getDisplayName nm.toName
+    moduleName := `Test
+    kind := kind
+    dependencies := (typeDeps ++ termDeps).map (·.toName)
+    typeDependencies := typeDeps.map (·.toName)
+    termDependencies := termDeps.map (·.toName)
+    sourceInfo := some { linesStart := 1, linesEnd := 1 }
+    codomainHead := head.map (·.toName)
+    codomainShape := shape
+    classAttributes := attrs }
+
+/-- Run the classifier and look up one atom's classification by code-name. -/
+def clsOf (decls : Array DeclInfo) (nm : String) : Option Classification :=
+  let (res, _) := Classify.classify decls
+  (res.find? (·.1 == nm.toName)).map (·.2)
+
+def testClassifySchemes (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing scheme classification..."
+  let decls : Array DeclInfo := #[
+    mkDeclI "App.CKAScheme" .structure,                                   -- naming *Scheme
+    mkDeclI "App.AEAD" .structure (attrs := #["scheme_def"]),             -- attribute
+    mkDeclI "App.SymmEncAlg" .structure,                                  -- naming *Alg
+    mkDeclI "App.BoolAlg" .structure,                                     -- algebra guard → not scheme
+    mkDeclI "App.fooScheme" .def,                                         -- *Scheme but not a structure
+    mkDeclI "App.AlgebraicMAC" .structure ]                              -- no *Scheme/*Alg suffix
+  let cat (n : String) := (clsOf decls n).map (·.category)
+  result ← test "structure *Scheme → scheme (naming)" (cat "App.CKAScheme" == some .scheme) result
+  result ← test "@[scheme_def] → scheme (attribute)"
+    ((clsOf decls "App.AEAD").map (fun c => (c.category, c.via)) == some (.scheme, .attribute)) result
+  result ← test "structure *Alg → scheme" (cat "App.SymmEncAlg" == some .scheme) result
+  result ← test "BoolAlg guarded → not scheme" (cat "App.BoolAlg" == none) result
+  result ← test "non-structure *Scheme → not scheme" (cat "App.fooScheme" == none) result
+  result ← test "untagged AlgebraicMAC → not scheme (needs tag)" (cat "App.AlgebraicMAC" == none) result
+  return result
+
+def testClassifyConstructions (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing construction classification + scheme link..."
+  let decls : Array DeclInfo := #[
+    mkDeclI "App.CKAScheme" .structure,
+    mkDeclI "App.ddhCKA" .def (head := "App.CKAScheme"),                  -- returns project scheme
+    mkDeclI "App.myKEM" .def (head := "KEMScheme"),                       -- returns VCVio scheme
+    mkDeclI "App.tagged" .def (attrs := #["construction_def"]) ]
+  result ← test "def returning project scheme → construction (type)"
+    ((clsOf decls "App.ddhCKA").map (·.category) == some .construction) result
+  result ← test "construction → scheme link"
+    ((clsOf decls "App.ddhCKA").map (·.scheme) == some #[`App.CKAScheme]) result
+  result ← test "def returning VCVio scheme → construction, scheme link absent"
+    ((clsOf decls "App.myKEM").map (fun c => (c.category, c.scheme)) == some (.construction, #[])) result
+  result ← test "@[construction_def] → construction (attribute)"
+    ((clsOf decls "App.tagged").map (·.via) == some .attribute) result
+  return result
+
+def testClassifyPromotionWalk (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing property promotion + theorem walk..."
+  let scheme := mkDeclI "App.CKAScheme" .structure
+  let cons := mkDeclI "App.ddhCKA" .def (head := "App.CKAScheme")
+  let corrExp := mkDeclI "App.correctnessExp" .def .game none #[] #[]      -- naming → correctness, promoted
+  let thm := mkDeclI "App.correctness" .theorem .other none
+    #["App.correctnessExp", "App.ddhCKA"] #[]                             -- reaches promoted anchor
+  let decls := #[scheme, cons, corrExp, thm]
+  result ← test "project game *correct* → correctness (naming)"
+    ((clsOf decls "App.correctnessExp").map (·.category) == some .correctness) result
+  result ← test "theorem reaches promoted anchor → correctness"
+    ((clsOf decls "App.correctness").map (·.category) == some .correctness) result
+  result ← test "theorem inherits weakest via (naming)"
+    ((clsOf decls "App.correctness").map (·.via) == some .naming) result
+  -- order-independence: shuffle the input, expect identical verdicts
+  let shuffled := #[thm, corrExp, scheme, cons]
+  result ← test "promotion fixed point is order-independent"
+    ((clsOf shuffled "App.correctness").map (·.category)
+      == (clsOf decls "App.correctness").map (·.category)) result
+  return result
+
+def testClassifyWalkTieAndBound (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing equal-depth tie → ambiguous, and the depth bound..."
+  let corrExp := mkDeclI "App.correctnessExp" .def .game
+  let secExp := mkDeclI "App.securityExp" .def .game
+  let tieThm := mkDeclI "App.both" .theorem .other none
+    #["App.correctnessExp", "App.securityExp"] #[]
+  result ← test "equal-depth correctness/security tie → ambiguous"
+    ((clsOf #[corrExp, secExp, tieThm] "App.both").map (·.category) == some .ambiguous) result
+  -- depth bound: a 17-node pass-through chain puts the anchor at depth 18 (> 16)
+  let chain : Array DeclInfo := (List.range 17).toArray.map fun i =>
+    let next := if i < 16 then s!"Bound.c{i+1}" else "Bound.securityExp"
+    mkDeclI s!"Bound.c{i}" .def .other none #[next] #[]
+  let anchor := mkDeclI "Bound.securityExp" .def .game
+  let farThm := mkDeclI "Bound.thm" .theorem .other none #["Bound.c0"] #[]
+  let boundDecls := chain.push anchor |>.push farThm
+  result ← test "anchor beyond depth 16 → theorem unclassified"
+    ((clsOf boundDecls "Bound.thm").isNone) result
+  -- same anchor at depth 2 IS reached
+  let nearThm := mkDeclI "Near.thm" .theorem .other none #["App.securityExp"] #[]
+  result ← test "anchor within bound → classified"
+    ((clsOf #[secExp, nearThm] "Near.thm").map (·.category) == some .security) result
+  return result
+
+def testClassifyLinks (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing link resolution (fail-closed)..."
+  let scheme := mkDeclI "App.CKAScheme" .structure
+  let cons := mkDeclI "App.ddhCKA" .def (head := "App.CKAScheme")
+  let corrExp := mkDeclI "App.correctnessExp" .def .game
+  let thm := mkDeclI "App.correctness" .theorem .other none
+    #["App.correctnessExp", "App.ddhCKA"] #[]
+  let decls := #[scheme, cons, corrExp, thm]
+  result ← test "property → construction link (unique)"
+    ((clsOf decls "App.correctness").map (·.construction) == some #[`App.ddhCKA]) result
+  result ← test "property → scheme link (via its construction)"
+    ((clsOf decls "App.correctness").map (·.scheme) == some #[`App.CKAScheme]) result
+  -- orphan: a theorem reaching no anchor and naming nothing → absent (no links)
+  let orphan := mkDeclI "App.helperLemma" .theorem .other none #["App.someList"] #[]
+  result ← test "orphan theorem → unclassified" ((clsOf #[orphan] "App.helperLemma").isNone) result
+  -- scheme-level property: game names a scheme but no construction → scheme link only
+  let schemeLevel := mkDeclI "App.correctnessExp2" .def .game none #["App.CKAScheme"] #[]
+  let dl := #[scheme, schemeLevel]
+  result ← test "scheme-level property → scheme link, no construction"
+    ((clsOf dl "App.correctnessExp2").map (fun c => (c.construction, c.scheme))
+      == some (#[], #[`App.CKAScheme])) result
+  return result
+
+def testClassifyConflicts (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing conflicting tags → ambiguous..."
+  let bothTags := mkDeclI "App.weird" .theorem .other none #[] #[] #["correctness_spec", "security_spec"]
+  let (res, diags) := Classify.classify #[bothTags]
+  let cls := (res.find? (·.1 == `App.weird)).map (·.2)
+  result ← test "both *_spec tags → ambiguous" (cls.map (·.category) == some .ambiguous) result
+  result ← test "conflict emits a diagnostic" (diags.any (containsSubstring · "conflicting")) result
+  -- kind-incompatible tag is ignored + diagnosed, decl falls through
+  let misuse := mkDeclI "App.notAStruct" .theorem .other none #[] #[] #["scheme_def"]
+  let (_, diags2) := Classify.classify #[misuse]
+  result ← test "scheme_def on theorem diagnosed" (diags2.any (containsSubstring · "scheme_def")) result
+  return result
+
+/-- A pass-through chain `pre0 → pre1 → … → last` of non-property `.other`
+defs (so they are not promoted; they just relay the walk). -/
+def chainTo (pre : String) (n : Nat) (last : String) : Array DeclInfo :=
+  (List.range n).toArray.map fun i =>
+    let next := if i + 1 < n then s!"{pre}{i+1}" else last
+    mkDeclI s!"{pre}{i}" .def .other none #[next] #[]
+
+def testClassifyFixpointOrder (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing type-reach fixed point is order-independent..."
+  -- correctnessExp/securityExp: naming anchors. gx reaches corr, gy reaches sec,
+  -- gd reaches BOTH (through gx/gy bodies) → must be ambiguous regardless of the
+  -- order gx/gd/gy are promoted in (the per-pass snapshot guarantees this).
+  let corrGame := mkDeclI "App.correctnessExp" .def .game
+  let secGame := mkDeclI "App.securityExp" .def .game
+  let gx := mkDeclI "App.gx" .def .game none #[] #["App.correctnessExp"]
+  let gy := mkDeclI "App.gy" .def .game none #[] #["App.securityExp"]
+  let gd := mkDeclI "App.gd" .def .game none #[] #["App.gx", "App.gy"]
+  -- gd sits BETWEEN gx and gy in the fold order — the order that broke before.
+  let ord1 := #[corrGame, secGame, gx, gd, gy]
+  let ord2 := #[gd, gy, gx, secGame, corrGame]
+  result ← test "gx reaches correctness only" ((clsOf ord1 "App.gx").map (·.category) == some .correctness) result
+  result ← test "gy reaches security only" ((clsOf ord1 "App.gy").map (·.category) == some .security) result
+  result ← test "reach-both gd → ambiguous (fold order gx,gd,gy)"
+    ((clsOf ord1 "App.gd").map (·.category) == some .ambiguous) result
+  result ← test "reach-both gd → ambiguous (shuffled order)"
+    ((clsOf ord2 "App.gd").map (·.category) == some .ambiguous) result
+  return result
+
+def testClassifyAttrShapeAndInstance (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing attributes are shape-independent + instance constructions..."
+  -- a transformer-stacked game has shape `other`, yet @[security_spec] must win
+  let txGame := mkDeclI "App.txSec" .def .other none #[] #[] #["security_spec"]
+  let (res, diags) := Classify.classify #[txGame]
+  let txCls := (res.find? (·.1 == `App.txSec)).map (·.2)
+  result ← test "@[security_spec] on .other def → security (attribute)"
+    (txCls.map (fun c => (c.category, c.via)) == some (.security, .attribute)) result
+  result ← test "@[security_spec] on .other def NOT diagnosed as misuse"
+    (!diags.any (containsSubstring · "non-property")) result
+  -- instance returning a scheme is a construction
+  let scheme := mkDeclI "App.CKAScheme" .structure
+  let inst := mkDeclI "App.ckaInst" .instance .other (head := "App.CKAScheme")
+  result ← test "instance returning a scheme → construction"
+    ((clsOf #[scheme, inst] "App.ckaInst").map (·.category) == some .construction) result
+  return result
+
+def testClassifyViaWeakest (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing weakest-tier via at equal depth is order-independent..."
+  -- KEMScheme.CorrectExp is a catalogued (via:type) correctness anchor; the
+  -- project correctnessExp is via:naming. Reaching both at depth 1 → naming.
+  let projCorr := mkDeclI "App.correctnessExp" .def .game
+  let thm := mkDeclI "App.bothCorr" .theorem .other none
+    #["KEMScheme.CorrectExp", "App.correctnessExp"] #[]
+  result ← test "same-depth corr anchors (type+naming) → via naming"
+    ((clsOf #[projCorr, thm] "App.bothCorr").map (fun c => (c.category, c.via))
+      == some (.correctness, .naming)) result
+  return result
+
+def testClassifyWalkEdges (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing walk edges: shallower-wins, depth boundary, cycles..."
+  let corrA := mkDeclI "App.correctnessExp" .def .game
+  let secA := mkDeclI "App.securityExp" .def .game
+  -- shallower wins: corr at depth 1, sec at depth 2 (through a pass-through) → correctness
+  let passSec := mkDeclI "App.passSec" .def .other none #["App.securityExp"] #[]
+  let shThm := mkDeclI "App.shallow" .theorem .other none #["App.correctnessExp", "App.passSec"] #[]
+  result ← test "strictly-shallower category wins (corr@1 vs sec@2)"
+    ((clsOf #[corrA, secA, passSec, shThm] "App.shallow").map (·.category) == some .correctness) result
+  -- depth boundary: anchor at depth 16 is reached; at depth 17 it is not
+  let c16 := chainTo "R16.c" 15 "App.correctnessExp"      -- c0..c14 (15) → anchor @ depth 16
+  let thm16 := mkDeclI "R16.thm" .theorem .other none #["R16.c0"] #[]
+  result ← test "anchor at depth 16 → reached"
+    ((clsOf (#[corrA] ++ c16 |>.push thm16) "R16.thm").map (·.category) == some .correctness) result
+  let c17 := chainTo "R17.c" 16 "App.correctnessExp"      -- c0..c15 (16) → anchor @ depth 17
+  let thm17 := mkDeclI "R17.thm" .theorem .other none #["R17.c0"] #[]
+  result ← test "anchor at depth 17 → not reached" ((clsOf (#[corrA] ++ c17 |>.push thm17) "R17.thm").isNone) result
+  -- cycle: a self/mutually-referential dep must terminate (visited set)
+  let cyc := mkDeclI "App.cyc" .def .other none #["App.cyc", "App.correctnessExp"] #[]
+  let cycThm := mkDeclI "App.cycThm" .theorem .other none #["App.cyc"] #[]
+  result ← test "cyclic dep terminates and still reaches anchor"
+    ((clsOf #[corrA, cyc, cycThm] "App.cycThm").map (·.category) == some .correctness) result
+  return result
+
+def testClassifyLinkEdges (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing link edges: multi-construction arrays + ambiguous links..."
+  let s1 := mkDeclI "App.OneScheme" .structure
+  let s2 := mkDeclI "App.TwoScheme" .structure
+  let c1 := mkDeclI "App.c1" .def (head := "App.OneScheme")
+  let c2 := mkDeclI "App.c2" .def (head := "App.TwoScheme")
+  let corrA := mkDeclI "App.correctnessExp" .def .game
+  let multiThm := mkDeclI "App.multi" .theorem .other none
+    #["App.correctnessExp", "App.c1", "App.c2"] #[]
+  let decls := #[s1, s2, c1, c2, corrA, multiThm]
+  result ← test "two constructions → construction array (sorted)"
+    ((clsOf decls "App.multi").map (·.construction) == some #[`App.c1, `App.c2]) result
+  result ← test "two constructions → scheme union (sorted)"
+    ((clsOf decls "App.multi").map (·.scheme) == some #[`App.OneScheme, `App.TwoScheme]) result
+  -- ambiguous atom still carries its construction/scheme links
+  let secA := mkDeclI "App.securityExp" .def .game
+  let ambThm := mkDeclI "App.amb" .theorem .other none
+    #["App.correctnessExp", "App.securityExp", "App.c1"] #[]
+  let dl := #[s1, c1, corrA, secA, ambThm]
+  result ← test "ambiguous atom carries construction link"
+    ((clsOf dl "App.amb").map (fun c => (c.category, c.construction)) == some (.ambiguous, #[`App.c1])) result
+  result ← test "ambiguous atom carries scheme link"
+    ((clsOf dl "App.amb").map (·.scheme) == some #[`App.OneScheme]) result
+  return result
+
+def testClassifyMisuseIgnored (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing kind-incompatible tag is ignored (decl falls through)..."
+  -- @[scheme_def] on a theorem is ignored; the theorem still classifies by naming
+  let thm := mkDeclI "App.correctness" .theorem .other none #[] #[] #["scheme_def"]
+  let (res, diags) := Classify.classify #[thm]
+  let cls := (res.find? (·.1 == `App.correctness)).map (·.2)
+  result ← test "scheme_def on theorem ignored → classified by naming"
+    (cls.map (·.category) == some .correctness) result
+  result ← test "ignored scheme_def is diagnosed" (diags.any (containsSubstring · "scheme_def")) result
   return result
 
 def testViewHelpers (result : TestResult) : IO TestResult := do
@@ -2669,6 +2951,18 @@ def main : IO UInt32 := do
   result ← testCodomainShape result
   result ← testDetectClass result
   result ← testDrift result
+  result ← testClassifySchemes result
+  result ← testClassifyConstructions result
+  result ← testClassifyPromotionWalk result
+  result ← testClassifyWalkTieAndBound result
+  result ← testClassifyLinks result
+  result ← testClassifyConflicts result
+  result ← testClassifyFixpointOrder result
+  result ← testClassifyAttrShapeAndInstance result
+  result ← testClassifyViaWeakest result
+  result ← testClassifyWalkEdges result
+  result ← testClassifyLinkEdges result
+  result ← testClassifyMisuseIgnored result
   result ← testViewHelpers result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result
