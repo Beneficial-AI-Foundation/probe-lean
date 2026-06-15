@@ -1,7 +1,9 @@
 /-
   Shared attributes for probe-lean.
-  Target projects import this module to use `@[primary_spec]` and
-  `@[externally_verified]`.
+  Target projects import this module to use `@[primary_spec]`,
+  `@[externally_verified]`, and the security-protocol classification tags
+  (`@[scheme_def]`, `@[construction_def]`, `@[correctness_spec]`,
+  `@[security_spec]`).
 -/
 import Lean
 
@@ -22,5 +24,34 @@ been verified externally (e.g., in Verus or another prover). Consumed by
 initialize externallyVerifiedAttr : TagAttribute ←
   registerTagAttribute `externally_verified
     "Marks a theorem as externally verified (sorry is intentional)."
+
+-- ============================================================
+-- Security-protocol classification tags (authoritative `via: attribute`).
+-- See docs/classification-security-protocol.md.
+-- ============================================================
+
+/-- `@[scheme_def]` marks a declaration as a cryptographic *scheme* — the
+abstract interface (a `structure`/`class` bundling operations). -/
+initialize schemeDefAttr : TagAttribute ←
+  registerTagAttribute `scheme_def
+    "Marks a declaration as a cryptographic scheme (abstract interface)."
+
+/-- `@[construction_def]` marks a declaration as a concrete *construction* —
+a definition realising a scheme. -/
+initialize constructionDefAttr : TagAttribute ←
+  registerTagAttribute `construction_def
+    "Marks a declaration as a concrete construction of a scheme."
+
+/-- `@[correctness_spec]` marks a declaration (game, predicate, or theorem) as
+a *correctness* property of a construction or scheme. -/
+initialize correctnessSpecAttr : TagAttribute ←
+  registerTagAttribute `correctness_spec
+    "Marks a declaration as a correctness property."
+
+/-- `@[security_spec]` marks a declaration (game, advantage, or theorem) as a
+*security* property of a construction or scheme. -/
+initialize securitySpecAttr : TagAttribute ←
+  registerTagAttribute `security_spec
+    "Marks a declaration as a security property."
 
 end ProbeLean

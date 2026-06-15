@@ -778,6 +778,171 @@ def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
   result ← test "UnifiedAtom specs absent when empty" unsAbsent result
   return result
 
+-- Build-time registration test for the security-protocol classification tags.
+-- These declarations only elaborate if the attributes are registered (an
+-- unregistered tag is an "unknown attribute" error). The `run_cmd` below then
+-- confirms `hasTag` — the API the classifier will use — reads them back.
+@[scheme_def] def testTaggedScheme : Nat := 0
+@[construction_def] def testTaggedConstruction : Nat := 0
+@[correctness_spec] theorem testTaggedCorrectness : testTaggedScheme = 0 := rfl
+@[security_spec] theorem testTaggedSecurity : testTaggedConstruction = 0 := rfl
+
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let ok := ProbeLean.schemeDefAttr.hasTag env ``testTaggedScheme
+    && ProbeLean.constructionDefAttr.hasTag env ``testTaggedConstruction
+    && ProbeLean.correctnessSpecAttr.hasTag env ``testTaggedCorrectness
+    && ProbeLean.securitySpecAttr.hasTag env ``testTaggedSecurity
+  unless ok do
+    throwError "classification attributes registered but hasTag did not read them back"
+
+def testClassificationJson (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing ClassCategory / ClassVia round-trips..."
+  let catRt := match Lean.FromJson.fromJson? (Lean.toJson ClassCategory.construction) (α := ClassCategory) with
+    | .ok .construction => true | _ => false
+  let viaRt := match Lean.FromJson.fromJson? (Lean.toJson ClassVia.naming) (α := ClassVia) with
+    | .ok .naming => true | _ => false
+  result ← test "ClassCategory round-trips" catRt result
+  result ← test "ClassVia round-trips" viaRt result
+  result ← test "ClassCategory scheme toJson" (Lean.toJson ClassCategory.scheme == "scheme") result
+  result ← test "ClassVia attribute toJson" (Lean.toJson ClassVia.attribute == "attribute") result
+
+  IO.println ""
+  IO.println "Testing Classification link serialization (singular = string)..."
+  let cls1 : Classification := {
+    category := .correctness
+    «via» := .naming
+    scheme := #[`Foo.Scheme]
+    construction := #[`Foo.construction]
+  }
+  let cls1Json := Lean.toJson cls1
+  let schemeIsString := match cls1Json.getObjValAs? String "scheme" with
+    | .ok s => s == "probe:Foo.Scheme" | _ => false
+  let consIsString := match cls1Json.getObjValAs? String "construction" with
+    | .ok s => s == "probe:Foo.construction" | _ => false
+  result ← test "scheme link serialises as string when singular" schemeIsString result
+  result ← test "construction link serialises as string when singular" consIsString result
+  let cls1Rt := match Lean.FromJson.fromJson? cls1Json (α := Classification) with
+    | .ok c => c.category == .correctness && c.via == .naming
+        && c.scheme == #[`Foo.Scheme]
+        && c.construction == #[`Foo.construction]
+    | .error _ => false
+  result ← test "Classification with singular links round-trips" cls1Rt result
+
+  IO.println ""
+  IO.println "Testing Classification link serialization (ambiguous = array)..."
+  let cls2 : Classification := {
+    category := .security
+    «via» := .type
+    scheme := #[`Foo.SchemeA, `Foo.SchemeB]
+  }
+  let cls2Json := Lean.toJson cls2
+  let schemeIsArray := match cls2Json.getObjValAs? (Array String) "scheme" with
+    | .ok arr => arr.size == 2 && arr[0]! == "probe:Foo.SchemeA" | _ => false
+  let consAbsent := match cls2Json.getObjVal? "construction" with
+    | .ok _ => false | .error _ => true
+  result ← test "scheme link serialises as array when ambiguous" schemeIsArray result
+  result ← test "empty construction link omitted" consAbsent result
+  let cls2Rt := match Lean.FromJson.fromJson? cls2Json (α := Classification) with
+    | .ok c => c.scheme.size == 2 && c.construction.isEmpty
+    | .error _ => false
+  result ← test "Classification with array link round-trips" cls2Rt result
+  -- exact contents + deterministic (sorted) order of the ambiguous array
+  let cls2ArrOk := match cls2Json.getObjValAs? (Array String) "scheme" with
+    | .ok arr => arr == #["probe:Foo.SchemeA", "probe:Foo.SchemeB"] | _ => false
+  result ← test "ambiguous scheme array has exact sorted contents" cls2ArrOk result
+  -- unsorted + duplicate input normalises to sorted, deduped output
+  let clsDup : Classification := {
+    category := .security
+    «via» := .type
+    scheme := #[`Foo.SchemeB, `Foo.SchemeA, `Foo.SchemeB]
+  }
+  let clsDupOk := match (Lean.toJson clsDup).getObjValAs? (Array String) "scheme" with
+    | .ok arr => arr == #["probe:Foo.SchemeA", "probe:Foo.SchemeB"] | _ => false
+  result ← test "link names dedupe and stable-sort on serialisation" clsDupOk result
+
+  IO.println ""
+  IO.println "Testing Classification field ordering is pinned..."
+  -- construction must precede scheme in the serialised object (design doc order)
+  let orderJson := (Lean.toJson cls1).compress
+  let consIdx := (orderJson.splitOn "\"construction\"").head!.length
+  let schemeIdx := (orderJson.splitOn "\"scheme\"").head!.length
+  result ← test "construction key precedes scheme key" (consIdx < schemeIdx) result
+
+  IO.println ""
+  IO.println "Testing Classification rejects malformed links..."
+  let mkBad (schemeVal : Lean.Json) : Lean.Json :=
+    Lean.Json.mkObj [
+      ("category", Lean.toJson "scheme"),
+      ("via", Lean.toJson "type"),
+      ("scheme", schemeVal)
+    ]
+  let rejNumber := match Lean.FromJson.fromJson? (mkBad (Lean.toJson (42 : Nat))) (α := Classification) with
+    | .ok _ => false | .error _ => true
+  let rejMixed := match Lean.FromJson.fromJson? (mkBad (Lean.Json.arr #[Lean.toJson "probe:Foo.A", Lean.toJson (7 : Nat)])) (α := Classification) with
+    | .ok _ => false | .error _ => true
+  let rejNull := match Lean.FromJson.fromJson? (mkBad Lean.Json.null) (α := Classification) with
+    | .ok _ => false | .error _ => true
+  result ← test "rejects scheme link that is a number" rejNumber result
+  result ← test "rejects scheme link array with non-string element" rejMixed result
+  result ← test "rejects scheme link that is present-but-null" rejNull result
+  -- an omitted link key is the normal unresolved case → empty, no error
+  let okAbsent := match Lean.FromJson.fromJson?
+      (Lean.Json.mkObj [("category", Lean.toJson "scheme"), ("via", Lean.toJson "type")]) (α := Classification) with
+    | .ok c => c.scheme.isEmpty && c.construction.isEmpty | .error _ => false
+  result ← test "absent link key parses as empty" okAbsent result
+
+  IO.println ""
+  IO.println "Testing UnifiedAtom classification field..."
+  let atomCls : UnifiedAtom := {
+    name := "probe:Test.thm"
+    displayName := "thm"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .theorem
+    verificationStatus := some .verified
+    classification := some cls1
+  }
+  let atomClsJson := Lean.toJson atomCls
+  let clsPresent := match atomClsJson.getObjVal? "classification" with
+    | .ok _ => true | .error _ => false
+  result ← test "classification present in atom JSON when set" clsPresent result
+  let atomClsRt := match Lean.FromJson.fromJson? atomClsJson (α := UnifiedAtom) with
+    | .ok a => match a.classification with
+      | some c => c.category == .correctness
+      | none => false
+    | .error _ => false
+  result ← test "atom classification round-trips" atomClsRt result
+  let atomNoCls : UnifiedAtom := { atomCls with classification := none }
+  let clsAbsent := match (Lean.toJson atomNoCls).getObjVal? "classification" with
+    | .ok _ => false | .error _ => true
+  result ← test "classification absent from atom JSON when none" clsAbsent result
+
+  IO.println ""
+  IO.println "Testing SourceInfo class field..."
+  let srcWithClass : SourceInfo := {
+    repo := "https://example.com/repo", commit := "abc", package := "Pkg"
+    packageVersion := "1.0", sourceClass := some "security-protocol"
+  }
+  let srcJson := Lean.toJson srcWithClass
+  let classPresent := match srcJson.getObjValAs? String "class" with
+    | .ok s => s == "security-protocol" | _ => false
+  result ← test "source.class present in JSON when set" classPresent result
+  let srcRt := match Lean.FromJson.fromJson? srcJson (α := SourceInfo) with
+    | .ok s => s.sourceClass == some "security-protocol"
+    | .error _ => false
+  result ← test "source.class round-trips" srcRt result
+  let srcNoClass : SourceInfo := { srcWithClass with sourceClass := none }
+  let classAbsent := match (Lean.toJson srcNoClass).getObjVal? "class" with
+    | .ok _ => false | .error _ => true
+  result ← test "source.class absent from JSON when none" classAbsent result
+  return result
+
 def testViewHelpers (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -2393,6 +2558,7 @@ def main : IO UInt32 := do
   result ← testSorryDetection result
   result ← testProofsOutputJson result
   result ← testUnifiedAtomJson result
+  result ← testClassificationJson result
   result ← testViewHelpers result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result
