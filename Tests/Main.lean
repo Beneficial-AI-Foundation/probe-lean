@@ -1003,6 +1003,53 @@ def testDetectClass (result : TestResult) : IO TestResult := do
     (!moduleListIndicatesSecurityProtocol #[]) result
   return result
 
+-- Build-time drift-resolver check: a guaranteed-present core name resolves with
+-- no warning; a bogus FQN produces exactly one warning. Uses this test module's
+-- own environment (Lean core: `Nat`/`List` present).
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let present := Catalogue.resolveAnchors env #[`Nat, `List]
+  let bogus := Catalogue.resolveAnchors env #[`Probe.Definitely.Not.A.Real.Name]
+  unless present.isEmpty do
+    throwError "resolveAnchors flagged core names that exist: {present}"
+  unless bogus.size == 1 do
+    throwError "resolveAnchors should flag exactly one bogus name, got {bogus.size}"
+  -- No VCVio scheme types are loaded in this test env, so every anchor's guard
+  -- is absent → family-conditional drift must stay silent (no false alarms).
+  let drift := Catalogue.driftWarnings env
+  unless drift.isEmpty do
+    throwError "driftWarnings should be empty in a non-VCVio env, got: {drift}"
+
+def testDrift (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing classification catalogue is well-formed..."
+  let noDups (a : Array Lean.Name) : Bool := a.toList.eraseDups.length == a.size
+  result ← test "scheme types non-empty" (Catalogue.vcvioSchemeTypes.size > 0) result
+  result ← test "game heads non-empty" (Catalogue.gameHeads.size > 0) result
+  result ← test "correctness anchors non-empty" (Catalogue.correctnessAnchors.size > 0) result
+  result ← test "security anchors non-empty" (Catalogue.securityAnchors.size > 0) result
+  result ← test "scheme types deduped" (noDups Catalogue.vcvioSchemeTypes) result
+  result ← test "game heads deduped" (noDups Catalogue.gameHeads) result
+  result ← test "correctness anchors deduped" (noDups Catalogue.correctnessAnchors) result
+  result ← test "security anchors deduped" (noDups Catalogue.securityAnchors) result
+  result ← test "algebra guard deduped" (noDups Catalogue.mathlibAlgebraGuard) result
+  -- categories must be disjoint (no anchor miscategorised into two buckets)
+  result ← test "correctness ∩ security = ∅"
+    (Catalogue.correctnessAnchors.all fun n => !Catalogue.securityAnchors.contains n) result
+  let props := Catalogue.correctnessAnchors ++ Catalogue.securityAnchors
+  result ← test "scheme types ∩ property anchors = ∅"
+    (Catalogue.vcvioSchemeTypes.all fun n => !props.contains n) result
+  result ← test "no anonymous anchors" (Catalogue.allAnchors.all fun n => !n.isAnonymous) result
+  -- guardOf: scheme-namespaced anchors guard on their scheme type; top-level → none
+  result ← test "guardOf scheme-namespaced anchor"
+    (Catalogue.guardOf `KEMScheme.IND_CCA_Advantage == some `KEMScheme) result
+  result ← test "guardOf nested-namespaced anchor"
+    (Catalogue.guardOf `AsymmEncAlg.ExplicitCoins.OW_CPA_Game == some `AsymmEncAlg.ExplicitCoins) result
+  result ← test "guardOf top-level anchor is none" (Catalogue.guardOf `SecExp == none) result
+  return result
+
 def testViewHelpers (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -2621,6 +2668,7 @@ def main : IO UInt32 := do
   result ← testClassificationJson result
   result ← testCodomainShape result
   result ← testDetectClass result
+  result ← testDrift result
   result ← testViewHelpers result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result
