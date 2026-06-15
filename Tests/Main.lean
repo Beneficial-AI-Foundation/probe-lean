@@ -943,6 +943,66 @@ def testClassificationJson (result : TestResult) : IO TestResult := do
   result ← test "source.class absent from JSON when none" classAbsent result
   return result
 
+def testCodomainShape (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing classifyCodomain on hand-built Exprs..."
+  let bool := Lean.Expr.const `Bool []
+  let nat := Lean.Expr.const `Nat []
+  let gameHeads := defaultGameHeads
+  -- positive cases
+  let probCompBool := Lean.Expr.app (Lean.Expr.const `ProbComp []) bool
+  let propSort := Lean.Expr.sort Lean.Level.zero
+  let ennreal := Lean.Expr.const `ENNReal []
+  let ckaScheme := Lean.Expr.const `CKAScheme []
+  let forallGame := Lean.Expr.forallE `x nat probCompBool Lean.BinderInfo.default
+  -- multi-argument probabilistic computations (head + final-arg Bool)
+  let oracleCompBool := Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `OracleComp []) (Lean.Expr.const `spec [])) bool
+  let spmfBool := Lean.Expr.app (Lean.Expr.const `SPMF []) bool
+  result ← test "ProbComp Bool → game" (classifyCodomain gameHeads probCompBool == .game) result
+  result ← test "OracleComp spec Bool → game" (classifyCodomain gameHeads oracleCompBool == .game) result
+  result ← test "SPMF Bool → game" (classifyCodomain gameHeads spmfBool == .game) result
+  result ← test "Sort 0 → prop" (classifyCodomain gameHeads propSort == .prop) result
+  result ← test "ENNReal → advantage" (classifyCodomain gameHeads ennreal == .advantage) result
+  result ← test "CKAScheme → other" (classifyCodomain gameHeads ckaScheme == .other) result
+  result ← test "∀ x, ProbComp Bool → game (strips binders)" (classifyCodomain gameHeads forallGame == .game) result
+  -- negative cases: "final arg is Bool" must NOT alone make a game
+  let listBool := Lean.Expr.app (Lean.Expr.const `List []) bool
+  let arrayBool := Lean.Expr.app (Lean.Expr.const `Array []) bool
+  let exceptEBool := Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `Except []) (Lean.Expr.const `ε [])) bool
+  -- a theorem statement (@Eq α a b) has head `Eq`, not a game/advantage
+  let eqStmt := Lean.Expr.app (Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `Eq []) nat) (Lean.Expr.const `a [])) (Lean.Expr.const `b [])
+  result ← test "List Bool → not game (other)" (classifyCodomain gameHeads listBool == .other) result
+  result ← test "Array Bool → not game (other)" (classifyCodomain gameHeads arrayBool == .other) result
+  result ← test "Except ε Bool → not game (other)" (classifyCodomain gameHeads exceptEBool == .other) result
+  result ← test "@Eq α a b (theorem stmt) → other" (classifyCodomain gameHeads eqStmt == .other) result
+
+  IO.println ""
+  IO.println "Testing codomainHeadOf and lastArgIsBool..."
+  let qualifiedScheme := Lean.Expr.const `SecureMessaging.CKA.Defs.CKAScheme []
+  result ← test "head of CKAScheme" (codomainHeadOf ckaScheme == some `CKAScheme) result
+  result ← test "head preserves qualified name" (codomainHeadOf qualifiedScheme == some `SecureMessaging.CKA.Defs.CKAScheme) result
+  result ← test "head through binders is ProbComp" (codomainHeadOf forallGame == some `ProbComp) result
+  result ← test "head of Sort 0 is none" (codomainHeadOf propSort == none) result
+  result ← test "lastArgIsBool ProbComp Bool" (lastArgIsBool probCompBool == true) result
+  result ← test "lastArgIsBool ENNReal is false" (lastArgIsBool ennreal == false) result
+  return result
+
+def testDetectClass (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing security-protocol detection from module names..."
+  result ← test "bare VCVio module → detected" (moduleListIndicatesSecurityProtocol #[`VCVio]) result
+  result ← test "VCVio.* submodule → detected"
+    (moduleListIndicatesSecurityProtocol #[`Mathlib.Data, `VCVio.OracleComp.Basic, `MyProj]) result
+  result ← test "no VCVio → not detected"
+    (!moduleListIndicatesSecurityProtocol #[`Mathlib.Data, `MyProj.Defs]) result
+  result ← test "VCVio prefix-collision (VCVioExtra) → not detected"
+    (!moduleListIndicatesSecurityProtocol #[`VCVioExtra]) result
+  result ← test "empty module list → not detected"
+    (!moduleListIndicatesSecurityProtocol #[]) result
+  return result
+
 def testViewHelpers (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -2559,6 +2619,8 @@ def main : IO UInt32 := do
   result ← testProofsOutputJson result
   result ← testUnifiedAtomJson result
   result ← testClassificationJson result
+  result ← testCodomainShape result
+  result ← testDetectClass result
   result ← testViewHelpers result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result

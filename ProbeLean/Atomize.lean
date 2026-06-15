@@ -193,9 +193,15 @@ def findProbeLeanLib : IO (List System.FilePath) := do
   if ← lakeBuildLib.pathExists then paths := lakeBuildLib :: paths
   return paths
 
-/-- Run analysis via lake env to get correct search paths -/
+/-- Run analysis via lake env to get correct search paths.
+    Returns the atoms together with the effective project class (`none` when no
+    class is detected). The class is resolved here — where both the environment
+    and the project path are available — so a later classifier pass can gate on
+    it. Precedence: `classOverride` (from `--class`) > `lake-manifest.json`
+    (package-level) > imported-module signal. -/
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String)
-    (nixMode : Option NixMode := none) : IO (Except String (Array Atom)) := do
+    (nixMode : Option NixMode := none) (classOverride : Option String := none)
+    : IO (Except String (Array Atom × Option String)) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
@@ -250,12 +256,20 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
 
   IO.println s!"Found {decls.size} declarations"
 
+  -- Effective class: --class override > manifest (package-level) > imported modules.
+  let manifestClass ← detectClassFromManifest projectPath
+  let detectedClass := classOverride.orElse fun () =>
+    manifestClass.orElse fun () => detectClass env
+  match detectedClass with
+  | some c => IO.println s!"Project class: {c}"
+  | none => pure ()
+
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath modules crate fileCache decl
     atoms := atoms.push atom
 
-  return .ok atoms
+  return .ok (atoms, detectedClass)
 
 end ProbeLean

@@ -188,6 +188,114 @@ def isRelevantSource (source : Option String) (crate : String) : Bool :=
     !s.startsWith "/" &&  -- External paths start with /rustc/ or /cargo/
     !containsSubstring s "/cargo/registry/"
 
+-- ============================================================
+-- Security-protocol classification facts (pure, .olean-derived)
+-- These facts are computed here so the pure classifier (Commit 4) can consume
+-- them without re-walking the environment. See
+-- docs/classification-security-protocol.md.
+-- ============================================================
+
+/-- Structural shape of a declaration's result type (codomain). Used as a
+*type* signal by the classifier. Computed by naive `Expr` inspection (no
+`whnf`); the validation gate decides whether reducible-alias unfolding is
+needed. -/
+inductive CodomainShape where
+  | prop       -- result is `Sort 0` (a predicate, when the decl is a `def`)
+  | game       -- probabilistic computation returning `Bool` (a security/correctness game)
+  | advantage  -- result head is a probability/real type
+  | other
+  deriving Repr, BEq, Inhabited
+
+instance : ToString CodomainShape where
+  toString
+    | .prop => "prop"
+    | .game => "game"
+    | .advantage => "advantage"
+    | .other => "other"
+
+/-- Strip leading `∀`/`→` binders, returning the result type. The body may
+contain loose bvars, but head/last-arg inspection does not look inside them. -/
+partial def stripForalls : Expr → Expr
+  | .forallE _ _ body _ => stripForalls body
+  | e => e
+
+/-- The head constant of a declaration's result type, if any. Approximate — it
+does not unfold reducible aliases (see the validation gate). -/
+def codomainHeadOf (type : Expr) : Option Name :=
+  match (stripForalls type).getAppFn with
+  | .const n _ => some n
+  | _ => none
+
+/-- Result-type head constants that mark an *advantage* (a probability bound).
+Mathlib-fixed, so inlined rather than catalogued. -/
+def advantageHeads : Array Name := #[`Real, `ENNReal, `NNReal]
+
+/-- Default probabilistic-computation head constants that make a `… → Bool`
+result a *game*. Minimal placeholder; Commit 3's catalogue supersedes/extends
+this against the VCVio commit the protocol repos pin. -/
+def defaultGameHeads : Array Name := #[`ProbComp, `OracleComp, `SPMF]
+
+/-- True when the final application argument of `e` is the constant `Bool`. -/
+def lastArgIsBool (e : Expr) : Bool :=
+  match e.getAppArgs.back? with
+  | some (.const n _) => n == `Bool
+  | _ => false
+
+/-- Classify the shape of a result type. `gameHeads` is the allowlist of
+probabilistic-computation head constants (so the pure function is testable and
+the catalogue is injectable). The "final arg is `Bool`" check alone overmatches
+(`List Bool`, `Array Bool`, `Except ε Bool`), so the head must be in the
+allowlist for the `game` verdict. -/
+def classifyCodomain (gameHeads : Array Name) (type : Expr) : CodomainShape :=
+  let result := stripForalls type
+  match result with
+  | .sort .zero => .prop
+  | _ =>
+    match result.getAppFn with
+    | .const n _ =>
+      if advantageHeads.contains n then .advantage
+      else if gameHeads.contains n && lastArgIsBool result then .game
+      else .other
+    | _ => .other
+
+/-- Handle-based detection (pure, `env`-only) of the four classification tags.
+Works when the target project imports `ProbeLean.Attrs`. -/
+def detectClassAttrs (env : Environment) (name : Name) : Array String := Id.run do
+  let mut a : Array String := #[]
+  if schemeDefAttr.hasTag env name then a := a.push "scheme_def"
+  if constructionDefAttr.hasTag env name then a := a.push "construction_def"
+  if correctnessSpecAttr.hasTag env name then a := a.push "correctness_spec"
+  if securitySpecAttr.hasTag env name then a := a.push "security_spec"
+  return a
+
+/-- Decide whether a list of (imported) module names indicates a VCVio-based
+security-protocol project. Factored out so it is testable without an
+`Environment`. -/
+def moduleListIndicatesSecurityProtocol (mods : Array Name) : Bool :=
+  mods.any fun m => m == `VCVio || m.toString.startsWith "VCVio."
+
+/-- Detect the project class from the imported environment (import-level signal).
+Returns `none` when no class is detected. -/
+def detectClass (env : Environment) : Option String :=
+  if moduleListIndicatesSecurityProtocol env.allImportedModuleNames then
+    some "security-protocol"
+  else
+    none
+
+/-- Package-level class detection from `lake-manifest.json`. This is independent
+of which modules were selected for analysis (so it does not false-negative when
+a `--module`/`--library` slice happens not to import VCVio) and confirms the
+dependency is actually declared (so a project-owned `VCVio.*` module does not
+trigger a false positive). Mirrors `ensureMathlibCache`'s substring approach;
+matches the VCVio package name or its git url. -/
+def detectClassFromManifest (projectPath : System.FilePath) : IO (Option String) := do
+  let manifestPath := projectPath / "lake-manifest.json"
+  if !(← manifestPath.pathExists) then return none
+  let content ← IO.FS.readFile manifestPath
+  if containsSubstring content "\"VCVio\"" || containsSubstring content "VCV-io" then
+    return some "security-protocol"
+  return none
+
 /-- Information about a declaration for analysis -/
 structure DeclInfo where
   name : Name
@@ -198,9 +306,19 @@ structure DeclInfo where
   typeDependencies : Array Name
   termDependencies : Array Name
   sourceInfo : Option CodeTextInfo
+  /-- Result-type head constant (approximate; see `codomainHeadOf`). -/
+  codomainHead : Option Name := none
+  /-- Structural shape of the result type (see `classifyCodomain`). -/
+  codomainShape : CodomainShape := .other
+  /-- Handle-detected classification tags present on the declaration
+      (the four class tags only; distinct from the emitted `Atom.attributes`). -/
+  classAttributes : Array String := #[]
 
-/-- Analyze a single declaration -/
-def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo) : DeclInfo :=
+/-- Analyze a single declaration. `gameHeads` is the probabilistic-computation
+head allowlist used to compute `codomainShape`; it is injected so Commit 3 can
+supply the catalogue's set in place of `defaultGameHeads`. -/
+def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo)
+    (gameHeads : Array Name := defaultGameHeads) : DeclInfo :=
   let displayName := getDisplayName name
   let moduleName := getModuleName env name |>.getD .anonymous
   let kind := getDeclKind env name info
@@ -210,10 +328,15 @@ def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo) : DeclIn
     dependencies := deps.all,
     typeDependencies := deps.typeDeps,
     termDependencies := deps.termDeps,
-    sourceInfo }
+    sourceInfo,
+    codomainHead := codomainHeadOf info.type,
+    codomainShape := classifyCodomain gameHeads info.type,
+    classAttributes := detectClassAttrs env name }
 
-/-- Get all project declarations from an environment -/
-def getProjectDecls (env : Environment) (projectModules : Array Name) : Array DeclInfo := Id.run do
+/-- Get all project declarations from an environment. `gameHeads` is threaded to
+`analyzeDecl` for `codomainShape` (default placeholder until Commit 3's catalogue). -/
+def getProjectDecls (env : Environment) (projectModules : Array Name)
+    (gameHeads : Array Name := defaultGameHeads) : Array DeclInfo := Id.run do
   let mut decls : Array DeclInfo := #[]
   for (name, info) in env.constants.map₁.toList do
     -- Skip internal names
@@ -227,7 +350,7 @@ def getProjectDecls (env : Environment) (projectModules : Array Name) : Array De
     | .ctorInfo _ => continue
     | .recInfo _ => continue
     | _ => pure ()
-    let decl := analyzeDecl env name info
+    let decl := analyzeDecl env name info gameHeads
     -- Skip declarations without source location (auto-generated by the kernel)
     if decl.sourceInfo.isNone then
       continue

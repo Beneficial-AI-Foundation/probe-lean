@@ -24,6 +24,7 @@ structure ExtractConfig where
   fromFile : Option System.FilePath
   libraries : Option (Array String) := none
   skipEnrich : Bool := false
+  classOverride : Option String := none
   deriving Repr
 
 /-- Map probe-lean VerifyStatus to the web frontend's verification status -/
@@ -194,11 +195,11 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let userConfig ← loadUserConfig config.projectPath
   let crate := loadRelevantCrate userConfig
 
-  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate nixMode with
+  let (atoms, projectClass) ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate nixMode config.classOverride with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1
-    | .ok atoms => pure atoms
+    | .ok result => pure result
 
   IO.println s!"Found {atoms.size} atoms"
 
@@ -253,7 +254,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
     pure enriched
 
-  let source ← collectSourceInfo config.projectPath
+  let baseSource ← collectSourceInfo config.projectPath
+  let source := { baseSource with sourceClass := projectClass }
   let timestamp ← getCurrentTimestamp
 
   let output : UnifiedAtomsOutput := { atoms := unifiedAtoms }
