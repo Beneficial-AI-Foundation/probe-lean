@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-16
+
+### Added
+
+- **Security-protocol classification**: for VCVio-based cryptographic projects, `extract` now
+  classifies each declaration into a `scheme → construction → {correctness, security}` hierarchy
+  so a consumer can render an accordion. Two additive, optional fields:
+  - envelope **`source.class`** (`"security-protocol"`), resolved by precedence: `--class` override
+    > Lake manifest (package-level VCVio dependency) > imported-module signal;
+  - per-atom **`classification`** — `{ category, via, scheme?, construction? }`, where `category`
+    is `scheme`/`construction`/`correctness`/`security`/`ambiguous`, `via` records the signal tier
+    (`attribute`/`type`/`naming`), and the `scheme`/`construction` links are resolved fail-closed.
+  Detection cascade is attribute > type > naming; project-own property definitions are promoted to
+  anchors; theorems are classified by a bounded reachability walk. `ambiguous` flags a property
+  whose correctness-vs-security axis is undecided (equal-depth tie or conflicting tags).
+  See [docs/classification-security-protocol.md](docs/classification-security-protocol.md).
+- **Classification attributes** (`ProbeLean.Attrs`): `@[scheme_def]`, `@[construction_def]`,
+  `@[correctness_spec]`, `@[security_spec]` — authoritative overrides for projects whose schemes or
+  properties are not conventionally named.
+- **`--class <name>` flag** on `extract`: override the detected project class for manual runs.
+
+### Unchanged
+
+- Non-security-protocol projects are unchanged from 0.7.0 apart from `tool.version`/timestamp
+  metadata (no class detected → neither `source.class` nor `classification` is emitted).
+
 ## [0.7.0] - 2026-05-22
 
 ### Added

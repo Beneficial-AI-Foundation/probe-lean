@@ -72,6 +72,12 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-verify` | | Skip the sorry detection step (graph structure only) |
 | `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
 | `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
+| `--class <NAME>` | | Override the detected project class (e.g. `security-protocol`). Normally auto-detected from a VCVio dependency; this is for manual runs |
+
+For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
+`scheme → construction → {correctness, security}` hierarchy and emits `source.class` plus a per-atom
+`classification` object (see [SCHEMA.md](SCHEMA.md#security-protocol-classification)). Schemes not
+named `*Scheme`/`*Alg` must carry `@[scheme_def]` (import `ProbeLean.Attrs`) to be detected.
 
 ---
 
@@ -258,7 +264,7 @@ The `extract` command produces a JSON file wrapped in a Schema 2.0 metadata enve
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.7.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",

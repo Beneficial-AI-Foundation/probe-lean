@@ -4,8 +4,9 @@ Cryptographic security protocols formalised in Lean on top of
 [VCV-io](https://github.com/Verified-zkEVM/VCV-io) share a recurring shape: an abstract
 **scheme** (a bundle of algorithms), one or more concrete **constructions** that realise it,
 and **correctness** and **security** properties proved about those constructions. probe-lean
-classifies the declarations of such a project into these four categories so that a downstream
-consumer can present them as a `scheme → construction → {correctness, security}` hierarchy.
+classifies the declarations of such a project into these four hierarchy categories so that a
+downstream consumer can present them as a `scheme → construction → {correctness, security}`
+hierarchy. A fifth value, `ambiguous`, marks properties whose category could not be decided (below).
 
 This document describes how that classification is performed and catalogues the symbols and
 patterns it relies on. It is specific to the `security-protocol` class (projects that depend on
@@ -23,8 +24,16 @@ VCVio); other project classes are handled separately.
 Each classified declaration is annotated with its `category`, with `via` — recording **how** the
 category was determined: `attribute`, `type`, or `naming` (defined next) — and, where resolvable,
 with explicit **links** to the construction and scheme it is about (see *Output schema*). A
-declaration that matches none of the four categories — invariant lemmas, helper definitions, game
+declaration that matches none of these categories — invariant lemmas, helper definitions, game
 state records — is left unclassified (no annotation).
+
+A fifth category, **`ambiguous`**, marks a declaration recognised as a crypto *property* whose
+correctness-vs-security axis could not be decided — an equal-depth reachability tie (e.g. a
+reduction theorem touching both a correctness assumption and a security advantage), conflicting
+`@[correctness_spec]`+`@[security_spec]` tags, or an own-name that matches **both** the correctness
+and security naming patterns. It still carries its `scheme`/`construction` links (so it is
+placeable), and is resolved with an explicit tag. It is distinct from *unclassified* (absent),
+which means "not a scheme/construction/property at all".
 
 Classification is applied only to a project's **own** declarations — imported declarations (from
 VCVio, Mathlib, …) never receive a `classification`. They may, however, be *referenced* as
@@ -37,7 +46,11 @@ atoms — otherwise imported anchors such as `SecExp` would be invisible.
 ## How classification works
 
 For each declaration, three signals are consulted in decreasing order of reliability; the first
-that applies wins, and the signal used is recorded in `via`.
+that applies wins, and the signal used is recorded in `via`. (One deliberate exception to the
+"type before naming" order: in the **property-definitions** stage, naming is applied *before* the
+type-reach sub-pass — see *Anchors, the promotion rule, and the walk* — because naming is what
+seeds the project's own games into the anchor set that the type-reach walk then targets. Theorems
+follow the stated `attribute > type > naming` order.)
 
 Classification runs as a **staged pipeline**, because later categories depend on earlier ones:
 
@@ -72,17 +85,20 @@ to pin down anything the heuristics below get wrong or cannot see.
 *registered* by some module the project imports. These attributes belong in
 probe-lean's attribute module (`ProbeLean.Attrs`), following the same pattern as `@[primary_spec]`,
 so a project that wants to tag its declarations imports that module (taking a dependency on
-probe-lean) and adds the tags. probe-lean then detects the tags directly from the built project —
-handle-based from the environment, with a source scan of `@[…]` annotations as a fallback — and
-never edits the project.
+probe-lean) and adds the tags. probe-lean then detects the classification tags **handle-based** from
+the built environment (`TagAttribute.hasTag`) and never edits the project. Because a tag cannot
+compile unless `ProbeLean.Attrs` is imported, the handle check always sees a present tag — so no
+source-scan fallback is needed for classification. (The separate source scan of `@[…]` annotations
+populates the emitted `attributes` field for *other*, third-party attributes; it does not feed the
+classifier.)
 
 So in an **unattended verilib run, attributes only apply to projects that have already adopted
 them**; for every other project, classification falls back to the *type* and *naming* signals.
 
-If a declaration carries **conflicting tags** (e.g. both `@[correctness_spec]` and
-`@[security_spec]`), or a tag whose category is incompatible with its kind (e.g. `@[scheme_def]`
-on a `theorem`), the classifier emits a diagnostic and leaves the declaration unclassified rather
-than guessing.
+If a declaration carries **conflicting tags** (both `@[correctness_spec]` and `@[security_spec]`),
+the classifier emits a diagnostic and classifies it `ambiguous` (below) rather than guessing. A tag
+whose category is incompatible with the declaration's kind (e.g. `@[scheme_def]` on a `theorem`) is
+instead **ignored** with a diagnostic, so the declaration falls through to the type/naming signals.
 
 ### Framework types (`via: type`) — structural inference
 
@@ -172,10 +188,11 @@ through them.
 
 **Walk semantics:** the walk is **bounded** — a fixed maximum depth plus a visited-set; cycles
 and the bound both terminate it, leaving the atom *unclassified* rather than hanging. "Nearest
-anchor wins" means the smallest number of hops; **a tie is left unclassified**. In particular,
-when a statement reaches *both* a correctness and a security anchor at equal distance (e.g.
-`correctness_implies_security`), neither dominates and the atom is left unclassified — resolve
-such cases with `@[correctness_spec]` / `@[security_spec]`.
+anchor wins" means the smallest number of hops; **an equal-depth tie yields `ambiguous`**. In
+particular, when a statement reaches *both* a correctness and a security anchor at equal distance
+(e.g. `correctness_implies_security`), neither dominates and the atom is classified `ambiguous` —
+resolve such cases with `@[correctness_spec]` / `@[security_spec]`. (Reaching *no* anchor — by the
+depth bound or a cycle — leaves the atom unclassified, not `ambiguous`.)
 
 ### Naming conventions (`via: naming`) — last-resort fallback
 
@@ -246,62 +263,71 @@ the last component alone (they would hit unrelated project-local declarations). 
 walk looks for a dependency whose fully-qualified name is one of the catalogued VCVio symbols, or
 a promoted project-local anchor.
 
-The tables below display the **final name component for readability only**; the implementation
-catalogue stores the fully-qualified names (the symbols live in the namespaces of their defining
-structures, e.g. `SymmEncAlg.Complete`, `AsymmEncAlg.Correct`, `PRFScheme.prfAdvantage`). The
-exact fully-qualified enumeration is fixed during implementation against the targeted VCVio
-version — and policed thereafter by the drift diagnostic below.
+The lists below are a snapshot of the enumeration baked into
+[`ProbeLean/Classify/Catalogue.lean`](../ProbeLean/Classify/Catalogue.lean) (**the source of
+truth**), captured against **VCVio commit `ebea2fa`** (the revision the protocol model repos pin).
+The catalogue stores fully-qualified names — the symbols live in their defining structures'
+namespaces (`SymmEncAlg.Complete`, `PRFScheme.prfAdvantage`, …). It is re-verified against the
+targeted VCVio version whenever edited, and policed at runtime by the drift diagnostic.
 
-**Drift diagnostic:** the catalogue names live in probe-lean while VCVio evolves independently, so
-renames upstream silently break individual anchors (this has already happened:
-`preimageFindingAdvantage` was renamed to `programmedPreimageAdvantage`). At classification start,
-probe-lean therefore **resolves every catalogued fully-qualified name against the loaded
-environment and emits a warning for each unresolved anchor** — converting silent drift into a
-visible diagnostic. The warning is informational, not an error: which names exist depends on the
-VCVio version the target project builds against. The catalogue should be re-verified against
-current VCVio whenever it is edited.
+**Drift diagnostic.** VCVio evolves independently, so upstream renames or removals silently break
+individual anchors (e.g. `preimageFindingAdvantage` → `programmedPreimageAdvantage`; neither is
+present at `ebea2fa`). probe-lean checks the catalogue against the loaded environment and emits an
+informational warning — but **family-conditionally**: an anchor is reported only when its parent
+scheme type (e.g. `KEMScheme` for `KEMScheme.IND_CCA_Advantage`) *is* loaded yet the anchor itself
+is absent. Anchors whose family (scheme type) is not imported are silently skipped, so a project
+that uses only a slice of VCVio raises far fewer false alarms. (Top-level anchors like `SecExp`,
+with no scheme-type parent, are likewise not drift-checked. The guard keys on the *immediate*
+parent, so it can still over-report when a scheme's anchors are split across optionally-imported
+submodules — e.g. `AsymmEncAlg` loaded but its `IND_CPA` submodule not; such warnings are
+informational, never errors.)
+
+### VCVio scheme types (construction return-type heads)
+
+`SymmEncAlg`, `AsymmEncAlg`, `AsymmEncAlg.ExplicitCoins`, `PKE_Alg` (an `abbrev` for `AsymmEncAlg`),
+`SignatureAlg`, `KEMScheme`, `PRFScheme`, `PRGScheme`, `CommitmentScheme`, `SigmaProtocol`,
+`OneWay.TrapdoorPermutation`, `GenerableRelation`.
+
+This set has a **single role: construction detection.** A `def`/`abbrev`/`instance` whose
+return-type head is one of these (e.g. `def myEnc : AsymmEncAlg … := …`) is recognised as a
+construction, alongside `def`s returning a project's own scheme. Matching is by exact name on the
+return-type head, so it cannot over-match. These symbols are imported and are **never** classified
+as scheme atoms themselves (only project-own declarations are classified — schemes via
+`@[scheme_def]` or the naming fallback). In practice protocol projects define and return their
+**own** schemes, so this set only matters when a construction returns a VCVio scheme directly.
 
 ### VCVio correctness anchors
 
-| Symbol | Kind |
-|---|---|
-| `Correct`, `Complete` | `def … : Prop` (predicate form) |
-| `CorrectExp`, `CompleteExp` | `def … : m Bool` (game form) |
+`SymmEncAlg.Complete`, `SymmEncAlg.CompleteExp`, `AsymmEncAlg.CorrectExp`,
+`AsymmEncAlg.PerfectlyCorrect`, `SignatureAlg.PerfectlyComplete`, `KEMScheme.CorrectExp`,
+`KEMScheme.PerfectlyCorrect`, `CommitmentScheme.PerfectlyCorrect`, `SigmaProtocol.PerfectlyComplete`,
+`OneWay.TrapdoorPermutation.Correct`.
 
 ### VCVio security anchors
 
-| Symbol | Kind |
-|---|---|
-| `SecExp`, `SecurityExp`, `SecurityGame` | `structure` (experiment) |
-| `advantage`, `bindingAdvantage`, `hidingAdvantage`, `owfAdvantage`, `prfAdvantage`, `prgAdvantage`, `tdpAdvantage`, `programmedPreimageAdvantage`, `collisionFindingAdvantage`, `ddhDistAdvantage`, `ddhGuessAdvantage` | `def` (advantage) |
-
-### VCVio scheme anchors
-
-Algorithm-bundling interfaces defined in VCVio's `CryptoFoundations/`: `SymmEncAlg`,
-`AsymmEncAlg`, `MacAlg`, `KEMScheme`, `DEMScheme`, `SignatureAlg`, `PRFScheme`, `PRGScheme`,
-`CommitmentScheme`, `SigmaProtocol`, `IdenSchemeWithAbort`, `TrapdoorPermutation`,
-`PreimageSampleableFunction`, `GenerableRelation`.
-
-This list has a **single role: construction detection.** It is the set of VCVio scheme types that
-count as a valid **construction return-type head** — so a `def` returning one of them directly
-(e.g. `def myEnc : AsymmEncAlg … := …`) is recognised as a construction, alongside `def`s
-returning a project's own scheme. Matching is by exact name on the return-type head, so it cannot
-over-match.
-
-> **NOTE:** It is **not** a scheme-*classification* input: these symbols are imported and are never classified
-as scheme atoms themselves (only project-own declarations are classified — schemes via
-`@[scheme_def]` or the naming fallback). In practice protocol projects define and return their
-**own** schemes, so this catalogue only matters when a construction returns a VCVio scheme
-directly.
+Experiment types and their advantages: `SecExp` (+`.advantage`), `SecurityExp` (+`.secure`),
+`SecurityGame` (+`.secureAgainst`); `ProbComp.distAdvantage` / `boolDistAdvantage` /
+`guessAdvantage` / `boolBiasAdvantage`; `AsymmEncAlg.IND_CCA_Advantage` and the IND-CPA family
+(`IND_CPA_advantage`, `IND_CPA_signedAdvantageReal`, `IND_CPA_experiment`, `IND_CPA_LR_experiment`,
+`IND_CPA_OneTime_Game`, `IND_CPA_OneTime_Game_ProbComp`, `IND_CPA_OneTime_biasAdvantage`,
+`IND_CPA_OneTime_signedAdvantageReal`), `AsymmEncAlg.ExplicitCoins.OW_CPA_Game` / `OW_CPA_Advantage`;
+`SymmEncAlg.perfectSecrecy` / `perfectSecrecyAt`; `KEMScheme.IND_CCA_Advantage`;
+`PRFScheme.prfAdvantage`; `PRGScheme.prgAdvantage`; `CommitmentScheme.hidingAdvantage` /
+`bindingAdvantage` / `PerfectlyHiding`; `SignatureAlg.unforgeableAdv.advantage`;
+`OneWay.owfAdvantage` / `tdpAdvantage`; `DiffieHellman.ddhGuessAdvantage` / `ddhDistAdvantage`;
+`EntropySmoothing.advantage`; `LearningWithErrors.advantage` / `searchAdvantage`;
+`SigmaProtocol.SpeciallySound` / `SpeciallySoundAt` / `HVZK` / `UniqueResponses`.
 
 ## Class detection
 
-A project is treated as `security-protocol` when it **imports VCVio**, detected from the built
-environment's import graph (with the Lake manifest as a fallback signal — less robust against
-vendoring and renames). Detection is automatic: probe-lean runs unattended in the verilib
-backend, so no flag or configuration is required. An optional `--class` override may be offered
-for manual runs, but verilib never depends on it. When no class is detected, the classification
-stages do not run and the output carries no class fields.
+A project is treated as `security-protocol` when it depends on **VCVio**. The effective class is
+resolved by precedence: a **`--class` override**, then the **Lake manifest** (a package-level
+dependency declaration — filter-independent), then the **imported-module signal** from the built
+environment. Detection is otherwise automatic: probe-lean runs unattended in the verilib backend,
+so no flag is required, and `--class` is only for manual runs. When no class is detected, the
+classification stages do not run and the output carries no class fields. (Note: only the
+`security-protocol` class currently has a classifier — any other detected/overridden class sets
+`source.class` but produces no per-atom `classification`.)
 
 ## Output schema
 
@@ -315,7 +341,7 @@ two new fields are introduced:
 
   | field | meaning | when present |
   |---|---|---|
-  | `category` | `scheme` / `construction` / `correctness` / `security` | always |
+  | `category` | `scheme` / `construction` / `correctness` / `security` / `ambiguous` | always |
   | `via` | the **weakest signal in the classification chain**: `attribute` / `type` / `naming` — a theorem anchored on a promoted anchor inherits that anchor's tier (see *Provenance* above) | always |
   | `scheme` | code-name of the scheme this atom is about | when resolvable (see below) |
   | `construction` | code-name of the construction this property is about | correctness/security atoms, when resolvable |
@@ -336,10 +362,12 @@ under all of them. probe-lean resolves the join while it still has the informati
 - **Scheme-level properties carry `scheme` without `construction`.** Property *definitions*
   (games, predicates, advantage definitions) are generic over constructions — `correctnessExp`
   takes *any* `CKAScheme` — so they resolve no construction; their subject is the scheme itself.
-  They link to the **unique classified scheme among their statement's dependencies**. Likewise, a
-  theorem that resolves no construction but reaches a promoted anchor (e.g. a generic lemma about
-  `securityExp`) inherits that anchor's `scheme`. This distinguishes scheme-level properties from
-  true orphans.
+  They link to the **unique classified scheme among their statement's dependencies** — which
+  distinguishes a scheme-level property (whose statement names the scheme, e.g. `correctnessExp`
+  taking a `CKAScheme`) from a true orphan. (Carrying a *reached* promoted anchor's scheme out of
+  the walk for statements that do not themselves name the scheme is a possible future refinement —
+  see *Reliability and limitations*; the current resolver inspects only the atom's own
+  dependencies.)
 - **Fail-closed:** a link field is **absent** when unresolvable (zero candidates — orphans stay
   visibly orphaned, never fabricated).
 - **JSON types:** each link field is a **string** when uniquely resolved and an **array of
@@ -436,11 +464,12 @@ group-by:
 
 ```
 for each atom with a classification:
-  category == scheme         → create a root
-  category == construction   → place under its `scheme`
-  correctness / security     → place under its `construction`;
-                               if only `scheme` is present, place at scheme level;
-                               if neither, list as unattached
+  category == scheme                     → create a root
+  category == construction               → place under its `scheme`
+  correctness / security / ambiguous     → place under its `construction`;
+                                           if only `scheme` is present, place at scheme level;
+                                           if neither, list as unattached
+                                           (badge `ambiguous` for review / tagging)
 ```
 
 The link-presence pattern encodes the placement directly:
@@ -500,8 +529,8 @@ project adopts the attributes.
   labels such as `:::theorem "…_security" (lean := …)`) could serve as an additional
   classification signal — a possible fourth `via: docs` value. Deferred to a separate issue.
 
-### Open decisions
+### Resolved
 
-- **Schema docs.** `docs/SCHEMA.md` and the test suite must be updated to declare `source.class`
-  and the per-atom `classification` object (including the link fields) as optional fields when
-  this is implemented.
+- **Schema docs.** `docs/SCHEMA.md` now documents `source.class` and the per-atom `classification`
+  object (including the link fields) as optional fields, and the test suite covers their
+  serialization.
