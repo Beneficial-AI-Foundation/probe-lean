@@ -6,6 +6,7 @@ import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Analysis
+import ProbeLean.Classify.SecurityProtocol
 
 namespace ProbeLean
 
@@ -193,15 +194,39 @@ def findProbeLeanLib : IO (List System.FilePath) := do
   if ← lakeBuildLib.pathExists then paths := lakeBuildLib :: paths
   return paths
 
+/-- The security-protocol classifier runs **only** for this class — other/unknown
+    class values (e.g. a `--class` override for a class with no classifier yet)
+    carry no classification, keeping the dispatch forward-compatible. -/
+def isSecurityProtocolClass : Option String → Bool
+  | some "security-protocol" => true
+  | _ => false
+
+/-- Run the security-protocol classifier (when the class matches), emitting tag
+    diagnostics and catalogue-drift warnings to stderr. Returns the
+    `(name, classification)` pairs (empty for other/no class). -/
+def classifyProject (env : Environment) (decls : Array DeclInfo)
+    (detectedClass : Option String) : IO (Array (Name × Classification)) := do
+  if !isSecurityProtocolClass detectedClass then return #[]
+  let (classifications, diags) := Classify.classify decls
+  for d in diags do
+    IO.eprintln s!"Warning: classification: {d}"
+  let drifts := Catalogue.driftWarnings env
+  unless drifts.isEmpty do
+    IO.eprintln s!"Warning: {drifts.size} classification-catalogue drift warning(s):"
+    for w in drifts do
+      IO.eprintln s!"  {w}"
+  IO.println s!"Classified {classifications.size} declarations"
+  return classifications
+
 /-- Run analysis via lake env to get correct search paths.
-    Returns the atoms together with the effective project class (`none` when no
-    class is detected). The class is resolved here — where both the environment
-    and the project path are available — so a later classifier pass can gate on
-    it. Precedence: `classOverride` (from `--class`) > `lake-manifest.json`
-    (package-level) > imported-module signal. -/
+    Returns the atoms, the effective project class (`none` when no class is
+    detected), and the per-declaration classifications (empty when no class).
+    The class is resolved here — where both the environment and the project path
+    are available. Precedence: `classOverride` (from `--class`) >
+    `lake-manifest.json` (package-level) > imported-module signal. -/
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String)
     (nixMode : Option NixMode := none) (classOverride : Option String := none)
-    : IO (Except String (Array Atom × Option String)) := do
+    : IO (Except String (Array Atom × Option String × Array (Name × Classification))) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
@@ -252,7 +277,8 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
 
   IO.println "Extracting declarations..."
 
-  let decls := getProjectDecls env modules
+  -- Use the catalogue's game-head allowlist for codomain-shape (not the placeholder).
+  let decls := getProjectDecls env modules Catalogue.gameHeads
 
   IO.println s!"Found {decls.size} declarations"
 
@@ -264,12 +290,14 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   | some c => IO.println s!"Project class: {c}"
   | none => pure ()
 
+  let classifications ← classifyProject env decls detectedClass
+
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath modules crate fileCache decl
     atoms := atoms.push atom
 
-  return .ok (atoms, detectedClass)
+  return .ok (atoms, detectedClass, classifications)
 
 end ProbeLean

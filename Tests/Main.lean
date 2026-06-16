@@ -1319,6 +1319,78 @@ def testClassifyLinkEdges (result : TestResult) : IO TestResult := do
     ((clsOf dl "App.amb").map (·.scheme) == some #[`App.OneScheme]) result
   return result
 
+def testUnifyClassification (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing unifyAtom attaches classification (commit-5a glue)..."
+  let atom : Atom := {
+    name := "probe:App.thm"
+    displayName := "thm"
+    dependencies := #[]
+    codeModule := "App"
+    codePath := "App.lean"
+    codeText := none
+    kind := .theorem
+  }
+  let cls : Classification := { category := .correctness, «via» := .naming, scheme := #[`App.CKAScheme] }
+  let ua := unifyAtom atom none (some cls)
+  result ← test "unifyAtom sets classification when present"
+    (ua.classification.map (·.category) == some .correctness) result
+  result ← test "unifyAtom classification link preserved"
+    (ua.classification.map (·.scheme) == some #[`App.CKAScheme]) result
+  let uaNone := unifyAtom atom none none
+  result ← test "unifyAtom classification absent by default" (uaNone.classification == none) result
+  -- the classifier keys by raw Name; Extract indexes by the probe-prefixed atom name
+  result ← test "probe-prefixed key matches atom name"
+    (addProbePrefix (`App.thm).toString == atom.name) result
+  return result
+
+def testBuildClassMap (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing buildClassMap keys by probe-prefixed name..."
+  let cls1 : Classification := { category := .scheme, «via» := .naming }
+  let cls2 : Classification := { category := .correctness, «via» := .naming, construction := #[`App.c] }
+  let m := buildClassMap #[(`App.CKAScheme, cls1), (`App.thm, cls2)]
+  result ← test "buildClassMap: scheme keyed by probe:name"
+    ((m["probe:App.CKAScheme"]?).map (·.category) == some .scheme) result
+  result ← test "buildClassMap: theorem keyed by probe:name"
+    ((m["probe:App.thm"]?).map (·.category) == some .correctness) result
+  result ← test "buildClassMap: unknown name → none" ((m["probe:App.nope"]?).isNone) result
+  -- the classifier only runs for the security-protocol class
+  result ← test "classifier runs for security-protocol" (isSecurityProtocolClass (some "security-protocol")) result
+  result ← test "classifier skips other class" (!isSecurityProtocolClass (some "other-class")) result
+  result ← test "classifier skips no class" (!isSecurityProtocolClass none) result
+  return result
+
+def testEnrichPreservesClassification (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing transitive enrichment preserves classification..."
+  let cls : Classification := { category := .security, «via» := .naming, scheme := #[`App.S] }
+  let atom : UnifiedAtom := {
+    name := "probe:App.thm"
+    displayName := "thm"
+    dependencies := #[]
+    codeModule := "App"
+    codePath := "App.lean"
+    codeText := none
+    kind := .theorem
+    verificationStatus := some .verified
+    classification := some cls
+  }
+  let (enriched, _, _, _) := enrichTransitiveVerification #[atom]
+  match enriched[0]? with
+  | some out =>
+    result ← test "verified atom upgraded to transitively-verified"
+      (out.verificationStatus == some .transitivelyVerified) result
+    result ← test "classification survives the enrichment record-update"
+      (out.classification.map (fun c => (c.category, c.scheme)) == some (.security, #[`App.S])) result
+  | none =>
+    IO.println "  ✗ enriched atom missing"
+    result := result.add false
+  return result
+
 def testClassifyMisuseIgnored (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -1330,6 +1402,30 @@ def testClassifyMisuseIgnored (result : TestResult) : IO TestResult := do
   result ← test "scheme_def on theorem ignored → classified by naming"
     (cls.map (·.category) == some .correctness) result
   result ← test "ignored scheme_def is diagnosed" (diags.any (containsSubstring · "scheme_def")) result
+  return result
+
+def testClassifyAttrAuthority (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing attribute authority + property-def tie via (final review fixes)..."
+  -- #1: a property def reaching both categories at equal depth via naming anchors
+  -- must be ambiguous with via=naming (the weakest tier), not hard-coded type.
+  let corrGame := mkDeclI "App.correctnessExp" .def .game
+  let secGame := mkDeclI "App.securityExp" .def .game
+  let gboth := mkDeclI "App.gboth" .def .game none #[] #["App.correctnessExp", "App.securityExp"]
+  result ← test "property-def reach tie → ambiguous via naming (weakest tier)"
+    ((clsOf #[corrGame, secGame, gboth] "App.gboth").map (fun c => (c.category, c.via))
+      == some (.ambiguous, .naming)) result
+  -- #2: a property tag must win over construction type-inference even when the
+  -- def returns a scheme (attributes are authoritative).
+  let scheme := mkDeclI "App.CKAScheme" .structure
+  let taggedSec := mkDeclI "App.weirdSecProp" .def .other (head := "App.CKAScheme") (attrs := #["security_spec"])
+  result ← test "@[security_spec] def returning a scheme → security, not construction"
+    ((clsOf #[scheme, taggedSec] "App.weirdSecProp").map (·.category) == some .security) result
+  let bothTags := mkDeclI "App.weirdBoth" .def .other (head := "App.CKAScheme")
+    (attrs := #["correctness_spec", "security_spec"])
+  result ← test "conflicting tags on scheme-returning def → ambiguous, not construction"
+    ((clsOf #[scheme, bothTags] "App.weirdBoth").map (·.category) == some .ambiguous) result
   return result
 
 def testViewHelpers (result : TestResult) : IO TestResult := do
@@ -2963,6 +3059,10 @@ def main : IO UInt32 := do
   result ← testClassifyWalkEdges result
   result ← testClassifyLinkEdges result
   result ← testClassifyMisuseIgnored result
+  result ← testClassifyAttrAuthority result
+  result ← testUnifyClassification result
+  result ← testBuildClassMap result
+  result ← testEnrichPreservesClassification result
   result ← testViewHelpers result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result
