@@ -9,3 +9,5 @@ import ProbeLean.VerifyInternal
 import ProbeLean.Transitive
 import ProbeLean.Extract
 import ProbeLean.View
+import ProbeLean.Classify.Catalogue
+import ProbeLean.Classify.SecurityProtocol

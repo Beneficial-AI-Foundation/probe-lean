@@ -120,6 +120,15 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-verify` | Skip sorry detection (graph structure only) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
 | `--skip-enrich` | Skip transitive verification enrichment (no `"transitively-verified"` status) |
+| `--class <NAME>` | Override the detected project class (e.g. `security-protocol`) |
+
+### Security-protocol classification
+
+For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
+`scheme → construction → {correctness, security}` hierarchy — emitting `source.class` and a per-atom
+`classification` object so a consumer can render an accordion. The class is auto-detected from a
+VCVio dependency; schemes not named `*Scheme`/`*Alg` should carry `@[scheme_def]` (from
+`ProbeLean.Attrs`). See **[docs/classification-security-protocol.md](docs/classification-security-protocol.md)**.
 
 For the full command reference with examples, see **[docs/USAGE.md](docs/USAGE.md)**. For the complete JSON schema specification, see **[docs/SCHEMA.md](docs/SCHEMA.md)**.
 
@@ -131,7 +140,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 {
   "schema": "probe-lean/extract",
   "schema-version": "2.0",
-  "tool": { "name": "probe-lean", "version": "0.7.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
     "commit": "abc123d",
