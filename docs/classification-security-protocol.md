@@ -265,7 +265,9 @@ a promoted project-local anchor.
 
 The lists below are a snapshot of the enumeration baked into
 [`ProbeLean/Classify/Catalogue.lean`](../ProbeLean/Classify/Catalogue.lean) (**the source of
-truth**), captured against **VCVio commit `ebea2fa`** (the revision the protocol model repos pin).
+truth**), enumerated against **VCVio commit `ebea2fa`** (target repos may pin a newer, divergent
+VCVio — e.g. secure-messaging now pins `1e984d2`; the catalogue FQNs were re-verified to resolve
+cleanly there, with no drift warnings).
 The catalogue stores fully-qualified names — the symbols live in their defining structures'
 namespaces (`SymmEncAlg.Complete`, `PRFScheme.prfAdvantage`, …). It is re-verified against the
 targeted VCVio version whenever edited, and policed at runtime by the drift diagnostic.
@@ -434,9 +436,17 @@ envelope field is `sourceClass` in code, serialised to the JSON key `class`.)
     "probe:SecureMessaging.CKA.FromKEM.Security.security_reduces_to_ind_cpa_exists": {
       "display-name": "security_reduces_to_ind_cpa_exists",
       "kind": "theorem",
-      "dependencies": ["probe:SecureMessaging.CKA.Defs.securityExp"],
+      "dependencies": [
+        "probe:SecureMessaging.CKA.Defs.ckaDistAdvantage",
+        "probe:SecureMessaging.CKA.FromKEM.Correctness.decapsDet_eq_some_of_mem_support",
+        "probe:SecureMessaging.CKA.FromKEM.Construction.kemCKA"
+      ],
       "verification-status": "unverified",
-      "classification": { "category": "security", "via": "naming" }
+      "classification": {
+        "category": "ambiguous", "via": "naming",
+        "construction": "probe:SecureMessaging.CKA.FromKEM.Construction.kemCKA",
+        "scheme": "probe:SecureMessaging.CKA.Defs.CKAScheme"
+      }
     },
     "probe:SecureMessaging.CKA.FromDDH.Correctness.reachableInv_init": {
       "display-name": "reachableInv_init",
@@ -451,9 +461,12 @@ Reading the example: `correctnessExp` is a project-own game classified by naming
 an anchor** — generic over constructions, so it carries a `scheme` link only (scheme-level). The
 `correctness` theorem is classified structurally by reaching it, but inherits the anchor's weaker
 tier (`via: naming`), and carries explicit links to its construction and scheme.
-`security_reduces_to_ind_cpa_exists` resolves no unique construction, so its link fields are
-**absent** — a visible orphan, nested nowhere rather than somewhere wrong. `reachableInv_init`
-carries no `classification` key at all — an unclassified helper lemma.
+`security_reduces_to_ind_cpa_exists` is a reduction that reaches a correctness assumption and a
+security advantage at **equal depth**, so its axis cannot be decided and it is classified
+**`ambiguous`** (fail-closed) — its construction/scheme links still resolve, so it stays *placeable*
+but flagged for review. Tag it `@[security_spec]` (or `@[correctness_spec]`) to pin the axis and
+override the tie. `reachableInv_init` carries no `classification` key at all — an unclassified
+helper lemma.
 
 ### Building the accordion from the links
 

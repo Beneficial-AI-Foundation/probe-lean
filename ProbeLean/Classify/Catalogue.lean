@@ -2,8 +2,9 @@
   Classification catalogue for VCVio-based security-protocol projects.
 
   Fully-qualified VCVio anchor names consumed by the security-protocol
-  classifier (Commit 4). Enumerated against **VCVio commit `ebea2fa`** — the
-  revision the protocol model repos pin in their `lake-manifest.json`. Names are
+  classifier (Commit 4). Enumerated against **VCVio commit `ebea2fa`**; target
+  repos may pin a newer, divergent VCVio (e.g. secure-messaging pins `1e984d2`),
+  against which these FQNs were re-verified to resolve cleanly. Names are
   baked as Lean literals (no external config file). FQNs were verified by reading
   the pinned source (`section`s are transparent; only `namespace` affects names).
 
