@@ -211,7 +211,7 @@ crypto *property* whose correctness-vs-security axis could not be decided (an
 equal-depth reachability tie, or conflicting `@[…_spec]` tags). It still carries
 `scheme`/`construction` links, so it is placeable but flagged to resolve with a
 tag — distinct from an absent classification (not a property at all). -/
-inductive ClassCategory where
+inductive SecurityProtocolCategory where
   | scheme
   | construction
   | correctness
@@ -219,7 +219,7 @@ inductive ClassCategory where
   | ambiguous
   deriving Repr, BEq
 
-instance : Lean.ToJson ClassCategory where
+instance : Lean.ToJson SecurityProtocolCategory where
   toJson
     | .scheme => "scheme"
     | .construction => "construction"
@@ -227,7 +227,7 @@ instance : Lean.ToJson ClassCategory where
     | .security => "security"
     | .ambiguous => "ambiguous"
 
-instance : Lean.FromJson ClassCategory where
+instance : Lean.FromJson SecurityProtocolCategory where
   fromJson? json := do
     let s ← json.getStr?
     match s with
@@ -236,7 +236,7 @@ instance : Lean.FromJson ClassCategory where
     | "correctness" => return .correctness
     | "security" => return .security
     | "ambiguous" => return .ambiguous
-    | _ => throw s!"Unknown ClassCategory: {s}"
+    | _ => throw s!"Unknown SecurityProtocolCategory: {s}"
 
 /-- How a classification was determined — the weakest signal in the chain. -/
 inductive ClassVia where
@@ -266,7 +266,7 @@ name serialises as a `probe:`-prefixed string; multiple names (genuinely
 ambiguous) serialise as an array of such strings. Field order matches the
 serialised JSON (`construction` before `scheme`) per the design doc example. -/
 structure Classification where
-  category : ClassCategory
+  category : SecurityProtocolCategory
   «via» : ClassVia
   construction : Array Lean.Name := #[]
   scheme : Array Lean.Name := #[]
@@ -321,7 +321,7 @@ instance : Lean.ToJson Classification where
 
 instance : Lean.FromJson Classification where
   fromJson? json := do
-    let category ← json.getObjValAs? ClassCategory "category"
+    let category ← json.getObjValAs? SecurityProtocolCategory "category"
     let «via» ← json.getObjValAs? ClassVia "via"
     let construction ← classLinkFromJson json "construction"
     let scheme ← classLinkFromJson json "scheme"

@@ -800,18 +800,18 @@ run_cmd do
 def testClassificationJson (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing ClassCategory / ClassVia round-trips..."
-  let catRt := match Lean.FromJson.fromJson? (Lean.toJson ClassCategory.construction) (α := ClassCategory) with
+  IO.println "Testing SecurityProtocolCategory / ClassVia round-trips..."
+  let catRt := match Lean.FromJson.fromJson? (Lean.toJson SecurityProtocolCategory.construction) (α := SecurityProtocolCategory) with
     | .ok .construction => true | _ => false
-  let ambRt := match Lean.FromJson.fromJson? (Lean.toJson ClassCategory.ambiguous) (α := ClassCategory) with
+  let ambRt := match Lean.FromJson.fromJson? (Lean.toJson SecurityProtocolCategory.ambiguous) (α := SecurityProtocolCategory) with
     | .ok .ambiguous => true | _ => false
   let viaRt := match Lean.FromJson.fromJson? (Lean.toJson ClassVia.naming) (α := ClassVia) with
     | .ok .naming => true | _ => false
-  result ← test "ClassCategory round-trips" catRt result
-  result ← test "ClassCategory ambiguous round-trips" ambRt result
+  result ← test "SecurityProtocolCategory round-trips" catRt result
+  result ← test "SecurityProtocolCategory ambiguous round-trips" ambRt result
   result ← test "ClassVia round-trips" viaRt result
-  result ← test "ClassCategory scheme toJson" (Lean.toJson ClassCategory.scheme == "scheme") result
-  result ← test "ClassCategory ambiguous toJson" (Lean.toJson ClassCategory.ambiguous == "ambiguous") result
+  result ← test "SecurityProtocolCategory scheme toJson" (Lean.toJson SecurityProtocolCategory.scheme == "scheme") result
+  result ← test "SecurityProtocolCategory ambiguous toJson" (Lean.toJson SecurityProtocolCategory.ambiguous == "ambiguous") result
   result ← test "ClassVia attribute toJson" (Lean.toJson ClassVia.attribute == "attribute") result
 
   IO.println ""
@@ -1005,6 +1005,32 @@ def testDetectClass (result : TestResult) : IO TestResult := do
     (!moduleListIndicatesSecurityProtocol #[`VCVioExtra]) result
   result ← test "empty module list → not detected"
     (!moduleListIndicatesSecurityProtocol #[]) result
+
+  IO.println ""
+  IO.println "Testing manifest detection (direct VCVio dep only)..."
+  let directVCVio := "{\"packages\": [{\"name\": \"VCVio\", \"inherited\": false}, {\"name\": \"mathlib\", \"inherited\": true}]}"
+  let transitiveVCVio := "{\"packages\": [{\"name\": \"VCVio\", \"inherited\": true}, {\"name\": \"mathlib\", \"inherited\": false}]}"
+  let noVCVio := "{\"packages\": [{\"name\": \"mathlib\", \"inherited\": false}]}"
+  result ← test "direct (inherited:false) VCVio → detected" (manifestDeclaresVCVio directVCVio) result
+  result ← test "transitive (inherited:true) VCVio → NOT detected" (!manifestDeclaresVCVio transitiveVCVio) result
+  result ← test "no VCVio package → not detected" (!manifestDeclaresVCVio noVCVio) result
+  result ← test "unparseable manifest → not detected" (!manifestDeclaresVCVio "{not json") result
+  result ← test "VCVio only in a comment/url → not detected"
+    (!manifestDeclaresVCVio "{\"comment\": \"uses VCV-io\", \"packages\": []}") result
+  -- Realistic entry shape: a direct dep carries url/type/rev/inputRev fields too;
+  -- extra fields must not defeat the `name`+`inherited` match.
+  let realShape := "{\"version\": \"1.1.0\", \"packagesDir\": \".lake/packages\", \"packages\": [{\"type\": \"git\", \"name\": \"VCVio\", \"url\": \"https://github.com/dtumad/VCV-io.git\", \"rev\": \"1e984d2\", \"inputRev\": \"main\", \"inherited\": false, \"configFile\": \"lakefile.toml\"}, {\"name\": \"mathlib\", \"inherited\": true}]}"
+  result ← test "direct VCVio dep with realistic extra fields → detected"
+    (manifestDeclaresVCVio realShape) result
+  -- Fail-closed default: an entry with NO `inherited` field is treated as
+  -- transitive (⇒ not detected). Documents the chosen default; the import-graph
+  -- signal still backstops a genuine direct dep whose manifest omits the field.
+  let absentInherited := "{\"packages\": [{\"name\": \"VCVio\", \"url\": \"x\"}]}"
+  result ← test "VCVio entry with absent `inherited` → fail-closed not detected"
+    (!manifestDeclaresVCVio absentInherited) result
+  -- Malformed `packages` (object, not array) must not throw → not detected.
+  result ← test "malformed packages (not an array) → not detected"
+    (!manifestDeclaresVCVio "{\"packages\": {\"name\": \"VCVio\"}}") result
   return result
 
 -- Build-time drift-resolver check: a guaranteed-present core name resolves with
@@ -1231,6 +1257,25 @@ def testClassifyFixpointOrder (result : TestResult) : IO TestResult := do
     ((clsOf ord1 "App.gd").map (·.category) == some .ambiguous) result
   result ← test "reach-both gd → ambiguous (shuffled order)"
     ((clsOf ord2 "App.gd").map (·.category) == some .ambiguous) result
+
+  -- Pins the staged classifier's FIRST-VERDICT-WINS contract: a verdict reached
+  -- in one pass is final, even if a *later*-promoted, strictly-nearer anchor would
+  -- have decided it differently. `dTie` ties corr@2 (via gMid→correctnessExp) and
+  -- sec@2 (via passSec→securityExp) in pass 1 — gMid is not yet an anchor — so it
+  -- locks `ambiguous`. gMid is promoted (correctness) the same pass; were dTie
+  -- re-walked it would now see corr@1 < sec@2 and flip to correctness, but it is
+  -- not reconsidered. This is deliberate (and unchanged by the fixpoint refactor);
+  -- the test guards against a silent semantics drift, not asserts the ideal.
+  let corrExp := mkDeclI "App.correctnessExp" .def .game
+  let secExp := mkDeclI "App.securityExp" .def .game
+  let gMid := mkDeclI "App.gMid" .def .game none #[] #["App.correctnessExp"]
+  let passSec := mkDeclI "App.passSec" .def .other none #["App.securityExp"] #[]
+  let dTie := mkDeclI "App.dTie" .def .game none #[] #["App.gMid", "App.passSec"]
+  let stick := #[corrExp, secExp, gMid, passSec, dTie]
+  result ← test "later-promoted nearer anchor does NOT revise an earlier verdict (dTie stays ambiguous)"
+    ((clsOf stick "App.dTie").map (·.category) == some .ambiguous) result
+  result ← test "the later-promoted anchor itself is correctness (gMid)"
+    ((clsOf stick "App.gMid").map (·.category) == some .correctness) result
   return result
 
 def testClassifyAttrShapeAndInstance (result : TestResult) : IO TestResult := do

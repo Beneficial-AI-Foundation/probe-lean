@@ -282,19 +282,35 @@ def detectClass (env : Environment) : Option String :=
   else
     none
 
-/-- Package-level class detection from `lake-manifest.json`. This is independent
-of which modules were selected for analysis (so it does not false-negative when
-a `--module`/`--library` slice happens not to import VCVio) and confirms the
-dependency is actually declared (so a project-owned `VCVio.*` module does not
-trigger a false positive). Mirrors `ensureMathlibCache`'s substring approach;
-matches the VCVio package name or its git url. -/
+/-- Does a `lake-manifest.json` body declare a **direct** VCVio dependency? We
+parse the JSON and require a `packages[]` entry with `name == "VCVio"` **and**
+`inherited == false` — a direct dep, not one pulled in transitively (those are
+`inherited: true`, e.g. via Mathlib). This avoids false positives from transitive
+deps, git urls, or comments. Unparseable JSON ⇒ `false` (the import-graph signal
+in `detectClass` still backstops). Pure, so it is unit-testable. -/
+def manifestDeclaresVCVio (content : String) : Bool :=
+  match Lean.Json.parse content with
+  | .error _ => false
+  | .ok json =>
+    let pkgs := (json.getObjValAs? (Array Lean.Json) "packages").toOption.getD #[]
+    pkgs.any fun p =>
+      let inherited := (p.getObjValAs? Bool "inherited").toOption.getD true
+      (p.getObjValAs? String "name").toOption.getD "" == "VCVio" && !inherited
+
+/-- Package-level class detection from `lake-manifest.json`: a **direct**
+(non-inherited) VCVio dependency ⇒ `security-protocol`. Independent of which
+modules were selected for analysis (so it does not false-negative when a
+`--module`/`--library` slice happens not to import VCVio). Manifest problems
+fail closed *consistently*: a missing, unreadable, or unparseable manifest ⇒
+`none`, so detection falls back to the import-graph signal rather than aborting
+extraction. -/
 def detectClassFromManifest (projectPath : System.FilePath) : IO (Option String) := do
   let manifestPath := projectPath / "lake-manifest.json"
   if !(← manifestPath.pathExists) then return none
-  let content ← IO.FS.readFile manifestPath
-  if containsSubstring content "\"VCVio\"" || containsSubstring content "VCV-io" then
-    return some "security-protocol"
-  return none
+  -- Read can still fail (permissions, a TOCTOU delete after `pathExists`, a
+  -- flaky mount); treat that like an unparseable manifest and fall back.
+  let content ← try IO.FS.readFile manifestPath catch _ => return none
+  return if manifestDeclaresVCVio content then some "security-protocol" else none
 
 /-- Information about a declaration for analysis -/
 structure DeclInfo where

@@ -283,6 +283,11 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   IO.println s!"Found {decls.size} declarations"
 
   -- Effective class: --class override > manifest (package-level) > imported modules.
+  -- This is a disjunction (`orElse`): any positive signal classifies, so the order
+  -- does not affect false positives — only each signal's precision does (the
+  -- manifest signal fires only on a *direct* VCVio dep; see `detectClassFromManifest`).
+  -- Manifest-first preserves filter-independence: a `--module` slice that doesn't
+  -- import VCVio still classifies via the package-level manifest.
   let manifestClass ← detectClassFromManifest projectPath
   let detectedClass := classOverride.orElse fun () =>
     manifestClass.orElse fun () => detectClass env

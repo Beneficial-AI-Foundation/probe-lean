@@ -94,7 +94,7 @@ structure St where
   result : Array (Name × Classification) := #[]
   schemes : Array Name := #[]
   constructions : Array Name := #[]
-  anchors : Array (Name × ClassCategory × ClassVia) := #[]
+  anchors : Array (Name × SecurityProtocolCategory × ClassVia) := #[]
   diags : Array String := #[]
 
 namespace St
@@ -107,7 +107,7 @@ def record (st : St) (n : Name) (c : Classification) : St :=
 def addScheme (st : St) (n : Name) : St := { st with schemes := st.schemes.push n }
 def addConstruction (st : St) (n : Name) : St := { st with constructions := st.constructions.push n }
 
-def promote (st : St) (n : Name) (cat : ClassCategory) (v : ClassVia) : St :=
+def promote (st : St) (n : Name) (cat : SecurityProtocolCategory) (v : ClassVia) : St :=
   { st with anchors := st.anchors.push (n, cat, v) }
 
 def diag (st : St) (msg : String) : St := { st with diags := st.diags.push msg }
@@ -116,15 +116,15 @@ def isScheme (st : St) (n : Name) : Bool := st.schemes.contains n
 def isConstruction (st : St) (n : Name) : Bool := st.constructions.contains n
 
 /-- Look up a classified atom's category (for link resolution). -/
-def categoryOf (st : St) (n : Name) : Option ClassCategory :=
+def categoryOf (st : St) (n : Name) : Option SecurityProtocolCategory :=
   (st.result.find? (·.1 == n)).map (·.2.category)
 
 end St
 
 /-- Seed the anchor set with the catalogued VCVio anchors (`via: type`). -/
-private def seedAnchors : Array (Name × ClassCategory × ClassVia) :=
-  Catalogue.correctnessAnchors.map (fun n => (n, ClassCategory.correctness, ClassVia.type))
-    ++ Catalogue.securityAnchors.map (fun n => (n, ClassCategory.security, ClassVia.type))
+private def seedAnchors : Array (Name × SecurityProtocolCategory × ClassVia) :=
+  Catalogue.correctnessAnchors.map (fun n => (n, SecurityProtocolCategory.correctness, ClassVia.type))
+    ++ Catalogue.securityAnchors.map (fun n => (n, SecurityProtocolCategory.security, ClassVia.type))
 
 -- ============================================================
 -- Conflict detection
@@ -158,7 +158,7 @@ private def weakenVia (v : ClassVia) : ClassVia :=
 
 inductive WalkResult where
   | none
-  | decided (cat : ClassCategory) (via : ClassVia)
+  | decided (cat : SecurityProtocolCategory) (via : ClassVia)
   | tie (via : ClassVia)
   deriving Repr, BEq
 
@@ -173,7 +173,7 @@ private def neighbors (declMap : Std.HashMap Name DeclInfo) (n : Name) : Array N
   | none => #[]
 
 private partial def walkBFS (declMap : Std.HashMap Name DeclInfo)
-    (anchorMap : Std.HashMap Name (ClassCategory × ClassVia))
+    (anchorMap : Std.HashMap Name (SecurityProtocolCategory × ClassVia))
     (frontier : Array Name) (visited : Std.HashMap Name Unit) (depth : Nat)
     (cBest sBest : Option (Nat × ClassVia)) : Option (Nat × ClassVia) × Option (Nat × ClassVia) :=
   if frontier.isEmpty || depth > maxWalkDepth then (cBest, sBest)
@@ -200,7 +200,7 @@ private partial def walkBFS (declMap : Std.HashMap Name DeclInfo)
 /-- Classify a declaration by walking its statement to the nearest anchor.
 Strictly-shallower category wins; equal-depth ⇒ `tie`. -/
 private def walk (declMap : Std.HashMap Name DeclInfo)
-    (anchorMap : Std.HashMap Name (ClassCategory × ClassVia)) (d : DeclInfo) : WalkResult :=
+    (anchorMap : Std.HashMap Name (SecurityProtocolCategory × ClassVia)) (d : DeclInfo) : WalkResult :=
   let roots := neighbors declMap d.name
   let visited : Std.HashMap Name Unit := roots.foldl (·.insert · ()) {}
   let (cBest, sBest) := walkBFS declMap anchorMap roots visited 1 none none
@@ -217,7 +217,7 @@ private def walk (declMap : Std.HashMap Name DeclInfo)
 -- Stages
 -- ============================================================
 
-private def baseClass (cat : ClassCategory) (v : ClassVia) : Classification :=
+private def baseClass (cat : SecurityProtocolCategory) (v : ClassVia) : Classification :=
   { category := cat, «via» := v }
 
 /-- Stage 1 — schemes. -/
@@ -251,7 +251,7 @@ private def stageConstructions (decls : Array DeclInfo) (st : St) : St :=
       | none => st
 
 /-- Classify + promote a property declaration to the anchor set. -/
-private def recordProperty (st : St) (d : DeclInfo) (cat : ClassCategory) (v : ClassVia) : St :=
+private def recordProperty (st : St) (d : DeclInfo) (cat : SecurityProtocolCategory) (v : ClassVia) : St :=
   (st.record d.name (baseClass cat v)).promote d.name cat v
 
 /-- Stage 3 sub-pass A — attribute and naming signals on property *definitions*
@@ -270,34 +270,60 @@ private def stagePropAttrNaming (decls : Array DeclInfo) (st : St) : St :=
     else if securityByNaming d then recordProperty st d .security .naming
     else st
 
-/-- Stage 3 sub-pass B — one type-reach pass over remaining property defs.
-Returns the updated state and whether anything new was classified. -/
-private def stagePropReachPass (declMap : Std.HashMap Name DeclInfo) (decls : Array DeclInfo)
-    (st : St) : St × Bool :=
+/-- Stage 3 sub-pass B — one type-reach pass over the candidate property defs in
+`work`. Returns `(state, remaining, anchorAdded)`: `remaining` are the candidates
+that reached no anchor this pass (to retry next pass); `anchorAdded` is whether a
+*new anchor* was promoted (a `.decided` result) — NOT merely whether something was
+recorded. A `.tie` records `ambiguous` but promotes no anchor, so it cannot unblock
+any remaining candidate; only a new anchor can. Tracking anchor additions (rather
+than any record) lets the fixpoint stop one pass sooner without changing the result.
+
+This refactor is **behavior-preserving** relative to the previous loop, not a
+re-derivation of ideal nearest-anchor semantics: like before, an unresolved def is
+re-walked against a later (larger) anchor set, but a def that already reached a
+verdict — including a `.tie` → `ambiguous` — keeps that verdict (the old loop
+skipped it via `isClassified`; here it is simply not carried forward). A later
+anchor that would have been *nearer* does not retroactively revise an earlier
+verdict; that is a pre-existing property of the staged classifier, unchanged here. -/
+private def stagePropReachPass (declMap : Std.HashMap Name DeclInfo) (work : Array DeclInfo)
+    (st : St) : St × Array DeclInfo × Bool :=
   -- Snapshot the anchor set ONCE: every def in this pass is evaluated against
   -- the same set, and defs promoted during the pass become visible only in the
   -- NEXT pass. This makes the within-pass order irrelevant — the fixed point is
   -- order-independent (the anchor set grows monotonically across passes).
-  let anchorMap : Std.HashMap Name (ClassCategory × ClassVia) :=
+  let anchorMap : Std.HashMap Name (SecurityProtocolCategory × ClassVia) :=
     st.anchors.foldl (fun m e => m.insert e.1 (e.2.1, e.2.2)) {}
-  decls.foldl (init := (st, false)) fun (st, changed) d =>
-    if st.isClassified d.name || isTheorem d || !isPropertyTaggable d || !isPropertyShaped d then (st, changed)
+  work.foldl (init := (st, #[], false)) fun (st, rem, anchorAdded) d =>
+    if st.isClassified d.name then (st, rem, anchorAdded)   -- e.g. classified by sub-pass A
     else
       match walk declMap anchorMap d with
-      | .none => (st, changed)
-      | .tie v => (st.record d.name (baseClass .ambiguous v), true)
-      | .decided cat v => (recordProperty st d cat v, true)
+      | .none => (st, rem.push d, anchorAdded)               -- no anchor yet → retry next pass
+      | .tie v => (st.record d.name (baseClass .ambiguous v), rem, anchorAdded)  -- no new anchor
+      | .decided cat v => (recordProperty st d cat v, rem, true)
 
-/-- Iterate sub-pass B to a fixed point (anchor set only grows; order-independent). -/
-private partial def stagePropReachLoop (declMap : Std.HashMap Name DeclInfo) (decls : Array DeclInfo)
+/-- Iterate sub-pass B to a fixed point. The candidate set is filtered **once**
+and only the still-unresolved defs are carried forward, so each pass re-walks
+just what is left (not all decls). We recurse only when a *new anchor* was added
+**and** unresolved candidates remain: a pass that produced only ties (or nothing)
+left the anchor set unchanged, so another pass over `rem` would walk the identical
+anchor map and find nothing new. The per-pass anchor snapshot — and thus
+order-independence — is unchanged. -/
+private partial def reachFixpoint (declMap : Std.HashMap Name DeclInfo) (work : Array DeclInfo)
     (st : St) : St :=
-  let (st, changed) := stagePropReachPass declMap decls st
-  if changed then stagePropReachLoop declMap decls st else st
+  let (st, rem, anchorAdded) := stagePropReachPass declMap work st
+  if anchorAdded && !rem.isEmpty then reachFixpoint declMap rem st else st
+
+private def stagePropReachLoop (declMap : Std.HashMap Name DeclInfo) (decls : Array DeclInfo)
+    (st : St) : St :=
+  -- Filter mirrors the old per-pass guard exactly; sub-pass-A-classified defs
+  -- fall out on pass 1 via the `isClassified` check in `stagePropReachPass`.
+  let work := decls.filter fun d => !isTheorem d && isPropertyTaggable d && isPropertyShaped d
+  reachFixpoint declMap work st
 
 /-- Stage 4 — theorems: attribute, then walk, then naming. The anchor set is
 frozen by now (theorems never promote), so the anchor map is built once. -/
 private def stageTheorems (declMap : Std.HashMap Name DeclInfo) (decls : Array DeclInfo) (st : St) : St :=
-  let anchorMap : Std.HashMap Name (ClassCategory × ClassVia) :=
+  let anchorMap : Std.HashMap Name (SecurityProtocolCategory × ClassVia) :=
     st.anchors.foldl (fun m e => m.insert e.1 (e.2.1, e.2.2)) {}
   decls.foldl (init := st) fun st d =>
     if st.isClassified d.name || !isTheorem d then st
