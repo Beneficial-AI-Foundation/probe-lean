@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-18
+
+### Fixed
+
+- **Human-written private declarations are no longer filtered out.** Lean stores a
+  `private def Bar.foo` as `_private.<module>.0.Bar.foo`, which the internal-name filter
+  dropped along with compiler-generated noise. `extract` now recovers the user-facing name
+  (`Bar.foo`) before filtering, so private lemmas/defs appear as atoms and dependency edges
+  from public declarations to private helpers are preserved. This also fixes
+  `transitively-verified` contamination silently skipping `sorry`s carried by private helpers.
+  Private compiler-generated helpers (e.g. `...match_1`) remain filtered. Private declarations
+  in different modules whose user-facing names coincide (e.g. two top-level `private theorem aux`)
+  now emit a duplicate-name warning. (#43)
+
 ## [0.8.0] - 2026-06-16
 
 ### Added

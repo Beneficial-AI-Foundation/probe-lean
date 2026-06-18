@@ -83,6 +83,22 @@ def testAnalysisHelpers (result : TestResult) : IO TestResult := do
   result ← test "no strip absolute" (stripLeadingDotSlash "/tmp/test.lean" == "/tmp/test.lean") result
   return result
 
+def testPrivateNames (result : TestResult) : IO TestResult := do
+  let mut result := result
+  -- A human-written private lemma `Bar.foo` in module `M` is stored as
+  -- `_private.M.0.Bar.foo`. It must survive filtering and publish as `Bar.foo`.
+  let priv := Lean.mkPrivateNameCore `M `Bar.foo
+  -- A private declaration's compiler-generated helper is still internal.
+  let privHelper := Lean.mkPrivateNameCore `M `Bar.foo.match_1
+  IO.println ""
+  IO.println "Testing private name handling..."
+  result ← test "private lemma not filtered" (!isInternalName priv) result
+  result ← test "private helper still filtered" (isInternalName privHelper) result
+  result ← test "private name recovered" (Lean.privateToUserName priv == `Bar.foo) result
+  result ← test "probeRef un-mangles private" (probeRef priv == "probe:Bar.foo") result
+  result ← test "probeRef leaves public" (probeRef `Bar.foo == "probe:Bar.foo") result
+  return result
+
 def testSharedUtilities (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3078,6 +3094,7 @@ def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
   result ← testAnalysisHelpers result
+  result ← testPrivateNames result
   result ← testSharedUtilities result
   result ← testTypeJsonSerialization result
   result ← testAtomizeHelpers result
