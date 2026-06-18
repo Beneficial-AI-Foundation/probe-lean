@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-18
+
+### Added
+
+- **Pre-built binaries for Lean `v4.30.0` and `v4.31.0`** in the release matrix.
+
 ## [0.9.0] - 2026-06-18
 
 ### Fixed
