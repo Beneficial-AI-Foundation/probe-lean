@@ -88,10 +88,10 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
 
 /-- Index per-declaration classifications by the emitted atom's `probe:`-prefixed
     code-name, so the merge can attach each atom's classification in O(1). The
-    classifier keys by raw `Name`; atoms are keyed by `addProbePrefix name.toString`
-    (the same expression `declInfoToAtom` uses), so the two sides line up. -/
+    classifier keys by raw `Name`; atoms are keyed by `probeRef name` (the same
+    expression `declInfoToAtom` uses), so the two sides line up. -/
 def buildClassMap (classifications : Array (Name × Classification)) : Std.HashMap String Classification :=
-  classifications.foldl (fun m (n, c) => m.insert (addProbePrefix n.toString) c) {}
+  classifications.foldl (fun m (n, c) => m.insert (probeRef n) c) {}
 
 /-- Check whether a module belongs to one of the given library roots.
     A module `A.B.C` belongs to library `A` if its name equals `A` or starts with `A.`. -/
@@ -122,6 +122,17 @@ def ensureMathlibCache (projectPath : System.FilePath)
   else
     IO.println "  ✓ Mathlib cache downloaded"
     IO.println ""
+
+/-- Published atom names occurring more than once. Collisions are only possible
+    among private declarations whose user-facing names coincide across modules
+    (e.g. a top-level `private theorem aux` in two files both publish as
+    `probe:aux`). Reported as a warning; not deduplicated. -/
+def duplicateAtomNames (atoms : Array Atom) : Array String := Id.run do
+  let mut counts : Std.HashMap String Nat := {}
+  for a in atoms do
+    counts := counts.insert a.name (counts.getD a.name 0 + 1)
+  let dups := counts.toList.filterMap fun (name, n) => if n > 1 then some name else none
+  return dups.toArray.qsort (· < ·)
 
 /-- Run the combined extract pipeline: build → atomize → markAtomFlags → specs → sorry detection → merge → enrich → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
@@ -213,6 +224,9 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let classMap := buildClassMap classifications
 
   IO.println s!"Found {atoms.size} atoms"
+
+  for dupName in duplicateAtomNames atoms do
+    IO.eprintln s!"Warning: duplicate atom name {dupName} (private declarations in different modules recover to the same user-facing name)"
 
   -- Mark filtering flags from .verilib/probes/config.json (bug fix: was missing in old pipeline)
   let hiddenList := loadIsHiddenList userConfig

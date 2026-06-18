@@ -4,6 +4,7 @@
   with JSON serialization matching the probe interchange spec.
 -/
 import Lean.Data.Json
+import Lean.PrivateName
 import ProbeLean.Version
 
 namespace ProbeLean
@@ -124,6 +125,12 @@ instance [Lean.FromJson α] : Lean.FromJson (Envelope α) where
 /-- Add probe: prefix to a name -/
 def addProbePrefix (name : String) : String :=
   s!"probe:{name}"
+
+/-- `probe:`-prefixed reference for a declaration. Normalises Lean's synthetic
+    private name (`_private.<module>.0.Bar.foo` → `Bar.foo`) so emitted references
+    match the atom published under the user-facing name. No-op for public names. -/
+def probeRef (n : Lean.Name) : String :=
+  addProbePrefix (Lean.privateToUserName n).toString
 
 /-- Strip the probe: prefix from a name, or return unchanged if no prefix -/
 def stripProbePrefix (name : String) : String :=
@@ -284,8 +291,8 @@ singular, an array of such strings when ambiguous. Names are normalised first. -
 def classLinkToJson (names : Array Lean.Name) : Option Lean.Json :=
   match normalizeClassLink names with
   | #[] => none
-  | #[n] => some (Lean.toJson (addProbePrefix n.toString))
-  | ns => some (Lean.toJson (ns.map fun n => addProbePrefix n.toString))
+  | #[n] => some (Lean.toJson (probeRef n))
+  | ns => some (Lean.toJson (ns.map probeRef))
 
 /-- Parse a link field that may be absent, a single string, or an array of
 strings. Absent → empty. A present value that is not a string or an array of
