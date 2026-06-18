@@ -31,7 +31,10 @@ inputs:
     required: false
     default: '.'
   probe-lean-ref:
-    description: 'Git ref for probe-lean source (default: main)'
+    description: >
+      Git ref of probe-lean whose installer (tools/bash/install.sh) is used to
+      fetch the binary, and whose source is used if a binary build is needed
+      (default: main).
     required: false
     default: 'main'
 
@@ -70,75 +73,21 @@ runs:
 
         echo "lean_version=$LEAN_VERSION" >> $GITHUB_OUTPUT
 
-    - name: Checkout probe-lean
-      uses: actions/checkout@v4
-      with:
-        repository: Beneficial-AI-Foundation/probe-lean
-        ref: ${{ inputs.probe-lean-ref }}
-        path: .probe-lean-src
-
-    - name: Configure probe-lean for target Lean version
-      shell: bash
-      run: |
-        cd .probe-lean-src
-        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
-        echo "leanprover/lean4:$LEAN_VERSION" > lean-toolchain
-        sed -i'' -e "s/rev = \"v[^\"]*\"/rev = \"$LEAN_VERSION\"/" lakefile.toml
-
-    - name: Install elan
-      shell: bash
-      run: |
-        if ! command -v elan &>/dev/null; then
-          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | bash -s -- -y --default-toolchain none
-        fi
-        echo "$HOME/.elan/bin" >> $GITHUB_PATH
-
-    - name: Install Lean toolchain
-      shell: bash
-      run: |
-        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
-        elan toolchain install "leanprover/lean4:$LEAN_VERSION"
-        elan default "leanprover/lean4:$LEAN_VERSION"
-
-    - name: Cache probe-lean binary
-      id: cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.local/bin/probe-lean*
-          ~/.local/lib/probe-lean*
-        key: probe-lean-${{ steps.detect.outputs.lean_version }}-${{ hashFiles('.probe-lean-src/ProbeLean/**/*.lean') }}
-
-    - name: Build probe-lean
-      if: steps.cache.outputs.cache-hit != 'true'
-      shell: bash
-      working-directory: .probe-lean-src
-      run: lake build probe-lean
-
+    # Install probe-lean via the maintained installer, which downloads the
+    # pre-built release binary matching the project's Lean version and only
+    # falls back to a source build when no matching asset exists.  This avoids
+    # cloning + `lake build probe-lean`, and avoids re-installing the Lean
+    # toolchain (the old `elan toolchain install` step failed with "already
+    # installed" when this action ran after leanprover/lean-action).
     - name: Install probe-lean
-      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
-        VERSIONED_LIB=~/.local/lib/probe-lean-$LEAN_VERSION
-
-        mkdir -p ~/.local/bin "$VERSIONED_LIB"
-        cp .probe-lean-src/.lake/build/bin/probe-lean ~/.local/bin/probe-lean-$LEAN_VERSION
-        chmod +x ~/.local/bin/probe-lean-$LEAN_VERSION
-
-        rm -rf "$VERSIONED_LIB"/*
-        cp -r .probe-lean-src/.lake/build/lib/lean/ProbeLean* "$VERSIONED_LIB"/
-
-        ln -sf probe-lean-$LEAN_VERSION ~/.local/bin/probe-lean
-        ln -sfn probe-lean-$LEAN_VERSION ~/.local/lib/probe-lean
-
-    - name: Add probe-lean to PATH
-      shell: bash
-      run: |
-        LEAN_VERSION="${{ steps.detect.outputs.lean_version }}"
-        ln -sf probe-lean-$LEAN_VERSION ~/.local/bin/probe-lean 2>/dev/null || true
-        ln -sfn probe-lean-$LEAN_VERSION ~/.local/lib/probe-lean 2>/dev/null || true
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        REF="${{ inputs.probe-lean-ref }}"
+        echo "Installing probe-lean for Lean $LEAN_VERSION (installer ref: $REF)..."
+        curl -sSfL "https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/${REF}/tools/bash/install.sh" \
+          | bash -s -- --lean-version "$LEAN_VERSION"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
     - name: Download Mathlib cache if needed
       shell: bash
@@ -185,8 +134,3 @@ runs:
 
         echo "results_file=$RESULTS_FILE" >> $GITHUB_OUTPUT
         echo "atom_count=$ATOM_COUNT" >> $GITHUB_OUTPUT
-
-    - name: Cleanup
-      if: always()
-      shell: bash
-      run: rm -rf .probe-lean-src
