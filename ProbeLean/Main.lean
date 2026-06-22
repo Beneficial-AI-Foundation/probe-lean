@@ -58,7 +58,7 @@ def extractCmd : Cmd := `[Cli|
     m, module : String; "Filter to specific module prefix"
     "skip-verify"; "Skip the sorry detection step"
     "from-file" : String; "Use existing build output for sorry detection instead of running lake"
-    l, library : String; "Comma-separated list of library names to build (default: auto-detect from lakefile.toml)"
+    l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
     "skip-enrich"; "Skip transitive verification enrichment"
     "class" : String; "Override the detected project class (e.g. security-protocol)"
 

@@ -2564,6 +2564,52 @@ def testParseDefaultTargets (result : TestResult) : IO TestResult := do
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
+def testSelectModules (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing selectModules (module filtering)..."
+
+  -- A typical layout: a `MyLib` library, its submodule, an executable root
+  -- `Main`, and a test module whose library declares a custom root.
+  let modules : Array Lean.Name :=
+    #["MyLib".toName, "MyLib.Core.Widget".toName, "Main".toName, "Tests.Helper".toName]
+
+  -- No explicit --library: analyze every collected module. This is the
+  -- regression for the bug where a non-library build target (a `lean_exe` name
+  -- from `defaultTargets`) was used as a filter and dropped all modules.
+  let allMods := selectModules modules none none
+  result ← test "no library filter: keeps all modules" (allMods.size == 4) result
+
+  -- Explicit --library matching the library's module root keeps only its modules.
+  let libMods := selectModules modules (some #["MyLib"]) none
+  result ← test "library MyLib: keeps lib + submodule" (libMods.size == 2) result
+  result ← test "library MyLib: keeps MyLib" (libMods.contains "MyLib".toName) result
+  result ← test "library MyLib: keeps submodule" (libMods.contains "MyLib.Core.Widget".toName) result
+  result ← test "library MyLib: drops Main" (!libMods.contains "Main".toName) result
+
+  -- A filter that matches nothing yields empty (the caller turns this into a
+  -- loud error rather than silently writing 0 atoms). Case-sensitive: a
+  -- lowercase executable name matches no `MyLib.*` module.
+  let exeNameFilter := selectModules modules (some #["mylib"]) none
+  result ← test "library mylib (exe name): matches nothing" (exeNameFilter.isEmpty) result
+
+  -- --module narrows by name prefix on top of the (default) all-modules set.
+  let coreOnly := selectModules modules none (some "MyLib.Core")
+  result ← test "module filter MyLib.Core: keeps only submodule" (coreOnly.size == 1) result
+  result ← test "module filter MyLib.Core: is the widget module"
+    (coreOnly[0]? == some "MyLib.Core.Widget".toName) result
+
+  -- Documented limitation (tracked in #40): `--library` matches by module-name
+  -- prefix, so a library whose `roots` differ from its name cannot be selected by
+  -- name. `--module` is the escape hatch for those.
+  let byLibName := selectModules modules (some #["HelperSuite"]) none
+  result ← test "library by name with custom roots: does not match (known limitation)"
+    (byLibName.isEmpty) result
+  let byModuleRoot := selectModules modules none (some "Tests.Helper")
+  result ← test "module filter reaches custom-root module" (byModuleRoot.size == 1) result
+
+  return result
+
 def testLeanInvariants (result : TestResult) : IO TestResult := do
   let mut result := result
 
@@ -3147,6 +3193,7 @@ def main : IO UInt32 := do
   result ← testLeanInvariants result
   result ← testParseLeanLibs result
   result ← testParseDefaultTargets result
+  result ← testSelectModules result
   result ← testVersionConsistency result
   result ← testCacheValidity result
   result ← testCheckFilesSkipsDotDirs result

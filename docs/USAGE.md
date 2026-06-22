@@ -68,7 +68,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 |------|-------|-------------|
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
 | `--module <PREFIX>` | `-m` | Filter to specific module prefix |
-| `--library <LIBS>` | `-l` | Comma-separated list of library names to build (default: `defaultTargets` from `lakefile.toml`, falling back to all `[[lean_lib]]` entries) |
+| `--library <LIBS>` | `-l` | Comma-separated list of library names to build **and** restrict analysis to (modules are kept only if they belong to one of these library roots). When omitted, the build uses `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and **all** of the project's built modules are analyzed — auto-detected targets are not used as a module filter, since `defaultTargets` may name a `lean_exe` or a library may declare custom `roots`. |
 | `--skip-verify` | | Skip the sorry detection step (graph structure only) |
 | `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
 | `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |

@@ -98,6 +98,26 @@ def buildClassMap (classifications : Array (Name × Classification)) : Std.HashM
 def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
   libs.any fun lib => m.toString == lib || m.toString.startsWith (lib ++ ".")
 
+/-- Choose which collected modules to analyze.
+
+    Restricts to `libraries` ONLY when they are explicitly provided (via the
+    `--library` flag). Auto-detected build targets are deliberately NOT used as a
+    module filter here: `defaultTargets` may name a `lean_exe` and a `lean_lib` may
+    declare custom `roots` that differ from its name, so filtering by them can
+    silently drop every module. `.lake/build/lib/lean` already contains only the
+    project's own modules, so the default is to analyze all of them. A single
+    `moduleFilter` (`--module`) further narrows the result by name prefix. -/
+def selectModules (modules : Array Lean.Name) (libraries : Option (Array String))
+    (moduleFilter : Option String) : Array Lean.Name :=
+  let byLib := match libraries with
+    | some libs => modules.filter fun m => moduleInLibraries m libs
+    | none => modules
+  match moduleFilter with
+  | some filter =>
+    let filterName := String.toName filter
+    byLib.filter fun m => m == filterName || m.toString.startsWith (filter ++ ".")
+  | none => byLib
+
 /-- Check if project depends on Mathlib and auto-download the olean cache if missing.
     Without the pre-built cache, `lake build` compiles Mathlib from source (hours). -/
 def ensureMathlibCache (projectPath : System.FilePath)
@@ -198,17 +218,27 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.eprintln "Error: No modules found in project"
     return 1
 
-  let filteredModules := if !libs.isEmpty then
-    modules.filter fun m => moduleInLibraries m libs
-  else
-    modules
+  let filteredModules := selectModules modules config.libraries config.moduleFilter
 
-  let filteredModules := match config.moduleFilter with
-    | some filter =>
-      let filterName := String.toName filter
-      filteredModules.filter fun m =>
-        m == filterName || m.toString.startsWith (filter ++ ".")
-    | none => filteredModules
+  -- Warn about any explicit `--library` entry that matched no built module, so a
+  -- partial filter (e.g. one good name + one typo, or a name that differs from
+  -- the library's actual module root) isn't applied silently. Note `--library`
+  -- matches by module-name prefix, so it cannot select a library whose `roots`
+  -- differ from its name (use `--module <root>` for those).
+  if let some libs := config.libraries then
+    for lib in libs do
+      if !(modules.any fun m => moduleInLibraries m #[lib]) then
+        IO.eprintln s!"Warning: --library {lib} matched no built module (it is not a module-name root)."
+
+  -- Fail loudly instead of silently writing 0 atoms: if we built modules but
+  -- every one was filtered out, the `--library`/`--module` selection didn't
+  -- match anything that was built.
+  if filteredModules.isEmpty && !modules.isEmpty then
+    IO.eprintln "Error: every project module was filtered out by --library/--module."
+    IO.eprintln s!"  {modules.size} module(s) were built but none matched the requested filter."
+    let roots := (modules.map fun m => (m.toString.splitOn ".").headD m.toString).toList.eraseDups
+    IO.eprintln s!"  Available top-level module roots: {", ".intercalate roots}"
+    return 1
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
 
