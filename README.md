@@ -116,7 +116,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 |--------|-------------|
 | `-o, --output <PATH>` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
 | `-m, --module <PREFIX>` | Filter to specific module prefix |
-| `-l, --library <LIBS>` | Comma-separated list of library names to build (default: `defaultTargets` from `lakefile.toml`, falling back to all `[[lean_lib]]` entries) |
+| `-l, --library <LIBS>` | Comma-separated library names to build **and** restrict analysis to (by module-name prefix). Omit to build auto-detected targets (`defaultTargets`, falling back to all `[[lean_lib]]` entries) and analyze all built modules |
 | `--skip-verify` | Skip sorry detection (graph structure only) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
 | `--skip-enrich` | Skip transitive verification enrichment (no `"transitively-verified"` status) |
@@ -194,29 +194,35 @@ works entirely from the **lakefile and the compiled `.olean` build artifacts**.
 Knowing this is the difference between a correct run and a silently incomplete
 one.
 
-**Where the library list comes from** (in priority order):
+**What gets built vs. what gets analyzed** (these are now decoupled):
 
-1. `--library <L1,L2,...>` if you pass it (explicit override).
-2. otherwise `defaultTargets` from `lakefile.toml`.
-3. otherwise all `[[lean_lib]]` entries in `lakefile.toml`.
+- **Build targets** (passed to `lake build`) come from, in priority order:
+  1. `--library <L1,L2,...>` if you pass it.
+  2. otherwise `defaultTargets` from `lakefile.toml`.
+  3. otherwise all `[[lean_lib]]` entries in `lakefile.toml`.
+- **Modules analyzed:** probe-lean collects **every `.olean` under
+  `.lake/build/lib/lean`** (which holds only the project's own modules — deps
+  live under `.lake/packages/`).
+  - **By default (no `--library`)** it analyzes **all** of them. Auto-detected
+    build targets are *not* used as an analysis filter, because `defaultTargets`
+    may name a `lean_exe` and a `lean_lib` may declare custom `roots` that differ
+    from its name — using either as a module filter would silently drop every
+    module.
+  - **With `--library A,B`** it keeps only modules belonging to those library
+    roots (a module `A.B` belongs to library `A`).
 
-probe-lean then runs `lake build <those libs>`, collects **every `.olean` under
-`.lake/build/lib/lean`**, keeps the modules that **belong to the selected
-libraries** (a module `A.B` belongs to library `A`), optionally narrows further
-with `--module <prefix>`, and imports all surviving modules into a **single Lean
-environment** before atomizing.
+Then `--module <prefix>` optionally narrows further, and all surviving modules
+are imported into a **single Lean environment** before atomizing.
 
 **Assumptions this bakes in — and how they bite:**
 
-- **A library you want extracted must be *selected*, not merely *built*.** If
-  library `A` is a default target and depends on library `B`, `lake build A`
-  compiles `B` too — but `B`'s modules are filtered out of the output because
-  `B` isn't in the selected set. **If a needed library is only a dependency of a
-  default target, list it in `defaultTargets` or pass it via `--library`.**
-  (Example: a project that moves Aeneas-generated code into its own `lean_lib`
-  for linting must still add that lib to `defaultTargets`, or its atoms vanish
-  from the output with no error.)
-- **All selected modules must be mutually importable.** Two modules may not
+- **`--library` matches by module-name prefix.** It can only select a library
+  whose module root equals its name. A `lean_lib` whose `roots` differ from its
+  name cannot be selected by `--library`; use `--module <root>` for those (or omit
+  `--library` to analyze everything). probe-lean warns about any `--library`
+  entry that matched no built module, and errors out if filters remove *every*
+  module rather than writing an empty result.
+- **All analyzed modules must be mutually importable.** Two modules may not
   declare the same fully-qualified name, or the import aborts with
   `environment already contains '<name>' from <module>`.
 - **Module discovery trusts the build directory, not git.** Because it scans
@@ -225,8 +231,8 @@ environment** before atomizing.
   symbol is the most common cause of the duplicate-declaration import failure
   above. When in doubt after a refactor, `lake clean` first.
 
-> Improving the first and third points (auto-including the dependency closure of
-> the selected libraries, and ignoring stale orphan oleans) is tracked in
+> Resolving libraries to their actual Lake module roots (so `--library` works for
+> libraries with custom `roots`) and ignoring stale orphan oleans is tracked in
 > [#40](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/40).
 
 ## Testing

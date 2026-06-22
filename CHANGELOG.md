@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-06-22
+
+### Fixed
+
+- **`extract` no longer drops every module when `defaultTargets` names a non-library
+  target.** The module filter was derived from auto-detected build targets, but
+  `defaultTargets` may name a `lean_exe` and a `lean_lib` may declare custom `roots` that
+  differ from its name. Treating those as module-name roots filtered out every built module,
+  silently producing `0 atoms`. The library filter is now applied only when the user
+  explicitly passes `--library`; otherwise all of the project's built modules (which is
+  exactly what `.lake/build/lib/lean` contains) are analyzed. As a safety net, `extract` now
+  exits with an actionable error — listing the available top-level module roots — if
+  `--library`/`--module` filters out every built module, instead of writing an empty result.
+
 ## [0.9.1] - 2026-06-18
 
 ### Added
