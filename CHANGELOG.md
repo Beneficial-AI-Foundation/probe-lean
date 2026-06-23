@@ -7,15 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- **Installer `--from-project` gives actionable errors for bad paths.** Both
-  `tools/bash/install.sh` and `tools/python/install.py` previously emitted the same terse
-  `Error: lean-toolchain not found at <path>/lean-toolchain` whether the path didn't exist,
-  was a file, or was a directory without a `lean-toolchain`. They now distinguish these cases
-  and, when the given directory has no `lean-toolchain` but a subdirectory does (common in
-  monorepos where the Lean project lives in a subfolder, e.g. `cedar-spec/cedar-lean`),
-  suggest the correct `--from-project` path.
+- **Installer `--from-project` auto-detects the toolchain recursively.** When the given
+  directory has no top-level `lean-toolchain` (common in monorepos where the Lean package
+  lives in a subfolder, e.g. `cedar-spec/cedar-lean`), both `tools/bash/install.sh` and
+  `tools/python/install.py` now search recursively (excluding `.lake`) and use the toolchain
+  they find, so the installer works unattended when handed a repo root. If the found files
+  disagree on the version, it errors and lists them rather than guessing. Bad paths
+  (nonexistent, a file, or a directory with no toolchain anywhere) now give distinct,
+  actionable errors instead of the previous terse `lean-toolchain not found`.
 
 ## [0.9.2] - 2026-06-22
 

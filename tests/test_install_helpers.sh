@@ -29,21 +29,35 @@ detect_version_from_project() {
         echo "Error: --from-project path is not a directory: $project_path" >&2
         return 1
     fi
-    local toolchain_file="$project_path/lean-toolchain"
-    if [ ! -f "$toolchain_file" ]; then
-        echo "Error: lean-toolchain not found in $project_path" >&2
-        local found
-        found=$(find -L "$project_path" -maxdepth 2 -name lean-toolchain -not -path '*/.lake/*' 2>/dev/null | head -5)
-        if [ -n "$found" ]; then
-            echo "       Found lean-toolchain in a subdirectory. Did you mean:" >&2
-            while IFS= read -r f; do
-                echo "         --from-project $(dirname "$f")" >&2
-            done <<< "$found"
-        fi
-        return 1
-    fi
     local contents
-    contents=$(cat "$toolchain_file" | tr -d '[:space:]')
+    if [ -f "$project_path/lean-toolchain" ]; then
+        contents=$(cat "$project_path/lean-toolchain")
+    else
+        local found
+        found=$(find -L "$project_path" -name lean-toolchain -not -path '*/.lake/*' 2>/dev/null | sort)
+        if [ -z "$found" ]; then
+            echo "Error: no lean-toolchain found anywhere under $project_path" >&2
+            return 1
+        fi
+        local versions
+        versions=$(while IFS= read -r f; do
+            local c
+            c=$(cat "$f" | tr -d '[:space:]')
+            echo "${c##*:}"
+        done <<< "$found" | sort -u)
+        if [ "$(echo "$versions" | wc -l)" -gt 1 ]; then
+            echo "Error: lean-toolchain files with differing versions under $project_path:" >&2
+            while IFS= read -r f; do
+                echo "         $f -> $(cat "$f" | tr -d '[:space:]')" >&2
+            done <<< "$found"
+            return 1
+        fi
+        local chosen
+        chosen=$(echo "$found" | head -1)
+        echo "Note: no lean-toolchain at $project_path; detected from $chosen" >&2
+        contents=$(cat "$chosen")
+    fi
+    contents=$(echo "$contents" | tr -d '[:space:]')
     if [[ "$contents" == *":"* ]]; then
         echo "${contents##*:}"
     else
@@ -111,17 +125,38 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# Test: directory without toolchain but with one in a subdirectory suggests it
+# Test: directory without top-level toolchain auto-detects from a subdirectory
 mkdir -p "$TMPDIR/monorepo/lean-pkg"
 echo "leanprover/lean4:v4.30.0" > "$TMPDIR/monorepo/lean-pkg/lean-toolchain"
-ERR=$(detect_version_from_project "$TMPDIR/monorepo" 2>&1 || true)
-if [[ "$ERR" == *"Did you mean"* && "$ERR" == *"$TMPDIR/monorepo/lean-pkg"* ]]; then
-    echo "  PASS: suggests subdirectory containing lean-toolchain"
+RESULT=$(detect_version_from_project "$TMPDIR/monorepo" 2>/dev/null)
+assert_eq "auto-detect from subdirectory" "v4.30.0" "$RESULT"
+
+# Test: multiple subdirs with the SAME version resolve to that version
+mkdir -p "$TMPDIR/mono2/a" "$TMPDIR/mono2/b"
+echo "leanprover/lean4:v4.30.0" > "$TMPDIR/mono2/a/lean-toolchain"
+echo "leanprover/lean4:v4.30.0" > "$TMPDIR/mono2/b/lean-toolchain"
+RESULT=$(detect_version_from_project "$TMPDIR/mono2" 2>/dev/null)
+assert_eq "same version across subdirs" "v4.30.0" "$RESULT"
+
+# Test: multiple subdirs with DIFFERING versions error (ambiguous, no auto-pick)
+mkdir -p "$TMPDIR/mono3/a" "$TMPDIR/mono3/b"
+echo "leanprover/lean4:v4.30.0" > "$TMPDIR/mono3/a/lean-toolchain"
+echo "leanprover/lean4:v4.31.0" > "$TMPDIR/mono3/b/lean-toolchain"
+ERR=$(detect_version_from_project "$TMPDIR/mono3" 2>&1 || true)
+if [[ "$ERR" == *"differing versions"* ]]; then
+    echo "  PASS: differing subdir versions error as ambiguous"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: subdirectory suggestion (got '$ERR')"
+    echo "  FAIL: ambiguous versions (got '$ERR')"
     FAIL=$((FAIL + 1))
 fi
+
+# Test: .lake dependency toolchains are excluded from the search
+mkdir -p "$TMPDIR/mono4/.lake/packages/dep" "$TMPDIR/mono4/pkg"
+echo "leanprover/lean4:v4.99.0" > "$TMPDIR/mono4/.lake/packages/dep/lean-toolchain"
+echo "leanprover/lean4:v4.30.0" > "$TMPDIR/mono4/pkg/lean-toolchain"
+RESULT=$(detect_version_from_project "$TMPDIR/mono4" 2>/dev/null)
+assert_eq "ignores .lake dependency toolchains" "v4.30.0" "$RESULT"
 
 echo ""
 echo "=== Testing platform detection ==="
