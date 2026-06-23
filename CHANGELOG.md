@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-06-23
+
 ### Changed
 
 - **Installer `--from-project` auto-detects the toolchain recursively.** When the given
