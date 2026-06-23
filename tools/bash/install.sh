@@ -34,9 +34,29 @@ EOF
 
 detect_version_from_project() {
     local project_path=$1
+    if [ ! -e "$project_path" ]; then
+        echo "Error: --from-project path does not exist: $project_path" >&2
+        echo "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)." >&2
+        exit 1
+    fi
+    if [ ! -d "$project_path" ]; then
+        echo "Error: --from-project path is not a directory: $project_path" >&2
+        echo "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)." >&2
+        exit 1
+    fi
     local toolchain_file="$project_path/lean-toolchain"
     if [ ! -f "$toolchain_file" ]; then
-        echo "Error: lean-toolchain not found at $toolchain_file" >&2
+        echo "Error: lean-toolchain not found in $project_path" >&2
+        local found
+        found=$(find -L "$project_path" -maxdepth 2 -name lean-toolchain -not -path '*/.lake/*' 2>/dev/null | head -5)
+        if [ -n "$found" ]; then
+            echo "       Found lean-toolchain in a subdirectory. Did you mean:" >&2
+            while IFS= read -r f; do
+                echo "         --from-project $(dirname "$f")" >&2
+            done <<< "$found"
+        else
+            echo "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)." >&2
+        fi
         exit 1
     fi
     local contents

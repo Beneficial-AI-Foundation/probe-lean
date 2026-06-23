@@ -21,9 +21,25 @@ assert_eq() {
 # We extract it by sourcing a subset
 detect_version_from_project() {
     local project_path=$1
+    if [ ! -e "$project_path" ]; then
+        echo "Error: --from-project path does not exist: $project_path" >&2
+        return 1
+    fi
+    if [ ! -d "$project_path" ]; then
+        echo "Error: --from-project path is not a directory: $project_path" >&2
+        return 1
+    fi
     local toolchain_file="$project_path/lean-toolchain"
     if [ ! -f "$toolchain_file" ]; then
-        echo "Error: lean-toolchain not found at $toolchain_file" >&2
+        echo "Error: lean-toolchain not found in $project_path" >&2
+        local found
+        found=$(find -L "$project_path" -maxdepth 2 -name lean-toolchain -not -path '*/.lake/*' 2>/dev/null | head -5)
+        if [ -n "$found" ]; then
+            echo "       Found lean-toolchain in a subdirectory. Did you mean:" >&2
+            while IFS= read -r f; do
+                echo "         --from-project $(dirname "$f")" >&2
+            done <<< "$found"
+        fi
         return 1
     fi
     local contents
@@ -72,6 +88,39 @@ if detect_version_from_project "$TMPDIR/proj5" 2>/dev/null; then
 else
     echo "  PASS: missing file returns error"
     PASS=$((PASS + 1))
+fi
+
+# Test: nonexistent path errors with a distinct message
+ERR=$(detect_version_from_project "$TMPDIR/does-not-exist" 2>&1 || true)
+if [[ "$ERR" == *"path does not exist"* ]]; then
+    echo "  PASS: nonexistent path reports 'does not exist'"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: nonexistent path message (got '$ERR')"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: path is a file, not a directory
+echo "leanprover/lean4:v4.30.0" > "$TMPDIR/afile"
+ERR=$(detect_version_from_project "$TMPDIR/afile" 2>&1 || true)
+if [[ "$ERR" == *"not a directory"* ]]; then
+    echo "  PASS: file path reports 'not a directory'"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: file path message (got '$ERR')"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: directory without toolchain but with one in a subdirectory suggests it
+mkdir -p "$TMPDIR/monorepo/lean-pkg"
+echo "leanprover/lean4:v4.30.0" > "$TMPDIR/monorepo/lean-pkg/lean-toolchain"
+ERR=$(detect_version_from_project "$TMPDIR/monorepo" 2>&1 || true)
+if [[ "$ERR" == *"Did you mean"* && "$ERR" == *"$TMPDIR/monorepo/lean-pkg"* ]]; then
+    echo "  PASS: suggests subdirectory containing lean-toolchain"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: subdirectory suggestion (got '$ERR')"
+    FAIL=$((FAIL + 1))
 fi
 
 echo ""

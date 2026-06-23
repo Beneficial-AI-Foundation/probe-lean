@@ -42,7 +42,7 @@ probe-lean --version
 
 | Flag | Description |
 |------|-------------|
-| `--from-project <path>` | Auto-detect the Lean version from the target project's `lean-toolchain` |
+| `--from-project <path>` | Auto-detect the Lean version from the target project's `lean-toolchain`. Point this at the directory holding `lakefile.toml`/`lakefile.lean` and `lean-toolchain` — in monorepos the Lean project is often a subfolder (e.g. `cedar-spec/cedar-lean`). If the path has no `lean-toolchain` but a subdirectory does, the installer suggests the right path. |
 | `--lean-version <ver>` | Explicit Lean version (e.g., `v4.28.0`) |
 | `--force` | Reinstall even if the version is already installed |
 

@@ -31,9 +31,28 @@ GITHUB_REPO = "Beneficial-AI-Foundation/probe-lean"
 
 def detect_version_from_project(project_path: Path) -> str:
     """Read lean-toolchain from a target project and extract the version."""
+    hint = "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)."
+    if not project_path.exists():
+        print(f"Error: --from-project path does not exist: {project_path}", file=sys.stderr)
+        print(hint, file=sys.stderr)
+        sys.exit(1)
+    if not project_path.is_dir():
+        print(f"Error: --from-project path is not a directory: {project_path}", file=sys.stderr)
+        print(hint, file=sys.stderr)
+        sys.exit(1)
     toolchain_file = project_path / "lean-toolchain"
     if not toolchain_file.exists():
-        print(f"Error: lean-toolchain not found at {toolchain_file}", file=sys.stderr)
+        print(f"Error: lean-toolchain not found in {project_path}", file=sys.stderr)
+        found = [
+            p for p in sorted(project_path.glob("*/lean-toolchain"))
+            if ".lake" not in p.parts
+        ][:5]
+        if found:
+            print("       Found lean-toolchain in a subdirectory. Did you mean:", file=sys.stderr)
+            for p in found:
+                print(f"         --from-project {p.parent}", file=sys.stderr)
+        else:
+            print(hint, file=sys.stderr)
         sys.exit(1)
     contents = toolchain_file.read_text().strip()
     if ":" in contents:
