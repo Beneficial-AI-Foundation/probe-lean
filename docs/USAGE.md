@@ -42,7 +42,7 @@ probe-lean --version
 
 | Flag | Description |
 |------|-------------|
-| `--from-project <path>` | Auto-detect the Lean version from the target project's `lean-toolchain` |
+| `--from-project <path>` | Auto-detect the Lean version from the target project's `lean-toolchain`. If `<path>` has no top-level `lean-toolchain`, the installer searches recursively (excluding `.lake`) and uses the toolchain it finds — so pointing at a monorepo root works even when the Lean package is a subfolder (e.g. `cedar-spec/cedar-lean`). If multiple toolchains disagree on the version, it errors and lists them; pass `--lean-version` to disambiguate. |
 | `--lean-version <ver>` | Explicit Lean version (e.g., `v4.28.0`) |
 | `--force` | Reinstall even if the version is already installed |
 

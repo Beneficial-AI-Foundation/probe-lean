@@ -34,13 +34,52 @@ EOF
 
 detect_version_from_project() {
     local project_path=$1
-    local toolchain_file="$project_path/lean-toolchain"
-    if [ ! -f "$toolchain_file" ]; then
-        echo "Error: lean-toolchain not found at $toolchain_file" >&2
+    if [ ! -e "$project_path" ]; then
+        echo "Error: --from-project path does not exist: $project_path" >&2
+        echo "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)." >&2
+        exit 1
+    fi
+    if [ ! -d "$project_path" ]; then
+        echo "Error: --from-project path is not a directory: $project_path" >&2
+        echo "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)." >&2
         exit 1
     fi
     local contents
-    contents=$(cat "$toolchain_file" | tr -d '[:space:]')
+    if [ -f "$project_path/lean-toolchain" ]; then
+        contents=$(cat "$project_path/lean-toolchain")
+    else
+        # No toolchain at the top level. The installer is run automatically on a
+        # project path with no chance for the user to retry, so search recursively
+        # (the Lean package often lives in a subdirectory, e.g. cedar-spec/cedar-lean).
+        # Exclude .lake so dependencies' toolchains don't pollute the search.
+        local found
+        found=$(find -L "$project_path" -name lean-toolchain -not -path '*/.lake/*' 2>/dev/null | sort)
+        if [ -z "$found" ]; then
+            echo "Error: no lean-toolchain found anywhere under $project_path" >&2
+            echo "       Pass an explicit version with --lean-version <ver>." >&2
+            exit 1
+        fi
+        # Collect the distinct versions across all toolchain files found.
+        local versions
+        versions=$(while IFS= read -r f; do
+            local c
+            c=$(cat "$f" | tr -d '[:space:]')
+            echo "${c##*:}"
+        done <<< "$found" | sort -u)
+        if [ "$(echo "$versions" | wc -l)" -gt 1 ]; then
+            echo "Error: lean-toolchain files with differing versions under $project_path:" >&2
+            while IFS= read -r f; do
+                echo "         $f -> $(cat "$f" | tr -d '[:space:]')" >&2
+            done <<< "$found"
+            echo "       Point --from-project at the specific Lean package, or use --lean-version <ver>." >&2
+            exit 1
+        fi
+        local chosen
+        chosen=$(echo "$found" | head -1)
+        echo "Note: no lean-toolchain at $project_path; detected from $chosen" >&2
+        contents=$(cat "$chosen")
+    fi
+    contents=$(echo "$contents" | tr -d '[:space:]')
     # Extract version after ":" (e.g., leanprover/lean4:v4.28.0-rc1 -> v4.28.0-rc1)
     if [[ "$contents" == *":"* ]]; then
         echo "${contents##*:}"

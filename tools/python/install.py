@@ -31,11 +31,40 @@ GITHUB_REPO = "Beneficial-AI-Foundation/probe-lean"
 
 def detect_version_from_project(project_path: Path) -> str:
     """Read lean-toolchain from a target project and extract the version."""
-    toolchain_file = project_path / "lean-toolchain"
-    if not toolchain_file.exists():
-        print(f"Error: lean-toolchain not found at {toolchain_file}", file=sys.stderr)
+    hint = "       Point it at a Lean project directory (the one containing lakefile.toml/lakefile.lean and lean-toolchain)."
+    if not project_path.exists():
+        print(f"Error: --from-project path does not exist: {project_path}", file=sys.stderr)
+        print(hint, file=sys.stderr)
         sys.exit(1)
-    contents = toolchain_file.read_text().strip()
+    if not project_path.is_dir():
+        print(f"Error: --from-project path is not a directory: {project_path}", file=sys.stderr)
+        print(hint, file=sys.stderr)
+        sys.exit(1)
+    toolchain_file = project_path / "lean-toolchain"
+    if toolchain_file.exists():
+        contents = toolchain_file.read_text().strip()
+    else:
+        # No toolchain at the top level. The installer is run automatically on a
+        # project path with no chance for the user to retry, so search recursively
+        # (the Lean package often lives in a subdirectory, e.g. cedar-spec/cedar-lean).
+        # Exclude .lake so dependencies' toolchains don't pollute the search.
+        found = sorted(
+            p for p in project_path.rglob("lean-toolchain") if ".lake" not in p.parts
+        )
+        if not found:
+            print(f"Error: no lean-toolchain found anywhere under {project_path}", file=sys.stderr)
+            print("       Pass an explicit version with --lean-version <ver>.", file=sys.stderr)
+            sys.exit(1)
+        versions = sorted({p.read_text().strip().split(":")[-1] for p in found})
+        if len(versions) > 1:
+            print(f"Error: lean-toolchain files with differing versions under {project_path}:", file=sys.stderr)
+            for p in found:
+                print(f"         {p} -> {p.read_text().strip()}", file=sys.stderr)
+            print("       Point --from-project at the specific Lean package, or use --lean-version <ver>.", file=sys.stderr)
+            sys.exit(1)
+        chosen = found[0]
+        print(f"Note: no lean-toolchain at {project_path}; detected from {chosen}", file=sys.stderr)
+        contents = chosen.read_text().strip()
     if ":" in contents:
         return contents.split(":")[-1]
     return contents
