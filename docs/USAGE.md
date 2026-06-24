@@ -336,6 +336,10 @@ You're almost certainly compiling Mathlib from source. probe-lean auto-downloads
 
 The project has multiple modules that define `main`. This typically happens with utility scripts included as `[[lean_lib]]`. Use `--library` to target only the main library, or ensure the project's `defaultTargets` excludes conflicting libraries.
 
+### "environment already contains '...'" after renaming or deleting a file
+
+A stale *orphan* `.olean` from the old module is still on disk (Lake never removes oleans for deleted/renamed sources) and re-declares a name now owned by another module. probe-lean drops orphan oleans automatically by checking each module against its backing `.lean` source — but it only knows `srcDir`s declared in `lakefile.toml`. If your project uses a Lean-DSL `lakefile.lean` with a custom `srcDir`, the orphan may slip through; the error message includes a `lake clean` hint. Run `lake clean && lake build` in the target project, then re-run extract.
+
 ### "Failed to import modules"
 
 The `.olean` files may be stale or from a different toolchain version. Clean and rebuild:

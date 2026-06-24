@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-06-24
+
+### Fixed
+
+- **`extract` no longer crashes on orphan `.olean` files.** Module discovery scanned
+  `.lake/build/lib/lean` for every `.olean` on disk and imported them all into one
+  environment. Lake never garbage-collects oleans, so after a `.lean` file was renamed or
+  deleted its stale "orphan" olean lingered and — when it re-declared a name now owned by
+  the module that replaced it — made the import abort with `environment already contains
+  '...'` (issue #51). `getProjectModules` now keeps only modules with a backing `.lean`
+  source, resolving each module against `"."` plus every `srcDir` declared in
+  `lakefile.toml`. The check is conservative (a module is dropped only when *no* source
+  root has its source, so an unknown `srcDir` can't silently drop a live module) and any
+  dropped orphans are reported. As a safety net, an `already contains` import failure now
+  prints an actionable `lake clean` hint instead of a raw error.
+
 ## [0.9.3] - 2026-06-23
 
 ### Changed

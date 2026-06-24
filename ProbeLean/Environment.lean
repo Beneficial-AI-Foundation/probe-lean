@@ -133,9 +133,12 @@ def loadCache (projectPath : System.FilePath) : IO (Option String) := do
   else
     return none
 
-/-- Recursively collect .olean files and convert to module names -/
-partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System.FilePath) : IO (Array Lean.Name) := do
-  let mut result : Array Lean.Name := #[]
+/-- Recursively collect .olean files, returning for each its module name together
+    with its path relative to `basePath`, slash-separated and with the `.olean`
+    suffix stripped (e.g. `"A/B/C"`). The relative path is kept so callers can
+    reconstruct the backing source location under a library's `srcDir`. -/
+partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System.FilePath) : IO (Array (Lean.Name × String)) := do
+  let mut result : Array (Lean.Name × String) := #[]
   let entries ← currentPath.readDir
   for entry in entries do
     let path := entry.path
@@ -148,18 +151,54 @@ partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System
       let relPath := (relPath.dropPrefix "/").toString
       let relPath := (relPath.dropSuffix ".olean").toString
       let moduleName := relPath.replace "/" "."
-      result := result.push (String.toName moduleName)
+      result := result.push (String.toName moduleName, relPath)
   return result
 
-/-- Get the list of modules in the project by parsing lake output -/
+/-- Partition collected olean modules into (source-backed, orphan), where a
+    module with relative path `A/B/C` is source-backed iff `<root>/A/B/C.lean`
+    exists under some `root` in `sourceRoots`. An empty `sourceRoots` defaults to
+    `#["."]`. Conservative: a module is an orphan only when *no* root has its
+    source, so an unknown `srcDir` cannot silently drop a live module. -/
+def partitionBySource (projectPath : System.FilePath) (sourceRoots : Array String)
+    (oleans : Array (Lean.Name × String)) : IO (Array Lean.Name × Array Lean.Name) := do
+  let roots := if sourceRoots.isEmpty then #["."] else sourceRoots
+  let mut kept : Array Lean.Name := #[]
+  let mut orphans : Array Lean.Name := #[]
+  for (name, relPath) in oleans do
+    let mut hasSource := false
+    for root in roots do
+      let rootDir : System.FilePath := if root == "." then projectPath else projectPath / root
+      let srcFile : System.FilePath := ⟨rootDir.toString ++ "/" ++ relPath ++ ".lean"⟩
+      if ← srcFile.pathExists then
+        hasSource := true
+        break
+    if hasSource then
+      kept := kept.push name
+    else
+      orphans := orphans.push name
+  return (kept, orphans)
+
+/-- Get the list of the project's own modules by scanning its build directory
+    (`.lake/build/lib[/lean]`) for `.olean` files, keeping only modules that
+    still have a backing `.lean` source.
+
+    Lake never garbage-collects oleans, so after a file is renamed or deleted the
+    stale "orphan" olean lingers on disk. Importing such an orphan alongside the
+    module that replaced it makes `importModules` abort with
+    `environment already contains '...'` (see issue #51). We drop a module only
+    when *no* candidate source root has a source for it, so a missing `srcDir`
+    can never silently drop a live module; any dropped orphans are reported.
+
+    `sourceRoots` are the directories to resolve module paths against (a module
+    `A/B/C` is source-backed if `<root>/A/B/C.lean` exists under some root). It
+    must include `"."` plus every library `srcDir`; the caller supplies it. The
+    `lake env` call validates that the Lake environment is usable before scanning. -/
 def getProjectModules (projectPath : System.FilePath)
-    (nixMode : Option NixMode := none) : IO (Except String (Array Lean.Name)) := do
-  let (stdout, stderr, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] projectPath nixMode
+    (nixMode : Option NixMode := none) (sourceRoots : Array String := #["."])
+    : IO (Except String (Array Lean.Name)) := do
+  let (_, stderr, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] projectPath nixMode
   if exitCode != 0 then
     return .error s!"Failed to get LEAN_PATH:\n{stderr}"
-
-  -- Parse the LEAN_PATH to find olean directories
-  let _leanPath := stdout.trimAscii
 
   -- Find the project's build directory
   -- Some projects use .lake/build/lib/lean, others use .lake/build/lib directly
@@ -173,13 +212,21 @@ def getProjectModules (projectPath : System.FilePath)
     else
       pure buildLibPath
 
-  -- Collect all .olean files from the project's build directory
+  -- Collect all .olean files, then keep only those with a backing source.
   let mut modules : Array Lean.Name := #[]
+  let mut orphans : Array Lean.Name := #[]
 
   if ← projectBuildPath.pathExists then
     let oleans ← collectOleanFiles projectBuildPath projectBuildPath
-    for olean in oleans do
-      modules := modules.push olean
+    let (kept, dropped) ← partitionBySource projectPath sourceRoots oleans
+    modules := kept
+    orphans := dropped
+
+  if !orphans.isEmpty then
+    let sorted := orphans.qsort fun a b => a.toString < b.toString
+    IO.println s!"Ignoring {sorted.size} orphan module(s) with no backing .lean source (stale build artifacts):"
+    for o in sorted do
+      IO.println s!"  - {o}"
 
   -- Sort for deterministic import order (P14)
   let sortedModules := modules.qsort fun a b => a.toString < b.toString

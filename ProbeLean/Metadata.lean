@@ -74,6 +74,39 @@ def parseLeanLibsFromToml (content : String) : Array String := Id.run do
           result := result.push (stripped.dropEnd 1).toString
   result
 
+/-- Extract every `srcDir = "..."` value declared under a `[[lean_lib]]` (or
+    `[[lean_exe]]`) section of a lakefile.toml string. Package-level `srcDir`
+    keys (outside any `[[...]]` table) are ignored. Used to know where a module's
+    backing source may live when filtering orphan oleans. -/
+def parseSrcDirsFromToml (content : String) : Array String := Id.run do
+  let mut result : Array String := #[]
+  let mut inTable := false
+  for line in content.splitOn "\n" do
+    let trimmed := line.trimAscii.toString
+    if trimmed.startsWith "[" then
+      inTable := true
+    if inTable && (trimmed.replace " " "").startsWith "srcDir" then
+      let parts := trimmed.splitOn "="
+      if parts.length >= 2 then
+        let valuePart := (String.intercalate "=" (parts.drop 1)).trimAscii.toString
+        if valuePart.startsWith "\"" && valuePart.endsWith "\"" then
+          let stripped := valuePart.drop 1
+          result := result.push (stripped.dropEnd 1).toString
+  result
+
+/-- Candidate source roots for resolving a module's backing `.lean` file:
+    always `"."` plus every `srcDir` declared in lakefile.toml. Deduplicated.
+    A `lakefile.lean` (Lean DSL) is not parsed, so its custom `srcDir`s are not
+    discovered — `getProjectModules` stays conservative and reports any drops. -/
+def getSourceRoots (projectPath : System.FilePath) : IO (Array String) := do
+  let tomlPath := projectPath / "lakefile.toml"
+  let mut roots : Array String := #["."]
+  if ← tomlPath.pathExists then
+    let content ← IO.FS.readFile tomlPath
+    for d in parseSrcDirsFromToml content do
+      if !roots.contains d then roots := roots.push d
+  return roots
+
 /-- Parse `defaultTargets = ["Lib1", "Lib2"]` from a lakefile.toml string. -/
 def parseDefaultTargetsFromToml (content : String) : Array String := Id.run do
   let mut result : Array String := #[]

@@ -255,6 +255,16 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
     importModules imports {} 0
   catch e =>
     let msg := toString e
+    if containsSubstring msg "already contains" then
+      -- Two imported modules declare the same name. Almost always a stale
+      -- "orphan" olean from a renamed/deleted module that Lake never GC'd
+      -- (issue #51). `getProjectModules` drops orphans with no backing source,
+      -- but a custom `srcDir` in a lakefile.lean (which we don't parse) can let
+      -- one slip through. A `lake clean` rebuild clears the stale artifacts.
+      let hint := "\n\nDuplicate declaration across imported modules — likely a stale .olean\n" ++
+        "from a renamed or deleted module that Lake did not remove.\n" ++
+        "Fix: run `lake clean` in the target project, then re-run extract."
+      return .error s!"Failed to import modules: {msg}{hint}"
     if containsSubstring msg "incompatible header" then
       let targetTC ← readToolchain projectPath
       let probeLeanVersion := Lean.versionString

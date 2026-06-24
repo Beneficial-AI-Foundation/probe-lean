@@ -200,9 +200,13 @@ one.
   1. `--library <L1,L2,...>` if you pass it.
   2. otherwise `defaultTargets` from `lakefile.toml`.
   3. otherwise all `[[lean_lib]]` entries in `lakefile.toml`.
-- **Modules analyzed:** probe-lean collects **every `.olean` under
-  `.lake/build/lib/lean`** (which holds only the project's own modules — deps
-  live under `.lake/packages/`).
+- **Modules analyzed:** probe-lean collects every `.olean` under
+  `.lake/build/lib/lean` (which holds only the project's own modules — deps
+  live under `.lake/packages/`), then **keeps only modules that still have a
+  backing `.lean` source** — resolving each against `"."` plus every `srcDir`
+  declared in `lakefile.toml`. This drops *orphan* oleans left behind by renamed
+  or deleted modules (which Lake never garbage-collects); dropped modules are
+  reported.
   - **By default (no `--library`)** it analyzes **all** of them. Auto-detected
     build targets are *not* used as an analysis filter, because `defaultTargets`
     may name a `lean_exe` and a `lean_lib` may declare custom `roots` that differ
@@ -224,15 +228,18 @@ are imported into a **single Lean environment** before atomizing.
   module rather than writing an empty result.
 - **All analyzed modules must be mutually importable.** Two modules may not
   declare the same fully-qualified name, or the import aborts with
-  `environment already contains '<name>' from <module>`.
-- **Module discovery trusts the build directory, not git.** Because it scans
-  `.olean` files on disk, **orphan artifacts from modules you deleted or renamed
-  are still picked up until you `lake clean`.** An orphan that re-declares a
-  symbol is the most common cause of the duplicate-declaration import failure
-  above. When in doubt after a refactor, `lake clean` first.
+  `environment already contains '<name>' from <module>`. The usual cause —
+  orphan oleans from a rename — is now filtered out automatically (see above);
+  if it still fires (e.g. a `lakefile.lean` with a custom `srcDir` probe-lean
+  can't parse), the error includes a `lake clean` hint.
+- **Custom `srcDir` in a `lakefile.lean` is not parsed.** Source-backing is
+  resolved against `srcDir`s declared in `lakefile.toml` only. A library whose
+  custom `srcDir` lives in a Lean-DSL `lakefile.lean` may have its modules
+  reported as orphans; run `lake clean` and rebuild, or move the project to
+  `lakefile.toml`.
 
 > Resolving libraries to their actual Lake module roots (so `--library` works for
-> libraries with custom `roots`) and ignoring stale orphan oleans is tracked in
+> libraries with custom `roots`) is tracked in
 > [#40](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/40).
 
 ## Testing
