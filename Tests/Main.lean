@@ -2564,6 +2564,83 @@ def testParseDefaultTargets (result : TestResult) : IO TestResult := do
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
+def testParseSrcDirs (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing parseSrcDirsFromToml..."
+
+  let noSrcDir := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"Pkg\"\n"
+  result ← test "no srcDir: returns empty" ((parseSrcDirsFromToml noSrcDir).size == 0) result
+
+  let oneSrcDir := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"Gen\"\nsrcDir = \"generated\"\n"
+  let s1 := parseSrcDirsFromToml oneSrcDir
+  result ← test "one srcDir: finds it" (s1.size == 1 && s1[0]? == some "generated") result
+
+  let twoSrcDirs := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"A\"\nsrcDir = \"src\"\n\n[[lean_lib]]\nname = \"B\"\nsrcDir = \"gen\"\n"
+  let s2 := parseSrcDirsFromToml twoSrcDirs
+  result ← test "two srcDirs: finds both" (s2.size == 2 && s2[0]? == some "src" && s2[1]? == some "gen") result
+
+  let spaced := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"A\"\nsrcDir=\"weird\"\n"
+  result ← test "srcDir without spaces around =" ((parseSrcDirsFromToml spaced)[0]? == some "weird") result
+
+  IO.println ""
+  IO.println "Testing getSourceRoots..."
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-srcroots-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll tmpBase
+
+  IO.FS.writeFile (tmpBase / "lakefile.toml") twoSrcDirs
+  let r1 ← getSourceRoots tmpBase
+  result ← test "getSourceRoots includes '.'" (r1.contains ".") result
+  result ← test "getSourceRoots includes srcDirs" (r1.contains "src" && r1.contains "gen") result
+
+  -- No lakefile.toml → just "."
+  let emptyBase := tmpBase / "empty"
+  IO.FS.createDirAll emptyBase
+  let r2 ← getSourceRoots emptyBase
+  result ← test "getSourceRoots defaults to ['.'] without toml" (r2 == #["."]) result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
+def testOrphanOleanFilter (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing partitionBySource (orphan olean filtering)..."
+
+  let tmpBase : System.FilePath := "/tmp/probe-lean-test-orphan-" ++ toString (← IO.monoNanosNow)
+  -- Live sources at the default root.
+  IO.FS.createDirAll (tmpBase / "Pkg" / "Code")
+  IO.FS.writeFile (tmpBase / "Pkg" / "Lib.lean") ""
+  IO.FS.writeFile (tmpBase / "Pkg" / "Code" / "Live.lean") ""
+  -- A library with a custom srcDir.
+  IO.FS.createDirAll (tmpBase / "generated" / "Gen")
+  IO.FS.writeFile (tmpBase / "generated" / "Gen" / "Out.lean") ""
+
+  -- Olean entries as collectOleanFiles would produce them: (module name, relPath).
+  let oleans : Array (Lean.Name × String) := #[
+    (`Pkg.Lib, "Pkg/Lib"),
+    (`Pkg.Code.Live, "Pkg/Code/Live"),
+    (`Pkg.Code.Orphan, "Pkg/Code/Orphan"),   -- renamed/deleted: no source
+    (`Gen.Out, "Gen/Out")                     -- source only under srcDir "generated"
+  ]
+
+  let (kept0, orphans0) ← partitionBySource tmpBase #["."] oleans
+  result ← test "default root: orphan dropped" (!kept0.contains `Pkg.Code.Orphan && orphans0.contains `Pkg.Code.Orphan) result
+  result ← test "default root: live modules kept" (kept0.contains `Pkg.Lib && kept0.contains `Pkg.Code.Live) result
+  result ← test "default root: custom-srcDir module dropped (no '.' source)" (orphans0.contains `Gen.Out) result
+
+  let (kept1, orphans1) ← partitionBySource tmpBase #[".", "generated"] oleans
+  result ← test "with srcDir: custom-srcDir module kept" (kept1.contains `Gen.Out) result
+  result ← test "with srcDir: orphan still dropped" (orphans1.contains `Pkg.Code.Orphan) result
+  result ← test "with srcDir: only the orphan is dropped" (orphans1.size == 1) result
+
+  -- Empty sourceRoots falls back to ["."].
+  let (kept2, _) ← partitionBySource tmpBase #[] oleans
+  result ← test "empty roots fall back to '.'" (kept2.contains `Pkg.Lib && !kept2.contains `Pkg.Code.Orphan) result
+
+  try IO.FS.removeDirAll tmpBase catch _ => pure ()
+  return result
+
 def testSelectModules (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3193,6 +3270,8 @@ def main : IO UInt32 := do
   result ← testLeanInvariants result
   result ← testParseLeanLibs result
   result ← testParseDefaultTargets result
+  result ← testParseSrcDirs result
+  result ← testOrphanOleanFilter result
   result ← testSelectModules result
   result ← testVersionConsistency result
   result ← testCacheValidity result

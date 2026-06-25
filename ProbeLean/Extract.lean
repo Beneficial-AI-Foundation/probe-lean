@@ -208,7 +208,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   IO.println "=== Step 1/3: Atomize ==="
 
   IO.println "Getting project modules..."
-  let modules ← match ← getProjectModules config.projectPath nixMode with
+  let sourceRoots ← getSourceRoots config.projectPath
+  let modules ← match ← getProjectModules config.projectPath nixMode sourceRoots with
     | .error msg =>
       IO.eprintln msg
       return 1
