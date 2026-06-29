@@ -18,3 +18,7 @@
 .DS_Store
 Thumbs.db
 atoms.json
+
+# Python artifacts (tools/python)
+__pycache__/
+*.pyc

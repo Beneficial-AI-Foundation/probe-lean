@@ -139,11 +139,26 @@ try_prebuilt_download() {
 
     echo "Checking for pre-built binary: probe-lean-${version}-${platform}..."
 
-    # Search across all releases for an artifact matching this Lean version + platform
-    local releases_url="https://api.github.com/repos/${GITHUB_REPO}/releases"
+    # Search the releases for an artifact matching this Lean version + platform.
+    # per_page=100 returns every release in one request (probe-lean is nowhere near
+    # 100 releases), and the current supported set is rebuilt into each release, so
+    # this reliably finds a supported version's artifact. An optional token avoids
+    # the low unauthenticated rate limit.
+    local releases_url="https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100"
+    local auth_header=""
+    if [ -n "${GH_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${GH_TOKEN}"
+    elif [ -n "${GITHUB_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
+    fi
+    # Escape dots so the version matches literally. The trailing quote in the
+    # pattern anchors to the end of the asset name, so the .sha256 sidecar (which
+    # ends in .sha256, not the bare artifact) is never matched.
+    local artifact_re
+    artifact_re=$(printf '%s' "$artifact" | sed 's/\./\\./g')
     local download_url=""
-    download_url=$(curl -sL "$releases_url" 2>/dev/null \
-        | grep -o "\"browser_download_url\": \"[^\"]*${artifact}\"" \
+    download_url=$(curl -sL ${auth_header:+-H "$auth_header"} "$releases_url" 2>/dev/null \
+        | grep -o "\"browser_download_url\": \"[^\"]*${artifact_re}\"" \
         | head -1 \
         | sed 's/"browser_download_url": "//;s/"//') || true
 

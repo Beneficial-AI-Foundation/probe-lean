@@ -113,10 +113,21 @@ def try_prebuilt_download(version: str) -> bool:
 
     print(f"Checking for pre-built binary: probe-lean-{version}-{plat}...")
 
-    # Search across all releases for an artifact matching this Lean version + platform
+    # Search the releases for an artifact matching this Lean version + platform.
+    # per_page=100 returns every release in one request (probe-lean is nowhere near
+    # 100 releases), and the current supported set is rebuilt into each release, so
+    # this reliably finds a supported version's artifact. An optional token avoids
+    # the low unauthenticated rate limit.
     try:
         releases_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
-        releases = httpx.get(releases_url).json()
+        headers = {}
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        resp = httpx.get(releases_url, params={"per_page": 100}, headers=headers)
+        resp.raise_for_status()
+        releases = resp.json()
         download_url = None
         for release in releases:
             for asset in release.get("assets", []):
