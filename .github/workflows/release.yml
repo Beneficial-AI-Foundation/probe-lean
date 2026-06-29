@@ -13,41 +13,114 @@ on:
 permissions:
   contents: write
 
+# Serialize runs for the same tag so reruns / overlapping pushes don't race on
+# the release's assets.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  compute:
+    name: Compute Lean version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.derive.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive supported Lean versions
+        id: derive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # jq -c keeps it a single line — multi-line values break $GITHUB_OUTPUT.
+          # `if !` checks the pipeline's exit regardless of the runner's shell
+          # defaults (which may lack pipefail).
+          if ! versions=$(tools/lean-versions.sh --json | jq -c .); then
+            echo "::error::Failed to derive supported Lean versions from the leanprover/lean4 releases."
+            exit 1
+          fi
+          echo "Building for: $versions"
+          if [ -z "$versions" ] || [ "$versions" = "[]" ]; then
+            echo "::error::No supported Lean versions were derived."
+            exit 1
+          fi
+          printf 'versions=%s\n' "$versions" >> "$GITHUB_OUTPUT"
+
+  ensure-release:
+    name: Ensure release exists
+    needs: compute
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      # Create the release once, here, rather than racing to create it from every
+      # matrix row. A genuine API/auth failure fails loudly instead of being
+      # swallowed by `|| true`.
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --generate-notes
+          fi
+
   build:
     name: Build probe-lean (${{ matrix.lean-version }}, ${{ matrix.os }})
+    needs: [compute, ensure-release]
     runs-on: ${{ matrix.os }}
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
-        lean-version:
-          - v4.28.0-rc1
-          - v4.28.0
-          - v4.29.0-rc4
-          - v4.29.0-rc8
-          - v4.29.0
-          - v4.30.0-rc2
-          - v4.30.0
-          - v4.31.0
+        lean-version: ${{ fromJSON(needs.compute.outputs.versions) }}
         os:
           - ubuntu-latest
           - macos-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Build the source that matches the release we upload to: the pushed tag,
+          # or the tag given to a manual dispatch (not whatever branch dispatched it).
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Rewrite toolchain to target Lean version
         run: |
           echo "leanprover/lean4:${{ matrix.lean-version }}" > lean-toolchain
-          sed -i'' -e 's/rev = "v[^"]*"/rev = "${{ matrix.lean-version }}"/' lakefile.toml
+          # sed -i.bak works on both GNU (Linux) and BSD (macOS) sed.
+          sed -i.bak -e 's/rev = "v[^"]*"/rev = "${{ matrix.lean-version }}"/' lakefile.toml
+          rm -f lakefile.toml.bak
+          # Drop the committed manifest and build dir so Lake re-resolves Cli
+          # against the rewritten rev — otherwise the pinned manifest wins and the
+          # build silently uses the wrong lean4-cli (issue #38).
+          rm -rf .lake lake-manifest.json
 
+      # A build failure here is expected for some Lean versions (breaking upstream
+      # changes, or lean4-cli not yet tagged). Tolerate it per-version so one bad
+      # version cannot fail the whole release; the steps below run only on success,
+      # and the `verify` job fails the run if *nothing* built.
       - uses: leanprover/lean-action@v1
+        id: build
+        continue-on-error: true
         with:
           test: false
 
+      - name: Report unbuildable version
+        if: steps.build.outcome != 'success'
+        run: |
+          echo "::warning::probe-lean failed to build against Lean ${{ matrix.lean-version }} on ${{ matrix.os }} — no artifact produced."
+
+      - name: Smoke test
+        if: steps.build.outcome == 'success'
+        run: .lake/build/bin/probe-lean --version
+
       - name: Detect platform
+        if: steps.build.outcome == 'success'
         id: platform
         run: |
           OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -59,6 +132,7 @@ jobs:
           echo "platform=${OS}-${ARCH}" >> $GITHUB_OUTPUT
 
       - name: Package binary and .olean files
+        if: steps.build.outcome == 'success'
         run: |
           ARTIFACT="probe-lean-${{ matrix.lean-version }}-${{ steps.platform.outputs.platform }}"
           mkdir -p "$ARTIFACT/bin" "$ARTIFACT/lib"
@@ -67,14 +141,32 @@ jobs:
           tar -czf "${ARTIFACT}.tar.gz" -C "$ARTIFACT" bin lib
           echo "ARTIFACT=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
 
-      - name: Create release if needed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$RELEASE_TAG" --generate-notes 2>/dev/null || true
-
       - name: Upload release asset
+        if: steps.build.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$RELEASE_TAG" "$ARTIFACT" --clobber
+          gh release upload "$RELEASE_TAG" "$ARTIFACT" --repo "$GITHUB_REPOSITORY" --clobber
+
+  verify:
+    name: Verify the release has at least one artifact
+    needs: [build]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      # Guards the systemic-failure case (e.g. nothing built on a fresh release).
+      # This counts the release's current assets, not only this run's uploads.
+      - name: Fail if the release has no probe-lean artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          count=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            -q '[.assets[].name | select(test("^probe-lean-.*\\.tar\\.gz$"))] | length')
+          echo "Release $RELEASE_TAG has $count probe-lean artifact(s)."
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Release $RELEASE_TAG has no probe-lean artifacts."
+            exit 1
+          fi
