@@ -1,0 +1,262 @@
+name: Lean watch
+
+# Watches leanprover/lean4 for new Lean versions and builds probe-lean artifacts
+# for any supported version not yet present on the latest release, appending them
+# to that release. A version probe-lean cannot build (breaking upstream change, or
+# lean4-cli not yet tagged) is reported in a single tracking issue rather than
+# failing the run; the next scheduled run retries it. See
+# specs/done/auto-release-lean-versions.md and issue #38.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # upload release assets
+  issues: write # maintain the tracking issue
+
+# Serialize watcher runs so two don't try to upload the same asset at once.
+concurrency:
+  group: lean-watch
+  cancel-in-progress: false
+
+# The platform tokens that appear in artifact names, one per build runner
+# (ubuntu-latest -> linux-x86_64, macos-latest -> darwin-arm64). A version is
+# "covered" only when an asset exists for every one of these. Keep this in sync
+# with the build matrix below; the build job asserts its detected platform is
+# listed here, so a runner whose arch changes fails loudly instead of looping.
+env:
+  EXPECTED_PLATFORMS: "linux-x86_64 darwin-arm64"
+  ISSUE_LABEL: lean-build-failure
+
+jobs:
+  compute:
+    name: Find versions needing artifacts
+    runs-on: ubuntu-latest
+    outputs:
+      have_release: ${{ steps.plan.outputs.have_release }}
+      target: ${{ steps.plan.outputs.target }}
+      versions: ${{ steps.plan.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target release and missing versions
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The "latest release" endpoint excludes drafts and prereleases, so the
+          # target is always a real, published release — never an in-progress tag.
+          if ! target=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" -q .tag_name 2>/dev/null); then
+            echo "No published release to attach artifacts to — nothing to do."
+            {
+              echo "have_release=false"
+              echo "target="
+              echo "versions=[]"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Target release: $target"
+
+          assets=$(gh release view "$target" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+
+          # A version needs work if any expected platform's tarball is absent.
+          # Exact whole-line fixed-string match (grep -xF) means a stable
+          # (v4.32.0) is never confused with its RC assets (v4.32.0-rc1-...).
+          missing='[]'
+          for v in $(tools/lean-versions.sh --json | jq -r '.[]'); do
+            for plat in $EXPECTED_PLATFORMS; do
+              if ! printf '%s\n' "$assets" | grep -qxF "probe-lean-${v}-${plat}.tar.gz"; then
+                missing=$(printf '%s' "$missing" | jq --arg v "$v" '. + [$v]')
+                break
+              fi
+            done
+          done
+          missing=$(printf '%s' "$missing" | jq -c .)
+          echo "Versions needing artifacts: $missing"
+          {
+            echo "have_release=true"
+            echo "target=$target"
+            echo "versions=$missing"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.lean-version }} (${{ matrix.os }})
+    needs: compute
+    if: needs.compute.outputs.have_release == 'true' && needs.compute.outputs.versions != '[]'
+    runs-on: ${{ matrix.os }}
+    env:
+      TARGET: ${{ needs.compute.outputs.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lean-version: ${{ fromJSON(needs.compute.outputs.versions) }}
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect platform
+        id: platform
+        run: |
+          set -euo pipefail
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            aarch64|arm64) ARCH="arm64" ;;
+            x86_64)        ARCH="x86_64" ;;
+          esac
+          platform="${OS}-${ARCH}"
+          # Coverage in `compute`/`report` keys on EXPECTED_PLATFORMS; if this runner
+          # reports something else, fail loudly rather than uploading an asset that
+          # coverage will never recognise (which would rebuild it forever).
+          case " $EXPECTED_PLATFORMS " in
+            *" $platform "*) ;;
+            *) echo "::error::Detected platform '$platform' is not in EXPECTED_PLATFORMS ($EXPECTED_PLATFORMS)."; exit 1 ;;
+          esac
+          echo "platform=${platform}" >> "$GITHUB_OUTPUT"
+
+      # Per (version, platform) idempotency: if this exact tarball already exists
+      # on the target release, do nothing — never rebuild or overwrite it.
+      - name: Check whether this artifact already exists
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="probe-lean-${{ matrix.lean-version }}-${{ steps.platform.outputs.platform }}.tar.gz"
+          if gh release view "$TARGET" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' \
+              | grep -qxF "$name"; then
+            echo "$name already present — skipping."
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rewrite toolchain to target Lean version
+        if: steps.exists.outputs.present == 'false'
+        run: |
+          echo "leanprover/lean4:${{ matrix.lean-version }}" > lean-toolchain
+          sed -i.bak -e 's/rev = "v[^"]*"/rev = "${{ matrix.lean-version }}"/' lakefile.toml
+          rm -f lakefile.toml.bak
+          # Re-resolve Cli against the rewritten rev (issue #38).
+          rm -rf .lake lake-manifest.json
+
+      # A build failure is expected for some versions; tolerate it and let the
+      # report job record it. The steps below run only on a clean build.
+      - uses: leanprover/lean-action@v1
+        id: build
+        if: steps.exists.outputs.present == 'false'
+        continue-on-error: true
+        with:
+          test: false
+
+      - name: Report unbuildable version
+        if: steps.exists.outputs.present == 'false' && steps.build.outcome != 'success'
+        run: |
+          echo "::warning::probe-lean failed to build against Lean ${{ matrix.lean-version }} on ${{ matrix.os }}."
+
+      - name: Smoke test
+        if: steps.exists.outputs.present == 'false' && steps.build.outcome == 'success'
+        run: .lake/build/bin/probe-lean --version
+
+      - name: Package binary, .olean files, and provenance
+        if: steps.exists.outputs.present == 'false' && steps.build.outcome == 'success'
+        run: |
+          ARTIFACT="probe-lean-${{ matrix.lean-version }}-${{ steps.platform.outputs.platform }}"
+          mkdir -p "$ARTIFACT/bin" "$ARTIFACT/lib"
+          cp .lake/build/bin/probe-lean "$ARTIFACT/bin/"
+          cp -r .lake/build/lib/lean/ProbeLean* "$ARTIFACT/lib/"
+          # Provenance: a watcher artifact is built from main, so record exactly
+          # which probe-lean revision produced it.
+          {
+            echo "probe-lean-commit=${{ github.sha }}"
+            echo "probe-lean-ref=${{ github.ref_name }}"
+            echo "lean-version=${{ matrix.lean-version }}"
+            echo "built-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "built-by=lean-watch"
+          } > "$ARTIFACT/BUILDINFO"
+          tar -czf "${ARTIFACT}.tar.gz" -C "$ARTIFACT" bin lib BUILDINFO
+          # shasum is present on both ubuntu and macOS runners (sha256sum is not).
+          shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
+          echo "ARTIFACT=${ARTIFACT}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload artifact (never overwrite the tarball)
+        if: steps.exists.outputs.present == 'false' && steps.build.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Upload the checksum first (the tarball is the coverage key, so it must
+          # never appear without its sidecar). The sidecar may be --clobbered — it
+          # is a deterministic hash, safe to replace, which also lets a retry after
+          # a partial upload self-heal. The tarball is uploaded WITHOUT --clobber:
+          # a watcher build (from main) must never overwrite an existing artifact
+          # (e.g. one built from tagged source). A genuine upload/auth error — or a
+          # tarball that unexpectedly already exists — fails the job loudly rather
+          # than being misreported as a build failure.
+          gh release upload "$TARGET" "${ARTIFACT}.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TARGET" "$ARTIFACT" --repo "$GITHUB_REPOSITORY"
+
+  report:
+    name: Update build-failure tracking issue
+    needs: [compute, build]
+    if: always() && needs.compute.outputs.have_release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TARGET: ${{ needs.compute.outputs.target }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recompute coverage and open/update/close the tracking issue
+        run: |
+          set -euo pipefail
+          assets=$(gh release view "$TARGET" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+
+          # Same coverage check as compute: any expected platform still missing an
+          # asset after the build job ran.
+          missing=""
+          for v in $(tools/lean-versions.sh --json | jq -r '.[]'); do
+            missing_plat=""
+            for plat in $EXPECTED_PLATFORMS; do
+              if ! printf '%s\n' "$assets" | grep -qxF "probe-lean-${v}-${plat}.tar.gz"; then
+                missing_plat="${missing_plat}${missing_plat:+, }${plat}"
+              fi
+            done
+            if [ -n "$missing_plat" ]; then
+              missing="${missing}- \`${v}\` — missing: ${missing_plat}\n"
+            fi
+          done
+
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$ISSUE_LABEL" \
+            --state open --json number -q '.[0].number // empty')
+
+          if [ -z "$missing" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$GITHUB_REPOSITORY" \
+                --comment "All supported Lean versions now have artifacts on \`$TARGET\`. Closing."
+            fi
+            echo "All supported Lean versions are covered."
+            exit 0
+          fi
+
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body=$(printf 'probe-lean could not produce artifacts for these Lean versions on release `%s` (run: %s):\n\n%bMaintained automatically by the Lean watcher: this body is regenerated each run and the issue is closed when every version builds. A version usually fails because of a breaking Lean change or because lean4-cli has not yet tagged the matching version.\n' \
+            "$TARGET" "$run_url" "$missing")
+
+          # Ensure the label exists (no-op if already created).
+          gh label create "$ISSUE_LABEL" --repo "$GITHUB_REPOSITORY" \
+            --color B60205 --description "Automated: probe-lean fails to build against a Lean version" 2>/dev/null || true
+
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+            echo "Updated tracking issue #$existing"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Automated: probe-lean build failures for new Lean versions" \
+              --label "$ISSUE_LABEL" --body "$body"
+          fi
