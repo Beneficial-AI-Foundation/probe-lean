@@ -52,6 +52,10 @@ probe-lean **must** be installed for the same Lean version as the target project
 
 If your targets use different Lean versions, the installer handles this: it builds (or downloads) a versioned binary for each version. Multiple versions coexist under `~/.local/bin/probe-lean-v<version>`. The `probe-lean` symlink points to the most recently installed version.
 
+### Pre-built binary availability
+
+Pre-built binaries are published for `linux-x86_64` and `darwin-arm64` for every stable Lean release `≥ v4.28.0-rc1`, plus the latest release candidate of any line without a stable. A scheduled workflow builds artifacts for new Lean versions automatically (usually within a day of an upstream release), so a recent toolchain normally has a binary ready. If yours doesn't — a superseded RC, a very new release probe-lean cannot build yet, or an unsupported version — the installer falls back to a source build. To raise the GitHub API rate limit during the lookup, set `GH_TOKEN` (or `GITHUB_TOKEN`).
+
 ---
 
 ## Commands

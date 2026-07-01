@@ -62,6 +62,23 @@ export PATH="$PATH:$HOME/.local/bin"
 
 For all installer options (`--force`, `--lean-version`, cloned-repo usage, etc.), see **[docs/USAGE.md](docs/USAGE.md#installer-flags)**.
 
+### Pre-built binary availability
+
+probe-lean publishes a pre-built binary per `(Lean version, platform)` on its GitHub
+releases, for `linux-x86_64` and `darwin-arm64`. The set of Lean versions tracked is:
+
+- every **stable** Lean release at or above `v4.28.0-rc1`, plus
+- the **latest release candidate** of any version line that has not yet shipped a stable.
+
+These are generated automatically: a scheduled workflow watches `leanprover/lean4` and
+builds probe-lean for any newly released Lean version within about a day, appending the
+artifact to the latest release (no probe-lean release is needed). If probe-lean cannot yet
+build against a brand-new Lean version (e.g. a breaking change, or `lean4-cli` has not
+tagged the matching version), it is tracked in an issue and retried automatically.
+
+If no pre-built binary exists for your toolchain — an unsupported, superseded, or very new
+Lean version — the installer transparently falls back to building from source.
+
 ### Docker
 
 ```bash
