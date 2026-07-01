@@ -107,20 +107,31 @@ jobs:
             incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
             { print }
           ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
-          # Drop the committed manifest and build dir so Lake re-resolves Cli
-          # against the rewritten rev — otherwise the pinned manifest wins and the
-          # build silently uses the wrong lean4-cli (issue #38).
-          rm -rf .lake lake-manifest.json
+          # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
+          # build precondition needs it, and the Cli rev is re-resolved below.
+          rm -rf .lake
+
+      # lean-action installs the toolchain from lean-toolchain but does NOT build
+      # (build: false); we build ourselves below so we can re-resolve Cli first.
+      - uses: leanprover/lean-action@v1
+        with:
+          build: false
+          test: false
 
       # A build failure here is expected for some Lean versions (breaking upstream
       # changes, or lean4-cli not yet tagged). Tolerate it per-version so one bad
       # version cannot fail the whole release; the steps below run only on success,
       # and the `verify` job fails the run if *nothing* built.
-      - uses: leanprover/lean-action@v1
+      - name: Re-resolve Cli and build
         id: build
         continue-on-error: true
-        with:
-          test: false
+        run: |
+          # The committed lake-manifest.json pins Cli to an unrelated rev; without
+          # this, `lake build` would materialize that stale rev and build the WRONG
+          # lean4-cli. `lake update Cli` regenerates the manifest for the rewritten
+          # rev; --keep-toolchain stops it touching the toolchain lean-action set up.
+          lake --keep-toolchain update Cli
+          lake build
 
       - name: Report unbuildable version
         if: steps.build.outcome != 'success'
