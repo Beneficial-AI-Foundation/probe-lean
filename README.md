@@ -68,7 +68,12 @@ probe-lean publishes a pre-built binary per `(Lean version, platform)` on its Gi
 releases, for `linux-x86_64` and `darwin-arm64`. The set of Lean versions tracked is:
 
 - every **stable** Lean release at or above `v4.28.0-rc1`, plus
-- the **latest release candidate** of any version line that has not yet shipped a stable.
+- the **latest release candidate** of any version line that has not yet shipped a stable,
+
+restricted to versions that [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli)
+has tagged. probe-lean pins `lean4-cli` to the Lean version tag, so a Lean release without a
+matching `lean4-cli` tag — e.g. most patch releases (`v4.29.1`) — is skipped until that tag
+exists.
 
 These are generated automatically: a scheduled workflow watches `leanprover/lean4` and
 builds probe-lean for any newly released Lean version within about a day, appending the
