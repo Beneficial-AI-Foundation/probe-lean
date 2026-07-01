@@ -2,12 +2,20 @@
 # Tests for tools/lean-versions.sh (version-policy derivation).
 # Run from the probe-lean root directory: bash tests/lean-versions/run.sh
 #
-# Uses a fixed releases fixture so the policy is exercised without the network.
+# Uses fixed fixtures so the policy is exercised without the network:
+#   fixtures/releases.json  — leanprover/lean4 releases
+#   fixtures/cli-tags.txt   — leanprover/lean4-cli tags (LEAN_CLI_TAGS_FILE)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/../../tools/lean-versions.sh"
 FIXTURE="$HERE/fixtures/releases.json"
+
+# Inject the lean4-cli tag list for every invocation so tests stay offline. The
+# fixture tags every emitted version EXCEPT v4.31.1 (an untagged patch, dropped)
+# and includes v4.30.1 (a tagged patch, kept) — proving the filter is by-tag, not
+# by-patch.
+export LEAN_CLI_TAGS_FILE="$HERE/fixtures/cli-tags.txt"
 
 PASS=0
 FAIL=0
@@ -37,20 +45,21 @@ assert_fails() {
 
 echo "Testing version policy..."
 
-# Default floor (v4.28.0-rc1): stable lines collapse to their stable; the only
-# line without a stable (4.32.0) yields its latest RC (rc10 > rc2, numerically).
+# Default floor (v4.28.0-rc1): stable lines collapse to their stable; the only line
+# without a stable (4.32.0) yields its latest RC (rc10 > rc2). v4.30.1 is a patch
+# that lean4-cli tagged (kept); v4.31.1 is a patch it did NOT tag (dropped).
 assert_eq "default policy" \
-    $'v4.28.0\nv4.29.0\nv4.30.0\nv4.31.0\nv4.32.0-rc10' \
+    $'v4.28.0\nv4.29.0\nv4.30.0\nv4.30.1\nv4.31.0\nv4.32.0-rc10' \
     "$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
 
 # JSON mode is a valid array in the same order.
 assert_eq "json mode" \
-    '["v4.28.0","v4.29.0","v4.30.0","v4.31.0","v4.32.0-rc10"]' \
+    '["v4.28.0","v4.29.0","v4.30.0","v4.30.1","v4.31.0","v4.32.0-rc10"]' \
     "$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT" --json | jq -c .)"
 
 # Raising the floor to v4.30.0 drops 4.28/4.29.
 assert_eq "floor=v4.30.0" \
-    $'v4.30.0\nv4.31.0\nv4.32.0-rc10' \
+    $'v4.30.0\nv4.30.1\nv4.31.0\nv4.32.0-rc10' \
     "$(LEAN_VERSION_FLOOR=v4.30.0 LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
 
 # A floor that is itself an RC is honored (v4.32.0-rc10 >= v4.32.0-rc2).
@@ -65,6 +74,19 @@ assert_eq "empty plain output has no lines" "" \
 assert_eq "empty json output is []" "[]" \
     "$(LEAN_VERSION_FLOOR=v999.0.0 LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT" --json | jq -c .)"
 
+# lean4-cli tag filter: an untagged version is dropped, a tagged patch is kept.
+default_out="$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
+if printf '%s\n' "$default_out" | grep -qx "v4.31.1"; then
+    echo "  FAIL: untagged patch v4.31.1 should be dropped"; FAIL=$((FAIL + 1))
+else
+    echo "  PASS: untagged patch v4.31.1 is dropped"; PASS=$((PASS + 1))
+fi
+if printf '%s\n' "$default_out" | grep -qx "v4.30.1"; then
+    echo "  PASS: tagged patch v4.30.1 is kept"; PASS=$((PASS + 1))
+else
+    echo "  FAIL: tagged patch v4.30.1 should be kept"; FAIL=$((FAIL + 1))
+fi
+
 # Failure paths must exit non-zero, not silently produce wrong output.
 assert_fails "non-array API response (rate limit) fails" \
     env LEAN_RELEASES_FILE="$HERE/fixtures/rate-limited.json" "$SCRIPT"
@@ -74,6 +96,8 @@ assert_fails "--releases-file with no path fails" \
     "$SCRIPT" --releases-file
 assert_fails "unknown argument fails" \
     "$SCRIPT" --bogus
+assert_fails "missing cli-tags file fails" \
+    env LEAN_RELEASES_FILE="$FIXTURE" LEAN_CLI_TAGS_FILE="$HERE/fixtures/does-not-exist.txt" "$SCRIPT"
 
 echo
 echo "Passed: $PASS, Failed: $FAIL"

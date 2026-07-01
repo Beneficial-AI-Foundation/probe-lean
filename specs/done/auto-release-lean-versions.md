@@ -49,11 +49,17 @@ The single source of truth for "which Lean versions does probe-lean support." It
 validates the response, and applies the policy:
 
 > every **stable** release at/above the floor (`LEAN_VERSION_FLOOR`, default `v4.28.0-rc1`),
-> plus the **latest release candidate** of any version line that has not yet shipped a stable.
+> plus the **latest release candidate** of any version line that has not yet shipped a stable,
+> **restricted to versions `leanprover/lean4-cli` has tagged.**
 
 It compares versions with a bounded numeric sort key, so RCs order numerically (`rc10 > rc2`)
-and below their own stable (`v4.29.0-rc8 < v4.29.0`). `--json` emits an array for a GitHub
-Actions matrix. Fixture-based tests live in `tests/lean-versions/`.
+and below their own stable (`v4.29.0-rc8 < v4.29.0`). Because probe-lean pins the `Cli`
+dependency to the Lean version tag, the list is then filtered to versions `lean4-cli` has
+actually tagged (via `git ls-remote`, or `LEAN_CLI_TAGS_FILE` in tests): a Lean release without
+a matching `lean4-cli` tag — e.g. most patch releases (`v4.29.1`), or a brand-new release before
+`lean4-cli` catches up — is dropped so the watcher never attempts an unbuildable version.
+`--json` emits an array for a GitHub Actions matrix. Fixture-based tests live in
+`tests/lean-versions/`.
 
 ### 2. The watcher — `.github/workflows/lean-watch.yml` (the feature)
 
@@ -105,11 +111,16 @@ still works, just slower.
   own toolchain). A superseded RC (a line that has since shipped stable) is *not* actively
   rebuilt, but its already-published artifact is **never deleted**, so existing consumers are
   unaffected. Raising the floor later is a deliberate decision that must update the docs.
-- **`lean4-cli` coupling.** A brand-new Lean version often cannot build until `lean4-cli`
-  publishes the matching tag; the watcher treats this like any build failure and retries.
-- **Stale-manifest bug fixed.** Every build path now removes `.lake` + `lake-manifest.json`
-  after the rewrite. The macOS-incompatible `sed -i''` was also replaced with portable
-  `sed -i.bak` — together these likely affected past macOS release artifacts.
+- **`lean4-cli` coupling.** probe-lean pins `Cli` to the Lean version tag, so a version
+  `lean4-cli` has not tagged cannot build. The policy filters those out up front (part 1), so
+  the watcher simply waits for the tag rather than attempting and failing — no tracking-issue
+  churn for patch releases or the release-before-`lean4-cli`-tag window.
+- **Manifest handling.** The build rewrites only the `lean4-cli` `rev` in `lakefile.toml` (scoped,
+  portable `awk`), keeps the committed `lake-manifest.json`, and re-resolves it with
+  `lake --keep-toolchain update Cli` before `lake build` (lean-action runs `build: false` for
+  toolchain setup only). Deleting the manifest instead breaks lean-action's build precondition,
+  and *keeping a stale one* builds the wrong `lean4-cli` (lake materializes the manifest's pinned
+  rev, only warning on a lakefile mismatch) — so an explicit re-resolve is required.
 - **Platforms.** Only `linux-x86_64` and `darwin-arm64` (what `ubuntu-latest`/`macos-latest`
   yield). Coverage is checked against the exact expected platform names; the build job asserts
   its detected platform is one of them, so a runner-arch change fails loudly instead of looping.

@@ -20,9 +20,11 @@
 set -euo pipefail
 
 REPO="leanprover/lean4"
+CLI_REPO_URL="https://github.com/leanprover/lean4-cli"
 FLOOR="${LEAN_VERSION_FLOOR:-v4.28.0-rc1}"
 JSON=false
 RELEASES_FILE="${LEAN_RELEASES_FILE:-}"
+CLI_TAGS_FILE="${LEAN_CLI_TAGS_FILE:-}"
 
 usage() {
     cat <<EOF
@@ -168,6 +170,21 @@ apply_policy() {
     '
 }
 
+# List the tags leanprover/lean4-cli has published (one git call — no auth or
+# pagination needed). Tests inject a fixed list via LEAN_CLI_TAGS_FILE.
+fetch_cli_tags() {
+    if [ -n "$CLI_TAGS_FILE" ]; then
+        if [ ! -f "$CLI_TAGS_FILE" ]; then
+            echo "Error: Cli tags file not found: $CLI_TAGS_FILE" >&2
+            return 1
+        fi
+        cat "$CLI_TAGS_FILE"
+        return
+    fi
+    git ls-remote --tags "$CLI_REPO_URL" 2>/dev/null \
+        | sed 's#.*refs/tags/##; s/\^{}$//' | sort -u
+}
+
 if ! releases_json="$(fetch_releases)"; then
     echo "Error: could not retrieve Lean releases." >&2
     exit 1
@@ -185,6 +202,26 @@ if ! selected="$(printf '%s' "$releases_json" | extract | apply_policy | sort -u
     echo "Error: failed to compute the supported version list." >&2
     exit 1
 fi
+
+# probe-lean pins the Cli dependency to the Lean version tag, so it can only build a
+# Lean version that leanprover/lean4-cli has also tagged. Drop any version without a
+# matching Cli tag (e.g. patch releases lean4-cli never tags): building it would fail
+# and churn the watcher's tracking issue. This also waits out the window where a Lean
+# release is out but lean4-cli hasn't tagged it yet, instead of failing in the interim.
+if ! cli_tags="$(fetch_cli_tags)"; then
+    echo "Error: could not retrieve leanprover/lean4-cli tags." >&2
+    exit 1
+fi
+if [ -z "$cli_tags" ]; then
+    echo "Error: no leanprover/lean4-cli tags found (unexpected)." >&2
+    exit 1
+fi
+selected="$(printf '%s\n' "$selected" | while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    if printf '%s\n' "$cli_tags" | grep -qxF "$v"; then
+        printf '%s\n' "$v"
+    fi
+done)"
 
 if [ "$JSON" = true ]; then
     printf '%s' "$selected" | jq -R -s 'split("\n") | map(select(length > 0))'
