@@ -114,10 +114,10 @@ def try_prebuilt_download(version: str) -> bool:
     print(f"Checking for pre-built binary: probe-lean-{version}-{plat}...")
 
     # Search the releases for an artifact matching this Lean version + platform.
-    # per_page=100 returns every release in one request (probe-lean is nowhere near
-    # 100 releases), and the current supported set is rebuilt into each release, so
-    # this reliably finds a supported version's artifact. An optional token avoids
-    # the low unauthenticated rate limit.
+    # Releases are paginated newest-first; the watcher appends artifacts to the
+    # latest release over time and superseded RCs live only on older releases, so
+    # walk the pages until found or exhausted. An optional token avoids the low
+    # unauthenticated rate limit.
     try:
         releases_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
         headers = {}
@@ -125,16 +125,29 @@ def try_prebuilt_download(version: str) -> bool:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        resp = httpx.get(releases_url, params={"per_page": 100}, headers=headers)
-        resp.raise_for_status()
-        releases = resp.json()
         download_url = None
-        for release in releases:
-            for asset in release.get("assets", []):
-                if asset["name"] == artifact_name:
-                    download_url = asset["browser_download_url"]
+        per_page = 100
+        for page in range(1, 51):  # cap pages so we never loop unbounded
+            resp = httpx.get(
+                releases_url, params={"per_page": per_page, "page": page}, headers=headers
+            )
+            resp.raise_for_status()
+            releases = resp.json()
+            if not isinstance(releases, list):
+                # A rate-limit / error response is a JSON object, not a list.
+                msg = releases.get("message") if isinstance(releases, dict) else releases
+                print(f"GitHub API did not return a release list ({msg}); set GH_TOKEN to raise the rate limit.")
+                break
+            if not releases:
+                break
+            for release in releases:
+                for asset in release.get("assets", []):
+                    if asset["name"] == artifact_name:
+                        download_url = asset["browser_download_url"]
+                        break
+                if download_url:
                     break
-            if download_url:
+            if download_url or len(releases) < per_page:
                 break
 
         if not download_url:
@@ -179,8 +192,8 @@ def try_prebuilt_download(version: str) -> bool:
                         else:
                             shutil.copy2(item, dest)
             return True
-    except Exception:
-        print("No pre-built binary available, falling back to source build...")
+    except Exception as e:
+        print(f"Pre-built lookup/download failed ({e}); falling back to source build...")
         return False
 
 
@@ -227,10 +240,19 @@ def update_toolchain(project_root: Path, version: str) -> str:
 
 
 def update_lakefile(project_root: Path, version: str) -> str:
-    """Update lakefile.toml Cli rev and return original content."""
+    """Update the lean4-cli dependency's rev in lakefile.toml; return original."""
     lakefile_path = project_root / "lakefile.toml"
     original = lakefile_path.read_text()
-    updated = re.sub(r'rev = "v[^"]+"', f'rev = "{version}"', original)
+    # Rewrite the rev of ONLY the lean4-cli dependency — match the lean4-cli git
+    # line and the rev line that follows it — so any future second pinned
+    # [[require]] with a v-rev is left untouched.
+    updated = re.sub(
+        r'(lean4-cli"[^\[]*?rev = ")v[^"]+(")',
+        rf"\g<1>{version}\g<2>",
+        original,
+        count=1,
+        flags=re.DOTALL,
+    )
     lakefile_path.write_text(updated)
     return original
 

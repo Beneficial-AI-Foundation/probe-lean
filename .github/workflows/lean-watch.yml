@@ -16,9 +16,10 @@ permissions:
   contents: write # upload release assets
   issues: write # maintain the tracking issue
 
-# Serialize watcher runs so two don't try to upload the same asset at once.
+# Shared with release.yml: serializes watcher runs against each other AND against
+# a tagged release, so the two never write to the same release's assets at once.
 concurrency:
-  group: lean-watch
+  group: probe-lean-release-assets
   cancel-in-progress: false
 
 # The platform tokens that appear in artifact names, one per build runner
@@ -140,8 +141,14 @@ jobs:
         if: steps.exists.outputs.present == 'false'
         run: |
           echo "leanprover/lean4:${{ matrix.lean-version }}" > lean-toolchain
-          sed -i.bak -e 's/rev = "v[^"]*"/rev = "${{ matrix.lean-version }}"/' lakefile.toml
-          rm -f lakefile.toml.bak
+          # Rewrite the rev of ONLY the lean4-cli dependency — not every
+          # rev = "v..." — so a future second pinned [[require]] is left alone.
+          awk -v ver="${{ matrix.lean-version }}" '
+            /^[[:space:]]*\[\[/ { incli = 0 }
+            /git = ".*lean4-cli"/ { incli = 1 }
+            incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
+            { print }
+          ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
           # Re-resolve Cli against the rewritten rev (issue #38).
           rm -rf .lake lake-manifest.json
 

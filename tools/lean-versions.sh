@@ -76,11 +76,12 @@ fetch_releases() {
     fi
     # curl fallback: page until an empty array comes back. A failed request aborts
     # loudly — never loop forever on a network error or rate limit.
+    # Resolve a single token so we never send two Authorization headers.
+    local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
     local page=1 body all="[]"
     while :; do
         if ! body=$(curl -sSfL \
-            ${GH_TOKEN:+-H "Authorization: Bearer $GH_TOKEN"} \
-            ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
+            ${token:+-H "Authorization: Bearer $token"} \
             "https://api.github.com/repos/${REPO}/releases?per_page=100&page=${page}"); then
             echo "Error: failed to fetch Lean releases (page $page) from the GitHub API" >&2
             return 1
@@ -142,7 +143,9 @@ apply_policy() {
         {
             tag = $1; pre = $2
             if (parse(tag) == 0) next                       # malformed tag
-            # A prerelease that is not an -rc cannot be ordered; ignore it.
+            # Skip a stable-shaped tag (no -rc) that GitHub flags as a prerelease:
+            # treat it as not-yet-released rather than emitting it as stable. RCs
+            # carry the -rc suffix (isrc==1) and are unaffected by this guard.
             if (pre == "true" && P["isrc"] == 0) next
             isrc = P["isrc"]; line = P["maj"] "." P["min"] "." P["pat"]; k = key()
             if (k < floorkey) next                           # below floor

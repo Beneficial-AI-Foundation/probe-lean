@@ -90,9 +90,10 @@ concurrency group serializes reruns.
 ### 4. Installer lookup — `tools/bash/install.sh`, `tools/python/install.py`
 
 When installing, the installer searches the releases for `probe-lean-<version>-<platform>.tar.gz`,
-requesting `per_page=100` (one call covers every probe-lean release for the foreseeable future)
-with an optional `GH_TOKEN`/`GITHUB_TOKEN`. If no prebuilt is found it falls back to a source
-build — so a toolchain without a published artifact still works, just slower.
+paginating newest-first (the watcher appends artifacts to the latest release over time, and
+superseded RCs live only on older releases) with an optional `GH_TOKEN`/`GITHUB_TOKEN`. If no
+prebuilt is found it falls back to a source build — so a toolchain without a published artifact
+still works, just slower.
 
 ## Things to note
 

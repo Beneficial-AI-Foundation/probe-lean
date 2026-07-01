@@ -13,11 +13,18 @@ on:
 permissions:
   contents: write
 
-# Serialize runs for the same tag so reruns / overlapping pushes don't race on
-# the release's assets.
+# Shared with lean-watch.yml: the watcher and a tagged release must never write to
+# the same release's assets concurrently (avoids clobbering each other's tarballs
+# and leaving a checksum pointing at the wrong bytes).
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: probe-lean-release-assets
   cancel-in-progress: false
+
+# Platforms the build matrix produces (ubuntu-latest -> linux-x86_64,
+# macos-latest -> darwin-arm64). The platform-detect step asserts the runner
+# reports one of these, so an unexpected arch fails loudly.
+env:
+  EXPECTED_PLATFORMS: "linux-x86_64 darwin-arm64"
 
 jobs:
   compute:
@@ -92,9 +99,14 @@ jobs:
       - name: Rewrite toolchain to target Lean version
         run: |
           echo "leanprover/lean4:${{ matrix.lean-version }}" > lean-toolchain
-          # sed -i.bak works on both GNU (Linux) and BSD (macOS) sed.
-          sed -i.bak -e 's/rev = "v[^"]*"/rev = "${{ matrix.lean-version }}"/' lakefile.toml
-          rm -f lakefile.toml.bak
+          # Rewrite the rev of ONLY the lean4-cli dependency — not every
+          # rev = "v..." — so a future second pinned [[require]] is left alone.
+          awk -v ver="${{ matrix.lean-version }}" '
+            /^[[:space:]]*\[\[/ { incli = 0 }
+            /git = ".*lean4-cli"/ { incli = 1 }
+            incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
+            { print }
+          ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
           # Drop the committed manifest and build dir so Lake re-resolves Cli
           # against the rewritten rev — otherwise the pinned manifest wins and the
           # build silently uses the wrong lean4-cli (issue #38).
@@ -123,13 +135,21 @@ jobs:
         if: steps.build.outcome == 'success'
         id: platform
         run: |
+          set -euo pipefail
           OS=$(uname -s | tr '[:upper:]' '[:lower:]')
           ARCH=$(uname -m)
           case "$ARCH" in
             aarch64|arm64) ARCH="arm64" ;;
             x86_64)        ARCH="x86_64" ;;
           esac
-          echo "platform=${OS}-${ARCH}" >> $GITHUB_OUTPUT
+          platform="${OS}-${ARCH}"
+          # Fail loudly on an unexpected runner arch rather than publishing an
+          # artifact name the installers and watcher coverage never expect.
+          case " $EXPECTED_PLATFORMS " in
+            *" $platform "*) ;;
+            *) echo "::error::Detected platform '$platform' is not in EXPECTED_PLATFORMS ($EXPECTED_PLATFORMS)."; exit 1 ;;
+          esac
+          echo "platform=${platform}" >> "$GITHUB_OUTPUT"
 
       - name: Package binary and .olean files
         if: steps.build.outcome == 'success'
@@ -146,27 +166,56 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           gh release upload "$RELEASE_TAG" "$ARTIFACT" --repo "$GITHUB_REPOSITORY" --clobber
+          # If the watcher previously published this tarball it also uploaded a
+          # .sha256 sidecar; that checksum now refers to the bytes we just replaced,
+          # so delete it (release.yml itself doesn't publish checksums).
+          gh release delete-asset "$RELEASE_TAG" "${ARTIFACT}.sha256" \
+            --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
 
   verify:
-    name: Verify the release has at least one artifact
-    needs: [build]
+    name: Verify release coverage
+    needs: [compute, build]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      # Guards the systemic-failure case (e.g. nothing built on a fresh release).
-      # This counts the release's current assets, not only this run's uploads.
-      - name: Fail if the release has no probe-lean artifacts
+      # Per-version builds are continue-on-error, so summarise which
+      # (version, platform) actually landed and fail only if the release has none.
+      - name: Summarise coverage and fail if empty
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          count=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json assets \
-            -q '[.assets[].name | select(test("^probe-lean-.*\\.tar\\.gz$"))] | length')
-          echo "Release $RELEASE_TAG has $count probe-lean artifact(s)."
-          if [ "$count" -eq 0 ]; then
+          assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+          {
+            echo "### Release $RELEASE_TAG artifact coverage"
+            echo ""
+            echo "| Lean version | platform | built |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          total=0; present=0
+          for v in $(printf '%s' '${{ needs.compute.outputs.versions }}' | jq -r '.[]'); do
+            for plat in $EXPECTED_PLATFORMS; do
+              total=$((total + 1))
+              if printf '%s\n' "$assets" | grep -qxF "probe-lean-${v}-${plat}.tar.gz"; then
+                present=$((present + 1)); mark="✅"
+              else
+                mark="❌"
+              fi
+              echo "| \`$v\` | $plat | $mark |" >> "$GITHUB_STEP_SUMMARY"
+            done
+          done
+          {
+            echo ""
+            echo "**$present / $total** expected artifacts present on \`$RELEASE_TAG\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Release $RELEASE_TAG: $present/$total expected artifacts present."
+          # Fail only on systemic failure (nothing built at all), matching the
+          # accepted fail-soft policy; partial coverage is surfaced above, not failed.
+          all=$(printf '%s\n' "$assets" | grep -Ec '^probe-lean-.*\.tar\.gz$' || true)
+          if [ "$all" -eq 0 ]; then
             echo "::error::Release $RELEASE_TAG has no probe-lean artifacts."
             exit 1
           fi

@@ -140,27 +140,43 @@ try_prebuilt_download() {
     echo "Checking for pre-built binary: probe-lean-${version}-${platform}..."
 
     # Search the releases for an artifact matching this Lean version + platform.
-    # per_page=100 returns every release in one request (probe-lean is nowhere near
-    # 100 releases), and the current supported set is rebuilt into each release, so
-    # this reliably finds a supported version's artifact. An optional token avoids
-    # the low unauthenticated rate limit.
-    local releases_url="https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100"
+    # Releases are paginated newest-first; the watcher appends artifacts to the
+    # latest release over time and superseded RCs live only on older releases, so
+    # walk the pages until found or exhausted. An optional token avoids the low
+    # unauthenticated rate limit.
+    local releases_url="https://api.github.com/repos/${GITHUB_REPO}/releases"
     local auth_header=""
     if [ -n "${GH_TOKEN:-}" ]; then
         auth_header="Authorization: Bearer ${GH_TOKEN}"
     elif [ -n "${GITHUB_TOKEN:-}" ]; then
         auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
     fi
-    # Escape dots so the version matches literally. The trailing quote in the
-    # pattern anchors to the end of the asset name, so the .sha256 sidecar (which
-    # ends in .sha256, not the bare artifact) is never matched.
+    # Escape dots so the version matches literally. The trailing quote anchors to
+    # the end of the asset name, so the .sha256 sidecar is never matched.
     local artifact_re
     artifact_re=$(printf '%s' "$artifact" | sed 's/\./\\./g')
-    local download_url=""
-    download_url=$(curl -sL ${auth_header:+-H "$auth_header"} "$releases_url" 2>/dev/null \
-        | grep -o "\"browser_download_url\": \"[^\"]*${artifact_re}\"" \
-        | head -1 \
-        | sed 's/"browser_download_url": "//;s/"//') || true
+    local download_url="" per_page=100 page=1 body trimmed
+    while [ "$page" -le 50 ]; do  # cap pages so we never loop unbounded
+        body=$(curl -sL ${auth_header:+-H "$auth_header"} \
+            "${releases_url}?per_page=${per_page}&page=${page}" 2>/dev/null) || break
+        download_url=$(printf '%s' "$body" \
+            | grep -o "\"browser_download_url\": \"[^\"]*${artifact_re}\"" \
+            | head -1 \
+            | sed 's/"browser_download_url": "//;s/"//') || true
+        [ -n "$download_url" ] && break
+        # Page on while the body is a non-empty JSON array; stop on the empty last
+        # page or on an error body (rate limit / auth) — falling back to source.
+        trimmed=$(printf '%s' "$body" | tr -d '[:space:]')
+        case "$trimmed" in
+            '[]')    break ;;
+            '['*']') page=$((page + 1)) ;;
+            *)
+                if printf '%s' "$body" | grep -q '"message"'; then
+                    echo "Note: GitHub API did not return releases (rate limit or auth?); set GH_TOKEN to raise the limit." >&2
+                fi
+                break ;;
+        esac
+    done
 
     if [ -z "$download_url" ]; then
         echo "No pre-built binary available, falling back to source build..."
@@ -236,7 +252,13 @@ build_from_source() {
         original_lakefile=$(cat lakefile.toml)
 
         echo "leanprover/lean4:$version" > lean-toolchain
-        sed -i'' -e "s/rev = \"v[^\"]*\"/rev = \"$version\"/" lakefile.toml
+        # Rewrite the rev of ONLY the lean4-cli dependency (portable awk; no sed -i).
+        awk -v ver="$version" '
+          /^[[:space:]]*\[\[/ { incli = 0 }
+          /git = ".*lean4-cli"/ { incli = 1 }
+          incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
+          { print }
+        ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
 
         rm -rf .lake lake-manifest.json
         echo "Removed .lake/ and lake-manifest.json"
