@@ -247,9 +247,10 @@ build_from_source() {
     else
         echo "Switching from $current_version to $version..."
 
-        local original_toolchain original_lakefile
+        local original_toolchain original_lakefile original_manifest
         original_toolchain=$(cat lean-toolchain)
         original_lakefile=$(cat lakefile.toml)
+        original_manifest=$(cat lake-manifest.json 2>/dev/null || true)
 
         echo "leanprover/lean4:$version" > lean-toolchain
         # Rewrite the rev of ONLY the lean4-cli dependency (portable awk; no sed -i).
@@ -260,15 +261,22 @@ build_from_source() {
           { print }
         ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
 
-        rm -rf .lake lake-manifest.json
-        echo "Removed .lake/ and lake-manifest.json"
+        rm -rf .lake
+        echo "Cleared .lake/"
 
+        # Re-resolve Cli for the rewritten rev — the committed manifest pins an
+        # unrelated rev, so `lake build` alone would build the wrong lean4-cli.
+        # --keep-toolchain leaves the toolchain lean/elan selected untouched.
         local build_ok=true
-        lake build || build_ok=false
+        lake --keep-toolchain update Cli && lake build || build_ok=false
 
         echo "$original_toolchain" > lean-toolchain
         echo "$original_lakefile" > lakefile.toml
-        echo "Restored lean-toolchain and lakefile.toml"
+        # Restore the manifest too, so an in-repo install leaves the tree clean.
+        if [ -n "$original_manifest" ]; then
+            printf '%s\n' "$original_manifest" > lake-manifest.json
+        fi
+        echo "Restored lean-toolchain, lakefile.toml, and lake-manifest.json"
 
         if [ "$build_ok" = false ]; then
             echo "Build failed" >&2
