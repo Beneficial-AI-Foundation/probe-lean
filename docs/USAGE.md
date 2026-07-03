@@ -81,6 +81,57 @@ named `*Scheme`/`*Alg` must carry `@[scheme_def]` (import `ProbeLean.Attrs`) to 
 
 ---
 
+## MCP server (for coding agents)
+
+An optional Model Context Protocol server in [`tools/mcp/`](../tools/mcp/) lets
+coding agents (Claude Code, Cursor, …) drive probe-lean and query its output
+directly, without shelling out or loading the (often multi-megabyte) extract
+JSON into their context.
+
+### Install and register
+
+```bash
+cd tools/mcp
+pip install -e .                          # installs the `mcp` SDK + the `probe-lean-mcp` entry point
+
+# Register with Claude Code:
+claude mcp add probe-lean -- probe-lean-mcp
+# Or without installing (from tools/mcp/):
+claude mcp add probe-lean -- python -m probe_lean_mcp
+```
+
+The server wraps the `probe-lean` binary already on your `PATH` (override with
+`PROBE_LEAN_BIN`). It makes **no** changes to the CLI or output schema.
+
+### Tools
+
+- **Run tools** (wrap the CLI, return a summary + output path — never the atom
+  map): `extract`, `viewify`, `check_toolchain`.
+- **Query tools** (read the extract JSON server-side, return small paginated
+  answers): `list_atoms`, `get_atom`, `find_unverified`, `find_sorries`,
+  `get_dependencies`, `get_specs`.
+
+A typical agent flow is `check_toolchain` → `extract` (get a path + summary) →
+`find_unverified` / `get_atom` / `get_dependencies` to navigate the graph in
+small steps. Query tools default to `limit = 50` (hard max 500) and echo
+`total`/`offset`/`limit` for paging.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBE_LEAN_BIN` | search `PATH` | Explicit path to the `probe-lean` binary |
+| `PROBE_LEAN_TIMEOUT` | `3600` | Seconds before a build returns a `timeout` error |
+| `PROBE_LEAN_TOOLCHAIN` | repo `lean-toolchain` | Toolchain reported by `check_toolchain` |
+
+Every failure returns a structured `{ error, message, hint }` object (codes:
+`binary_not_found`, `toolchain_mismatch`, `build_failed`, `no_output`,
+`atom_not_found`, `ambiguous_output`, `timeout`, `bad_args`) rather than a stack
+trace. See **[tools/mcp/README.md](../tools/mcp/README.md)** for the complete
+tool reference.
+
+---
+
 ## Walkthrough: Analyzing Real Projects
 
 ### Mathlib cache (auto-downloaded)

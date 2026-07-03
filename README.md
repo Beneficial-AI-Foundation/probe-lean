@@ -132,6 +132,24 @@ VCVio dependency; schemes not named `*Scheme`/`*Alg` should carry `@[scheme_def]
 
 For the full command reference with examples, see **[docs/USAGE.md](docs/USAGE.md)**. For the complete JSON schema specification, see **[docs/SCHEMA.md](docs/SCHEMA.md)**.
 
+## MCP server
+
+An optional [Model Context Protocol](https://modelcontextprotocol.io) server in
+[`tools/mcp/`](tools/mcp/) lets coding agents (Claude Code, Cursor, …) drive
+probe-lean and query its output without shelling out or loading multi-megabyte
+JSON into their context. It wraps the `extract`/`viewify` commands (returning a
+summary + output path, never the atom map) and adds read-only query tools
+(`list_atoms`, `get_atom`, `find_unverified`, `find_sorries`, `get_dependencies`,
+`get_specs`) that return small, paginated answers.
+
+```bash
+cd tools/mcp && pip install -e .
+claude mcp add probe-lean -- probe-lean-mcp
+```
+
+See **[tools/mcp/README.md](tools/mcp/README.md)** for the full tool list,
+configuration, and error codes.
+
 ## Example Output
 
 Running `probe-lean extract` produces a JSON envelope. Each entry in `data` describes a declaration and its dependencies:

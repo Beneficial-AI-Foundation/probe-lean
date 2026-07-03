@@ -105,12 +105,26 @@ include the tail of `probe-lean`'s stderr so the agent can diagnose.
 - [ ] `tools/mcp/` has its own tests (pytest) covering: argument mapping to CLI flags, JSON parsing/filtering/pagination, and each error code. These run independently of `lake` (fixtures use a saved extract JSON).
 - [ ] `tools/mcp/README.md` documents install, registration, every tool, and the error codes; root `README.md` and `docs/USAGE.md` gain an "MCP server" section.
 
-## Open Questions
+## Open Questions (resolved at implementation)
 
-1. **Distribution**: vendored script run via `python`, a `pip install`-able package, or an `npx`-style TS package? (Spec assumes a Python package/script under `tools/mcp/`.)
-2. **`find_sorries` vs `find_unverified`**: the extract JSON records status but does it distinguish "unverified because sorry" from "unverified for another reason"? If not, `find_sorries` may need to read the raw sorry-detection output, or collapse into `find_unverified`. Confirm against `VerifyInternal.lean` before implementing.
-3. **Progress/streaming** for long extracts: acceptable to block with a timeout in v1, or expose a fire-and-poll pattern?
-4. **Should the server auto-run `extract` when a query tool finds no output**, or always require the explicit two-step? (Spec currently requires explicit.)
+1. **Distribution** → a `pip install`-able Python package under `tools/mcp/`
+   (`probe_lean_mcp`), runnable as `probe-lean-mcp` (console entry) or
+   `python -m probe_lean_mcp`. No TS package in v1.
+2. **`find_sorries` vs `find_unverified`** → confirmed against the schema and a
+   real extract: a declaration is `unverified`/`failed` *precisely because* sorry
+   detection found a `sorry` in its body, so the two tools return the same set.
+   `find_sorries` is kept as a distinct, documented alias for intent-clarity; it
+   will diverge only if the schema later records a non-sorry unverified reason.
+3. **Progress/streaming** → v1 blocks with a generous, configurable timeout
+   (`PROBE_LEAN_TIMEOUT`, default 3600s) and returns a structured `timeout`
+   error. No fire-and-poll.
+4. **Auto-run `extract`** → no; query tools require the explicit two-step and
+   return `no_output` with a hint when the extract JSON is absent.
+
+Additional resolution: `check_toolchain` reports probe-lean's build toolchain by
+reading the probe-lean repo-root `lean-toolchain` (overridable via
+`PROBE_LEAN_TOOLCHAIN`); the binary itself is located on `PATH` (overridable via
+`PROBE_LEAN_BIN`).
 
 ---
-Status: draft
+Status: implemented (see `tools/mcp/`; 46 pytest tests passing)
