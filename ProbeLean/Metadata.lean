@@ -20,6 +20,12 @@ private def runCmdOrDefault (cmd : String) (args : Array String)
     else return default
   catch _ => return default
 
+/-- The Lean toolchain probe-lean was built with (e.g. `leanprover/lean4:v4.28.0-rc1`).
+    `Lean.toolchain` can be empty in local builds; reconstruct from the version then. -/
+def buildToolchain : String :=
+  if Lean.toolchain.isEmpty then s!"leanprover/lean4:v{Lean.versionString}"
+  else Lean.toolchain
+
 def getGitCommit (projectPath : System.FilePath) : IO String :=
   runCmdOrDefault "git" #["rev-parse", "HEAD"] (some projectPath) ""
 

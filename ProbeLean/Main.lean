@@ -4,6 +4,7 @@
 -/
 import Cli
 import ProbeLean.Extract
+import ProbeLean.Metadata
 import ProbeLean.View
 import ProbeLean.Version
 
@@ -94,7 +95,10 @@ def viewCmd : Cmd := `[Cli|
 ]
 
 /-- Run the root command -/
-def runRoot (_parsed : Parsed) : IO UInt32 := do
+def runRoot (parsed : Parsed) : IO UInt32 := do
+  if parsed.hasFlag "toolchain" then
+    IO.println ProbeLean.buildToolchain
+    return 0
   IO.println "Use 'probe-lean <command> <PROJECT_PATH>' to analyze a project"
   IO.println "Run 'probe-lean --help' for more information"
   return 0
@@ -104,6 +108,9 @@ def probeleanCmd : Cmd :=
   (`[Cli|
     "probe-lean" VIA runRoot; ["0.0.0"]
     "A tool for analyzing Lean 4 projects"
+
+    FLAGS:
+      toolchain; "Print the Lean toolchain probe-lean was built with"
 
     SUBCOMMANDS:
       extractCmd;

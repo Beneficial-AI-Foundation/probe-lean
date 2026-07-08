@@ -16,10 +16,10 @@ the `probe-lean` binary already on `PATH` — it does not reimplement any analys
 - [ ] A stdio MCP server, in `tools/mcp/`, launchable as a single command and registrable via `claude mcp add`.
 - [ ] Wrapper tools `extract` and `viewify` invoke the `probe-lean` binary and return a **summary + output path**, never the full JSON blob.
 - [ ] Query tools read the extract JSON server-side and return small, filtered, paginated results: `list_atoms`, `get_atom`, `find_unverified`, `find_sorries`, `get_dependencies`, `get_specs`.
-- [ ] A `check_toolchain` tool compares the target project's `lean-toolchain` against the installed `probe-lean` build and reports mismatch before any slow build is attempted.
+- [ ] A `check_toolchain` tool compares the target project's `lean-toolchain` against the installed `probe-lean` build and reports mismatch before any slow build is attempted. The probe-lean side is queried from the **binary itself** (`probe-lean --toolchain`), so it reflects the build extract would actually run, not the source tree the server ships in.
 - [ ] Every tool returns a structured error (not a stack trace) when the binary is missing, the toolchain mismatches, the build fails, or no extract output exists yet.
 - [ ] Query tools locate extract output the same way the CLI does (default `.verilib/probes/lean_<pkg>_<ver>.json`, or an explicit path), and fail cleanly if it is absent.
-- [ ] No changes to the Lean source, CLI, or output schema. The server is additive and version-tracks the schema it reads.
+- [ ] No changes to the output schema, and only one CLI addition: a root-level `--toolchain` flag that prints the Lean toolchain probe-lean was built with, so `check_toolchain` can ask the binary instead of guessing from files. The server is otherwise additive and version-tracks the schema it reads.
 
 ## API / Interface Design
 
@@ -44,7 +44,7 @@ either `project_path` or an explicit `atoms_path`).
 |---|---|---|
 | `extract` | `project_path`, optional `module`, `library`, `skip_verify`, `skip_enrich`, `class`, `output` | `{ output_path, atom_count, status_counts, sorry_count, duration_s }` — **not** the atom map |
 | `viewify` | `project_path`, optional `with_atoms`, `output` | `{ output_path, molecule_count }` |
-| `check_toolchain` | `project_path` | `{ project_toolchain, probe_lean_toolchain, match: bool }` |
+| `check_toolchain` | `project_path` | `{ project_toolchain, probe_lean_toolchain, probe_lean_toolchain_source, match: bool }` |
 
 **Query tools** (read-only; parse existing extract JSON, no build):
 
@@ -91,7 +91,7 @@ include the tail of `probe-lean`'s stderr so the agent can diagnose.
 - No mutation of extract output; query tools are strictly read-only.
 - No HTTP/SSE transport in v1 (stdio only).
 - No caching layer or incremental re-extract logic beyond what the CLI already does (the CLI already skips builds when the cache is current).
-- No new atom fields, CLI flags, or schema changes.
+- No new atom fields or schema changes. The only CLI addition is the root-level `--toolchain` flag backing `check_toolchain`.
 - No graph algorithms beyond direct edge lookup (no transitive closure tool in v1 — the extract already computes `transitively-verified`).
 
 ## Acceptance Criteria
@@ -121,10 +121,21 @@ include the tail of `probe-lean`'s stderr so the agent can diagnose.
 4. **Auto-run `extract`** → no; query tools require the explicit two-step and
    return `no_output` with a hint when the extract JSON is absent.
 
-Additional resolution: `check_toolchain` reports probe-lean's build toolchain by
-reading the probe-lean repo-root `lean-toolchain` (overridable via
-`PROBE_LEAN_TOOLCHAIN`); the binary itself is located on `PATH` (overridable via
-`PROBE_LEAN_BIN`).
+Additional resolution: `check_toolchain` reports probe-lean's build toolchain
+with this precedence, and echoes which source won in
+`probe_lean_toolchain_source`:
+
+1. `PROBE_LEAN_TOOLCHAIN` env var (`"env"`) — explicit override.
+2. `probe-lean --toolchain` (`"binary"`) — the binary (resolved via
+   `PROBE_LEAN_BIN`/`PATH`, same as `extract`) prints the toolchain it was
+   built with. This is the normal path: it reflects the build that will run.
+3. The probe-lean repo-root `lean-toolchain` file (`"repo-file"`) — last
+   resort for binaries predating `--toolchain` (< 0.10.0); flagged in `note`
+   since the source tree may not match the installed binary.
+
+`match` compares normalized version tags (`Lean.toolchain` omits the `v` that
+the `lean-toolchain` file carries, e.g. `leanprover/lean4:4.28.0-rc1` vs
+`leanprover/lean4:v4.28.0-rc1`).
 
 ---
-Status: implemented (see `tools/mcp/`; 46 pytest tests passing)
+Status: implemented (see `tools/mcp/`; 49 pytest tests passing)

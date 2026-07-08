@@ -56,12 +56,59 @@ def test_extract_timeout(monkeypatch):
 # check_toolchain
 # --------------------------------------------------------------------------- #
 
-def test_check_toolchain_match(monkeypatch, tmp_path):
+def test_check_toolchain_env_override_wins(monkeypatch, tmp_path):
     (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0\n")
     monkeypatch.setenv("PROBE_LEAN_TOOLCHAIN", "leanprover/lean4:v4.30.0")
+    # A binary reporting something else must NOT be consulted when env is set.
+    monkeypatch.setattr(
+        server, "_run", lambda argv, timeout: fake_cp(0, stdout="leanprover/lean4:9.9.9\n")
+    )
     result = server.check_toolchain(str(tmp_path))
     assert result["match"] is True
     assert result["project_toolchain"] == "leanprover/lean4:v4.30.0"
+    assert result["probe_lean_toolchain_source"] == "env"
+
+
+def test_check_toolchain_asks_binary(monkeypatch, tmp_path):
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.28.0-rc1\n")
+    monkeypatch.delenv("PROBE_LEAN_TOOLCHAIN", raising=False)
+    calls = []
+
+    def run(argv, timeout):
+        calls.append((argv, timeout))
+        # Lean.toolchain omits the `v` -- the tags must still compare equal.
+        return fake_cp(0, stdout="leanprover/lean4:4.28.0-rc1\n")
+
+    monkeypatch.setattr(server, "_run", run)
+    result = server.check_toolchain(str(tmp_path))
+    assert calls == [(["--toolchain"], server.TOOLCHAIN_TIMEOUT_S)]
+    assert result["match"] is True
+    assert result["probe_lean_toolchain"] == "leanprover/lean4:4.28.0-rc1"
+    assert result["probe_lean_toolchain_source"] == "binary"
+
+
+def test_check_toolchain_old_binary_falls_back_to_repo_file(monkeypatch, tmp_path):
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.28.0-rc1\n")
+    monkeypatch.delenv("PROBE_LEAN_TOOLCHAIN", raising=False)
+    # An old binary rejects the unknown --toolchain flag.
+    monkeypatch.setattr(server, "_run", lambda argv, timeout: fake_cp(1, stderr="unknown flag"))
+    monkeypatch.setattr(server.core, "toolchain_from_repo", lambda: "leanprover/lean4:v4.30.0")
+    result = server.check_toolchain(str(tmp_path))
+    assert result["probe_lean_toolchain_source"] == "repo-file"
+    assert result["match"] is False
+    assert "predates --toolchain" in result["note"]
+
+
+def test_check_toolchain_binary_missing_falls_back(monkeypatch, tmp_path):
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0\n")
+    monkeypatch.delenv("PROBE_LEAN_TOOLCHAIN", raising=False)
+    monkeypatch.delenv("PROBE_LEAN_BIN", raising=False)
+    monkeypatch.setattr(server.shutil, "which", lambda _: None)
+    monkeypatch.setattr(server.core, "toolchain_from_repo", lambda: "leanprover/lean4:v4.30.0")
+    result = server.check_toolchain(str(tmp_path))
+    assert "error" not in result
+    assert result["probe_lean_toolchain_source"] == "repo-file"
+    assert result["match"] is True
 
 
 def test_check_toolchain_mismatch(monkeypatch, tmp_path):

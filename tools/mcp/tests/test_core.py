@@ -224,6 +224,27 @@ def test_read_toolchain_missing(tmp_path):
     assert core.read_toolchain(tmp_path) is None
 
 
-def test_probe_toolchain_env_override(monkeypatch):
+def test_toolchain_from_env(monkeypatch):
     monkeypatch.setenv("PROBE_LEAN_TOOLCHAIN", "leanprover/lean4:v9.9.9")
-    assert core.probe_lean_toolchain() == "leanprover/lean4:v9.9.9"
+    assert core.toolchain_from_env() == "leanprover/lean4:v9.9.9"
+
+
+def test_toolchain_from_env_unset(monkeypatch):
+    monkeypatch.delenv("PROBE_LEAN_TOOLCHAIN", raising=False)
+    assert core.toolchain_from_env() is None
+
+
+def test_toolchain_from_repo_reads_repo_root():
+    # The server ships inside the probe-lean repo, whose lean-toolchain exists.
+    tc = core.toolchain_from_repo()
+    assert tc and "lean4" in tc
+
+
+def test_toolchain_tag():
+    # The lean-toolchain file carries a `v`; Lean.toolchain does not.
+    assert core.toolchain_tag("leanprover/lean4:v4.28.0-rc1") == "4.28.0-rc1"
+    assert core.toolchain_tag("leanprover/lean4:4.28.0-rc1") == "4.28.0-rc1"
+    assert core.toolchain_tag("v4.30.0") == "4.30.0"
+    assert core.toolchain_tag("4.30.0") == "4.30.0"
+    assert core.toolchain_tag(None) is None
+    assert core.toolchain_tag("") is None

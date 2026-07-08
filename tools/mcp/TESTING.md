@@ -14,26 +14,31 @@ cd tools/mcp
 
 ## Layer 1 — Unit tests (fastest; no build, no binary)
 
-The 46 pytest tests run against a saved extract fixture
-(`tests/fixtures/sample_extract.json`), so they are instant and never touch
+The 55 pytest tests run against a saved extract fixture
+(`tests/fixtures/sample_extract.json`), so they are fast and never touch
 `lake` or the `probe-lean` binary. They cover CLI argument mapping, JSON
-parsing/filtering/pagination, name resolution, and every error code.
+parsing/filtering/pagination, name resolution, every error code, and a
+stdio protocol round-trip (layer 2).
 
 ```bash
 pip install -e '.[dev]'      # once: installs pytest + the mcp SDK
 python -m pytest -q
 ```
 
-Expected: `46 passed`.
+Expected: `55 passed`.
 
 The tests are split so the pure logic (`probe_lean_mcp/core.py`) and the tool
 layer (`probe_lean_mcp/server.py`, with `subprocess` mocked) are exercised
 independently:
 
 - `tests/test_core.py` — argv building, output-file location, compact rows, name
-  resolution, filtering, pagination clamping, summary, toolchain reading.
+  resolution, filtering, pagination clamping, summary, toolchain reading and
+  version-tag normalization.
 - `tests/test_server.py` — each tool's happy path and error path, with the
-  build subprocess mocked (no real `lake` run).
+  build subprocess mocked (no real `lake` run), including `check_toolchain`'s
+  env → binary (`--toolchain`) → repo-file resolution order.
+- `tests/test_protocol.py` — launches the server as a real stdio subprocess
+  and drives it over MCP JSON-RPC (layer 2, automated).
 
 ---
 
@@ -42,6 +47,10 @@ independently:
 The unit tests call the tool functions directly; this layer launches the server
 as a subprocess and drives it through the real MCP stdio protocol with an
 in-process client — the same handshake `claude mcp add` uses.
+
+This layer is automated in `tests/test_protocol.py` and runs as part of the
+pytest suite above (against the saved fixture). To explore the same flow by
+hand against a **real** extract file, use the standalone snippet:
 
 ```bash
 python3 - <<'PY'

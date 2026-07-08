@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-08
+
+### Added
+
+- **`probe-lean --toolchain`** prints the Lean toolchain the binary was built with
+  (e.g. `leanprover/lean4:4.28.0-rc1`). Useful when several versioned binaries are
+  installed behind the `probe-lean` symlink.
+- **MCP `check_toolchain` now asks the binary.** Instead of reading the probe-lean
+  source tree's `lean-toolchain` (which can drift from the installed binary), the
+  MCP server resolves probe-lean's toolchain with the precedence
+  `PROBE_LEAN_TOOLCHAIN` env → `probe-lean --toolchain` → repo file (last resort
+  for pre-0.10.0 binaries), and reports which source won in a new
+  `probe_lean_toolchain_source` field. Toolchain comparison now normalizes version
+  tags, so `leanprover/lean4:4.28.0-rc1` (the binary's `Lean.toolchain`, no `v`)
+  matches `leanprover/lean4:v4.28.0-rc1` (the file form).
+
 ## [0.9.2] - 2026-06-22
 
 ### Fixed

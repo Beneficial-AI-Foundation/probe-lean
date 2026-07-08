@@ -13,7 +13,10 @@ It is a thin stdio process that:
    depend on?") and get back small, structured answers.
 
 It wraps the `probe-lean` binary already on your `PATH` — it does not
-reimplement any analysis, and makes no changes to the CLI or output schema.
+reimplement any analysis, and makes no changes to the output schema. The only
+CLI surface it uses beyond `extract`/`viewify` is `probe-lean --toolchain`
+(added in 0.10.0), which lets `check_toolchain` report the toolchain of the
+binary that will actually run.
 
 ## Requirements
 
@@ -53,7 +56,7 @@ Then, in a session, the agent can call `check_toolchain` → `extract` →
 |---|---|---|
 | `PROBE_LEAN_BIN` | (search `PATH`) | Explicit path to the `probe-lean` binary. |
 | `PROBE_LEAN_TIMEOUT` | `3600` | Seconds before a build (`extract`/`viewify`) returns a `timeout` error. |
-| `PROBE_LEAN_TOOLCHAIN` | (repo `lean-toolchain`) | Toolchain string to report as probe-lean's build toolchain in `check_toolchain`. |
+| `PROBE_LEAN_TOOLCHAIN` | (ask the binary via `--toolchain`) | Override the toolchain `check_toolchain` reports as probe-lean's build toolchain. |
 
 ## Tools
 
@@ -63,11 +66,26 @@ Then, in a session, the agent can call `check_toolchain` → `extract` →
 |---|---|---|
 | `extract` | `project_path`, optional `module`, `library`, `skip_verify`, `skip_enrich`, `cls`, `output` | `{ output_path, atom_count, status_counts, sorry_count, duration_s }` — **not** the atom map |
 | `viewify` | `project_path`, optional `with_atoms`, `output` | `{ output_path, molecule_count }` |
-| `check_toolchain` | `project_path` | `{ project_toolchain, probe_lean_toolchain, match }` |
+| `check_toolchain` | `project_path` | `{ project_toolchain, probe_lean_toolchain, probe_lean_toolchain_source, match }` |
 
 Call `check_toolchain` **before** a slow `extract`: a mismatch means the
 project's `.olean` files are incompatible with probe-lean's build and the
 extract will fail.
+
+`check_toolchain` resolves probe-lean's toolchain with this precedence, echoed
+in `probe_lean_toolchain_source`:
+
+1. `"env"` — the `PROBE_LEAN_TOOLCHAIN` override.
+2. `"binary"` — `probe-lean --toolchain`, run through the same
+   `PROBE_LEAN_BIN`/`PATH` resolution as `extract`, so the answer describes the
+   binary that will actually run. This is the normal path.
+3. `"repo-file"` — the probe-lean repo-root `lean-toolchain`, a last resort for
+   binaries predating `--toolchain` (< 0.10.0); a `note` flags that this may
+   not match the installed binary.
+
+`match` compares normalized version tags: the binary reports
+`leanprover/lean4:4.28.0-rc1` (no `v`) while the `lean-toolchain` file says
+`leanprover/lean4:v4.28.0-rc1` — these count as matching.
 
 ### Query tools (read-only; parse existing extract JSON, no build)
 
@@ -129,7 +147,7 @@ Every failure returns a structured object instead of a stack trace:
 ```bash
 cd tools/mcp
 pip install -e '.[dev]'
-python -m pytest           # 46 tests; run against a saved extract fixture, no lake/binary needed
+python -m pytest           # 55 tests; run against a saved extract fixture, no lake/binary needed
 ```
 
 For the full testing approach — unit tests, a protocol-level stdio test, the MCP

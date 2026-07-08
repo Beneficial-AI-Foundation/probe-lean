@@ -172,37 +172,77 @@ def viewify(
     return {"output_path": str(out_path), "molecule_count": len(molecules)}
 
 
+# check_toolchain shells out to `probe-lean --toolchain`, which is instant;
+# don't let it inherit the build-sized default timeout.
+TOOLCHAIN_TIMEOUT_S = 30
+
+
+def _probe_toolchain() -> tuple[str | None, str]:
+    """Resolve probe-lean's build toolchain and where the answer came from.
+
+    Precedence: PROBE_LEAN_TOOLCHAIN env -> the binary itself (`--toolchain`)
+    -> the probe-lean repo-root `lean-toolchain` file. Returns (value, source)
+    with source one of "env", "binary", "repo-file".
+    """
+    env_tc = core.toolchain_from_env()
+    if env_tc:
+        return env_tc, "env"
+    try:
+        cp = _run(["--toolchain"], TOOLCHAIN_TIMEOUT_S)
+        if cp.returncode == 0 and cp.stdout and cp.stdout.strip():
+            return cp.stdout.strip().splitlines()[0].strip(), "binary"
+    except ProbeError:
+        pass  # binary missing or hung; fall through to the repo file
+    return core.toolchain_from_repo(), "repo-file"
+
+
 @mcp.tool()
 @_guard
 def check_toolchain(project_path: str) -> dict:
     """Compare a project's lean-toolchain against probe-lean's build toolchain.
 
     Call this before a slow extract: a mismatch means the .olean files would be
-    incompatible and the build would fail or be rejected.
+    incompatible and the build would fail or be rejected. The probe-lean side
+    is queried from the binary itself (`probe-lean --toolchain`), so it reflects
+    the build that extract would actually run.
 
     Args:
         project_path: Path to the Lean 4 project.
     """
     project_tc = core.read_toolchain(project_path)
-    probe_tc = core.probe_lean_toolchain()
-    match = bool(project_tc and probe_tc and project_tc == probe_tc)
+    probe_tc, source = _probe_toolchain()
+    match = bool(
+        project_tc and probe_tc
+        and core.toolchain_tag(project_tc) == core.toolchain_tag(probe_tc)
+    )
     result = {
         "project_toolchain": project_tc,
         "probe_lean_toolchain": probe_tc,
+        "probe_lean_toolchain_source": source,
         "match": match,
     }
+    notes = []
     if project_tc is None:
-        result["note"] = "No lean-toolchain file found in the project."
+        notes.append("No lean-toolchain file found in the project.")
     elif probe_tc is None:
-        result["note"] = (
+        notes.append(
             "Could not determine probe-lean's toolchain; "
-            "set PROBE_LEAN_TOOLCHAIN to compare."
+            "upgrade probe-lean (>= 0.10.0 supports --toolchain) "
+            "or set PROBE_LEAN_TOOLCHAIN to compare."
         )
     elif not match:
-        result["note"] = (
+        notes.append(
             "Toolchain mismatch: extract will likely fail. "
             "Rebuild probe-lean against the project's toolchain, or vice versa."
         )
+    if source == "repo-file" and probe_tc is not None:
+        notes.append(
+            "The installed probe-lean binary predates --toolchain; this value "
+            "was read from the probe-lean source tree and may not match the "
+            "binary that will run."
+        )
+    if notes:
+        result["note"] = " ".join(notes)
     return result
 
 

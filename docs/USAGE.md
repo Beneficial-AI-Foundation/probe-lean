@@ -35,7 +35,8 @@ Binaries are installed to `~/.local/bin/probe-lean-<version>` with a symlink at 
 
 Verify the installation:
 ```bash
-probe-lean --version
+probe-lean --version    # probe-lean version
+probe-lean --toolchain  # Lean toolchain this binary was built with
 ```
 
 ### Installer flags
@@ -101,7 +102,8 @@ claude mcp add probe-lean -- python -m probe_lean_mcp
 ```
 
 The server wraps the `probe-lean` binary already on your `PATH` (override with
-`PROBE_LEAN_BIN`). It makes **no** changes to the CLI or output schema.
+`PROBE_LEAN_BIN`). It makes **no** changes to the output schema; the only CLI
+surface it relies on beyond `extract`/`viewify` is the `--toolchain` flag.
 
 ### Tools
 
@@ -122,7 +124,7 @@ small steps. Query tools default to `limit = 50` (hard max 500) and echo
 |---|---|---|
 | `PROBE_LEAN_BIN` | search `PATH` | Explicit path to the `probe-lean` binary |
 | `PROBE_LEAN_TIMEOUT` | `3600` | Seconds before a build returns a `timeout` error |
-| `PROBE_LEAN_TOOLCHAIN` | repo `lean-toolchain` | Toolchain reported by `check_toolchain` |
+| `PROBE_LEAN_TOOLCHAIN` | ask the binary (`probe-lean --toolchain`) | Override the toolchain reported by `check_toolchain` |
 
 Every failure returns a structured `{ error, message, hint }` object (codes:
 `binary_not_found`, `toolchain_mismatch`, `build_failed`, `no_output`,

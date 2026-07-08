@@ -106,6 +106,10 @@ For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **
 |---------|-------------|
 | `extract` | Analyze a Lean 4 project: extract atoms, detect sorries, compute specs |
 
+Global flags: `--version` prints the probe-lean version; `--toolchain` prints the
+Lean toolchain the binary was built with (e.g. `leanprover/lean4:4.28.0-rc1`) —
+useful for checking which build the `probe-lean` symlink currently points to.
+
 ### `extract`
 
 ```bash

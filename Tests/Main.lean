@@ -37,6 +37,14 @@ def testConstants (result : TestResult) : IO TestResult := do
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
   return result
 
+def testToolchain (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing buildToolchain..."
+  result ← test "nonempty" (!ProbeLean.buildToolchain.isEmpty) result
+  result ← test "names lean4" (containsSubstring ProbeLean.buildToolchain "lean4") result
+  result ← test "carries version" (containsSubstring ProbeLean.buildToolchain Lean.versionString) result
+  return result
+
 def testAnalysisHelpers (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3139,6 +3147,7 @@ def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
+  result ← testToolchain result
   result ← testAnalysisHelpers result
   result ← testPrivateNames result
   result ← testSharedUtilities result

@@ -1,6 +1,6 @@
 -- Generated from lakefile.toml by tools/gen-version.sh — do not edit manually.
 namespace ProbeLean
 
-def version : String := "0.9.2"
+def version : String := "0.10.0"
 
 end ProbeLean
