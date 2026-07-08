@@ -106,16 +106,18 @@ def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
     declare custom `roots` that differ from its name, so filtering by them can
     silently drop every module. `.lake/build/lib/lean` already contains only the
     project's own modules, so the default is to analyze all of them. A single
-    `moduleFilter` (`--module`) further narrows the result by name prefix. -/
-def selectModules (modules : Array Lean.Name) (libraries : Option (Array String))
-    (moduleFilter : Option String) : Array Lean.Name :=
+    `moduleFilter` (`--module`) further narrows the result by name prefix.
+    Filters operate on whole `ProjectModule` records so each module keeps the
+    olean path it was discovered with. -/
+def selectModules (modules : Array ProjectModule) (libraries : Option (Array String))
+    (moduleFilter : Option String) : Array ProjectModule :=
   let byLib := match libraries with
-    | some libs => modules.filter fun m => moduleInLibraries m libs
+    | some libs => modules.filter fun m => moduleInLibraries m.name libs
     | none => modules
   match moduleFilter with
   | some filter =>
     let filterName := String.toName filter
-    byLib.filter fun m => m == filterName || m.toString.startsWith (filter ++ ".")
+    byLib.filter fun m => m.name == filterName || m.name.toString.startsWith (filter ++ ".")
   | none => byLib
 
 /-- Check if project depends on Mathlib and auto-download the olean cache if missing.
@@ -228,7 +230,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   -- differ from its name (use `--module <root>` for those).
   if let some libs := config.libraries then
     for lib in libs do
-      if !(modules.any fun m => moduleInLibraries m #[lib]) then
+      if !(modules.any fun m => moduleInLibraries m.name #[lib]) then
         IO.eprintln s!"Warning: --library {lib} matched no built module (it is not a module-name root)."
 
   -- Fail loudly instead of silently writing 0 atoms: if we built modules but
@@ -237,7 +239,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   if filteredModules.isEmpty && !modules.isEmpty then
     IO.eprintln "Error: every project module was filtered out by --library/--module."
     IO.eprintln s!"  {modules.size} module(s) were built but none matched the requested filter."
-    let roots := (modules.map fun m => (m.toString.splitOn ".").headD m.toString).toList.eraseDups
+    let roots := (modules.map fun m => (m.name.toString.splitOn ".").headD m.name.toString).toList.eraseDups
     IO.eprintln s!"  Available top-level module roots: {", ".intercalate roots}"
     return 1
 

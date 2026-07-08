@@ -2625,21 +2625,32 @@ def testOrphanOleanFilter (result : TestResult) : IO TestResult := do
   ]
 
   let (kept0, orphans0) ← partitionBySource tmpBase #["."] oleans
-  result ← test "default root: orphan dropped" (!kept0.contains `Pkg.Code.Orphan && orphans0.contains `Pkg.Code.Orphan) result
-  result ← test "default root: live modules kept" (kept0.contains `Pkg.Lib && kept0.contains `Pkg.Code.Live) result
+  result ← test "default root: orphan dropped" (!kept0.any (·.1 == `Pkg.Code.Orphan) && orphans0.contains `Pkg.Code.Orphan) result
+  result ← test "default root: live modules kept" (kept0.any (·.1 == `Pkg.Lib) && kept0.any (·.1 == `Pkg.Code.Live)) result
   result ← test "default root: custom-srcDir module dropped (no '.' source)" (orphans0.contains `Gen.Out) result
+  result ← test "default root: kept entries keep their relPath pairing"
+    (kept0.any fun (n, p) => n == `Pkg.Code.Live && p == "Pkg/Code/Live") result
 
   let (kept1, orphans1) ← partitionBySource tmpBase #[".", "generated"] oleans
-  result ← test "with srcDir: custom-srcDir module kept" (kept1.contains `Gen.Out) result
+  result ← test "with srcDir: custom-srcDir module kept" (kept1.any (·.1 == `Gen.Out)) result
   result ← test "with srcDir: orphan still dropped" (orphans1.contains `Pkg.Code.Orphan) result
   result ← test "with srcDir: only the orphan is dropped" (orphans1.size == 1) result
 
   -- Empty sourceRoots falls back to ["."].
   let (kept2, _) ← partitionBySource tmpBase #[] oleans
-  result ← test "empty roots fall back to '.'" (kept2.contains `Pkg.Lib && !kept2.contains `Pkg.Code.Orphan) result
+  result ← test "empty roots fall back to '.'" (kept2.any (·.1 == `Pkg.Lib) && !kept2.any (·.1 == `Pkg.Code.Orphan)) result
 
   try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
+
+/-- Build a `ProjectModule` whose olean path is derived from its name, so
+    tests can verify filters keep each name paired with its own path. -/
+def mkTestModule (n : String) : ProjectModule :=
+  { name := n.toName, oleanPath := System.FilePath.mk (n.replace "." "/" ++ ".olean") }
+
+/-- Every module still carries the olean path it was constructed with. -/
+def pathsPreserved (modules : Array ProjectModule) : Bool :=
+  modules.all fun m => m.oleanPath.toString == m.name.toString.replace "." "/" ++ ".olean"
 
 def testSelectModules (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -2648,8 +2659,9 @@ def testSelectModules (result : TestResult) : IO TestResult := do
 
   -- A typical layout: a `MyLib` library, its submodule, an executable root
   -- `Main`, and a test module whose library declares a custom root.
-  let modules : Array Lean.Name :=
-    #["MyLib".toName, "MyLib.Core.Widget".toName, "Main".toName, "Tests.Helper".toName]
+  let modules : Array ProjectModule :=
+    #[mkTestModule "MyLib", mkTestModule "MyLib.Core.Widget",
+      mkTestModule "Main", mkTestModule "Tests.Helper"]
 
   -- No explicit --library: analyze every collected module. This is the
   -- regression for the bug where a non-library build target (a `lean_exe` name
@@ -2660,9 +2672,10 @@ def testSelectModules (result : TestResult) : IO TestResult := do
   -- Explicit --library matching the library's module root keeps only its modules.
   let libMods := selectModules modules (some #["MyLib"]) none
   result ← test "library MyLib: keeps lib + submodule" (libMods.size == 2) result
-  result ← test "library MyLib: keeps MyLib" (libMods.contains "MyLib".toName) result
-  result ← test "library MyLib: keeps submodule" (libMods.contains "MyLib.Core.Widget".toName) result
-  result ← test "library MyLib: drops Main" (!libMods.contains "Main".toName) result
+  result ← test "library MyLib: keeps MyLib" (libMods.any (·.name == "MyLib".toName)) result
+  result ← test "library MyLib: keeps submodule" (libMods.any (·.name == "MyLib.Core.Widget".toName)) result
+  result ← test "library MyLib: drops Main" (!libMods.any (·.name == "Main".toName)) result
+  result ← test "library MyLib: olean paths preserved" (pathsPreserved libMods) result
 
   -- A filter that matches nothing yields empty (the caller turns this into a
   -- loud error rather than silently writing 0 atoms). Case-sensitive: a
@@ -2674,7 +2687,8 @@ def testSelectModules (result : TestResult) : IO TestResult := do
   let coreOnly := selectModules modules none (some "MyLib.Core")
   result ← test "module filter MyLib.Core: keeps only submodule" (coreOnly.size == 1) result
   result ← test "module filter MyLib.Core: is the widget module"
-    (coreOnly[0]? == some "MyLib.Core.Widget".toName) result
+    (coreOnly[0]?.map (·.name) == some "MyLib.Core.Widget".toName) result
+  result ← test "module filter MyLib.Core: olean path preserved" (pathsPreserved coreOnly) result
 
   -- Documented limitation (tracked in #40): `--library` matches by module-name
   -- prefix, so a library whose `roots` differ from its name cannot be selected by
@@ -2684,6 +2698,150 @@ def testSelectModules (result : TestResult) : IO TestResult := do
     (byLibName.isEmpty) result
   let byModuleRoot := selectModules modules none (some "Tests.Helper")
   result ← test "module filter reaches custom-root module" (byModuleRoot.size == 1) result
+
+  return result
+
+/-- Test theorem with the given statement (proof body is irrelevant here). -/
+def mkTestThm (n : Lean.Name) (ty : Lean.Expr) : Lean.ConstantInfo :=
+  .thmInfo { name := n, levelParams := [], type := ty, value := ty, all := [n] }
+
+def mkTestAxiom (n : Lean.Name) (ty : Lean.Expr) (isUnsafe : Bool := false) : Lean.ConstantInfo :=
+  .axiomInfo { name := n, levelParams := [], type := ty, isUnsafe }
+
+def mkTestDefn (n : Lean.Name) (ty : Lean.Expr) : Lean.ConstantInfo :=
+  .defnInfo { name := n, levelParams := [], type := ty, value := ty,
+              hints := .opaque, safety := .safe, all := [n] }
+
+/-- Pair each constant with its declared name, as `detectCoimportCollisions`
+    does when zipping `ModuleData.constNames` with `ModuleData.constants`. -/
+def toOwned (cs : Array Lean.ConstantInfo) : Array (Lean.Name × Lean.ConstantInfo) :=
+  cs.map fun c => (c.name, c)
+
+def testCoimportSubsumes (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing constSubsumes (importer duplicate-tolerance replica)..."
+
+  let prop : Lean.Expr := .sort .zero
+  let ty1 : Lean.Expr := .sort (.succ .zero)
+
+  let thmA := mkTestThm `Foo.bar prop
+  result ← test "thm/thm identical statement: subsumed" (constSubsumes thmA (mkTestThm `Foo.bar prop)) result
+  result ← test "thm/thm different type: not subsumed"
+    (!constSubsumes thmA (mkTestThm `Foo.bar ty1) && !constSubsumes (mkTestThm `Foo.bar ty1) thmA) result
+
+  let axB := mkTestAxiom `Foo.bar prop
+  result ← test "thm/axiom same statement: subsumed" (constSubsumes thmA axB) result
+  result ← test "axiom/thm direction alone: not subsumed (matches importer)" (!constSubsumes axB thmA) result
+  result ← test "thm/unsafe-axiom: not subsumed" (!constSubsumes thmA (mkTestAxiom `Foo.bar prop (isUnsafe := true))) result
+  result ← test "axiom/axiom same type: subsumed (deliberately lenient)" (constSubsumes axB (mkTestAxiom `Foo.bar prop)) result
+  result ← test "axiom/axiom unsafe mismatch: not subsumed" (!constSubsumes axB (mkTestAxiom `Foo.bar prop (isUnsafe := true))) result
+
+  result ← test "def/def identical: not subsumed" (!constSubsumes (mkTestDefn `Foo.baz prop) (mkTestDefn `Foo.baz prop)) result
+  result ← test "different names: not subsumed" (!constSubsumes thmA (mkTestThm `Other.name prop)) result
+  let thmLvl : Lean.ConstantInfo :=
+    .thmInfo { name := `Foo.bar, levelParams := [`u], type := prop, value := prop, all := [`Foo.bar] }
+  result ← test "levelParams mismatch: not subsumed" (!constSubsumes thmA thmLvl) result
+
+  return result
+
+def testCoimportCollisions (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing findCoimportCollisions (preflight collision core)..."
+
+  let prop : Lean.Expr := .sort .zero
+  let ty1 : Lean.Expr := .sort (.succ .zero)
+
+  let disjointA := (`H1.problem, toOwned #[mkTestDefn `A prop, mkTestDefn `B prop])
+  let disjointB := (`H1.solution, toOwned #[mkTestDefn `C prop])
+  result ← test "disjoint modules: no collision" (findCoimportCollisions #[disjointA, disjointB]).isEmpty result
+
+  let dupB := (`H1.solution, toOwned #[mkTestDefn `A prop])
+  let cols := findCoimportCollisions #[disjointA, dupB]
+  result ← test "duplicate def: one collision" (cols.size == 1) result
+  result ← test "collision names the declaration" (cols[0]!.declName == `A) result
+  result ← test "collision lists both modules sorted" (cols[0]!.modules == #[`H1.problem, `H1.solution]) result
+
+  let dupC := (`H2.problem, toOwned #[mkTestDefn `A prop])
+  result ← test "three owners: all listed" ((findCoimportCollisions #[disjointA, dupB, dupC])[0]!.modules.size == 3) result
+
+  let multiA := (`M1, toOwned #[mkTestDefn `Zed prop, mkTestDefn `Alpha prop])
+  let multiB := (`M2, toOwned #[mkTestDefn `Zed prop, mkTestDefn `Alpha prop])
+  result ← test "several duplicated names: sorted by name"
+    ((findCoimportCollisions #[multiA, multiB]).map (·.declName) == #[`Alpha, `Zed]) result
+
+  let thm1 := (`M1, toOwned #[mkTestThm `shared_thm prop])
+  let thm2 := (`M2, toOwned #[mkTestThm `shared_thm prop])
+  result ← test "identical restated theorem: exempt (no collision)" (findCoimportCollisions #[thm1, thm2]).isEmpty result
+  let thm3 := (`M2, toOwned #[mkTestThm `shared_thm ty1])
+  result ← test "same-name different-statement theorems: collision" ((findCoimportCollisions #[thm1, thm3]).size == 1) result
+  let ax2 := (`M2, toOwned #[mkTestAxiom `shared_thm prop])
+  result ← test "theorem/axiom restatement: exempt" (findCoimportCollisions #[thm1, ax2]).isEmpty result
+  let def3 := (`M3, toOwned #[mkTestDefn `shared_thm prop])
+  result ← test "exempt pair plus def owner: collision" ((findCoimportCollisions #[thm1, thm2, def3]).size == 1) result
+
+  let int1 := (`M1, toOwned #[mkTestDefn `_internalDup prop])
+  let int2 := (`M2, toOwned #[mkTestDefn `_internalDup prop])
+  result ← test "internal-name duplicate: still detected" ((findCoimportCollisions #[int1, int2]).size == 1) result
+
+  -- The importer keys on the DECLARED name (constNames), pairing positionally
+  -- with the constant info — detection must follow the declared name even if
+  -- it differs from `ConstantInfo.name`.
+  let alias1 := (`M1, #[((`Renamed : Lean.Name), mkTestDefn `A prop)])
+  let alias2 := (`M2, #[((`Renamed : Lean.Name), mkTestDefn `B prop)])
+  result ← test "detection keys on the declared name, not ConstantInfo.name"
+    ((findCoimportCollisions #[alias1, alias2]).map (·.declName) == #[`Renamed]) result
+
+  return result
+
+def testCoimportFormat (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing formatCoimportError (preflight diagnostic)..."
+
+  let mods : Array Lean.Name := #[`H1.problem, `H1.solution]
+  let c1 : DeclCollision := { declName := `Admissible, modules := mods }
+  let msg := formatCoimportError #[c1] #[]
+  result ← test "format: names the declaration" (containsSubstring msg "Admissible") result
+  result ← test "format: names both modules" (containsSubstring msg "H1.problem" && containsSubstring msg "H1.solution") result
+  result ← test "format: suggests a --module example" (containsSubstring msg "--module H1.problem") result
+  result ← test "format: notes --module prefix semantics" (containsSubstring msg "--module also selects submodules") result
+  result ← test "format: notes --library limitation" (containsSubstring msg "--library matches module-name roots") result
+  result ← test "format: suggests namespaces" (containsSubstring msg "namespace") result
+  result ← test "format: references README requirement" (containsSubstring msg "Supported Projects") result
+  result ← test "format: does NOT suggest lake clean" (!containsSubstring msg "lake clean") result
+  result ← test "format: no skipped note when none skipped" (!containsSubstring msg "could not be scanned") result
+
+  let many : Array DeclCollision := (Array.range 15).map fun i =>
+    { declName := Lean.Name.mkSimple s!"Dup{i}", modules := mods }
+  let msgMany := formatCoimportError many #[]
+  result ← test "format: caps the displayed list" (containsSubstring msgMany "and 5 more duplicated name(s)") result
+  result ← test "format: reports the true total" (containsSubstring msgMany "15 declaration name(s)") result
+
+  let hidden : DeclCollision := { declName := `_hidden, modules := mods }
+  let msgInt := formatCoimportError #[c1, hidden] #[]
+  result ← test "format: internal name not displayed" (!containsSubstring msgInt "_hidden") result
+  result ← test "format: internal name still counted" (containsSubstring msgInt "2 declaration name(s)") result
+  result ← test "format: internal names noted in aggregate" (containsSubstring msgInt "1 internal/auxiliary") result
+
+  -- Hidden-only collisions: the internal names are the only evidence, so
+  -- they must be shown rather than leaving the message with no names.
+  let msgHiddenOnly := formatCoimportError #[hidden] #[]
+  result ← test "format: hidden-only collision still lists the name" (containsSubstring msgHiddenOnly "_hidden") result
+
+  -- Root/submodule collision: suggesting the root would re-select the
+  -- colliding submodule (--module is a prefix filter), so the example must
+  -- pick the member that is not a prefix of another.
+  let rootSub : DeclCollision := { declName := `Clash, modules := #[`A, `A.B] }
+  let msgRootSub := formatCoimportError #[rootSub] #[]
+  result ← test "format: root/submodule collision suggests the non-prefix member"
+    (containsSubstring msgRootSub "--module A.B") result
+
+  let skipped : Array ProjectModule := #[{ name := `Broken.Mod, oleanPath := "Broken/Mod.olean" }]
+  let msgSkip := formatCoimportError #[c1] skipped
+  result ← test "format: skipped modules are named" (containsSubstring msgSkip "Broken.Mod") result
+  result ← test "format: partial scan flagged" (containsSubstring msgSkip "may be incomplete") result
 
   return result
 
@@ -3273,6 +3431,9 @@ def main : IO UInt32 := do
   result ← testParseSrcDirs result
   result ← testOrphanOleanFilter result
   result ← testSelectModules result
+  result ← testCoimportSubsumes result
+  result ← testCoimportCollisions result
+  result ← testCoimportFormat result
   result ← testVersionConsistency result
   result ← testCacheValidity result
   result ← testCheckFilesSkipsDotDirs result

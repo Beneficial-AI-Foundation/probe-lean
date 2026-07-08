@@ -1,6 +1,7 @@
 import ProbeLean.Types
 import ProbeLean.NixEnv
 import ProbeLean.Environment
+import ProbeLean.Coimport
 import ProbeLean.Analysis
 import ProbeLean.Loader
 import ProbeLean.Metadata

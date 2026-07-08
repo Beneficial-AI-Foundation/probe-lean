@@ -5,6 +5,7 @@
 import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
+import ProbeLean.Coimport
 import ProbeLean.Analysis
 import ProbeLean.Classify.SecurityProtocol
 
@@ -224,7 +225,7 @@ def classifyProject (env : Environment) (decls : Array DeclInfo)
     The class is resolved here — where both the environment and the project path
     are available. Precedence: `classOverride` (from `--class`) >
     `lake-manifest.json` (package-level) > imported-module signal. -/
-def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name) (crate : String)
+def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array ProjectModule) (crate : String)
     (nixMode : Option NixMode := none) (classOverride : Option String := none)
     : IO (Except String (Array Atom × Option String × Array (Name × Classification))) := do
   let absProjectPath ← IO.FS.realPath projectPath
@@ -247,7 +248,16 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
 
   Lean.searchPathRef.set (searchPaths.toList ++ probeLeanPaths)
 
-  let imports := modules.map fun m => { module := m : Import }
+  -- Preflight: abort with an actionable diagnostic if the modules cannot
+  -- coexist in one environment, instead of paying for the import and
+  -- surfacing a raw kernel error.
+  let (collisions, skippedPreflight) ← detectCoimportCollisions modules
+
+  if !collisions.isEmpty then
+    return .error (formatCoimportError collisions skippedPreflight)
+
+  let moduleNames := modules.map (·.name)
+  let imports := moduleNames.map fun m => { module := m : Import }
 
   IO.println s!"Importing {imports.size} modules..."
 
@@ -256,14 +266,19 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   catch e =>
     let msg := toString e
     if containsSubstring msg "already contains" then
-      -- Two imported modules declare the same name. Almost always a stale
-      -- "orphan" olean from a renamed/deleted module that Lake never GC'd
-      -- (issue #51). `getProjectModules` drops orphans with no backing source,
-      -- but a custom `srcDir` in a lakefile.lean (which we don't parse) can let
-      -- one slip through. A `lake clean` rebuild clears the stale artifacts.
-      let hint := "\n\nDuplicate declaration across imported modules — likely a stale .olean\n" ++
-        "from a renamed or deleted module that Lake did not remove.\n" ++
-        "Fix: run `lake clean` in the target project, then re-run extract."
+      -- Two imported modules declare the same name, and the preflight above
+      -- found no collision among the scanned project modules. The duplicate
+      -- therefore involves something the scan cannot see: a dependency
+      -- module, a module-system split part (.olean.private), an olean it had
+      -- to skip, or a stale orphan olean under a custom `srcDir` that
+      -- `getProjectModules`'s source check could not resolve.
+      let hint := "\n\nDuplicate declaration across imported modules. All built modules must be\n" ++
+        "co-importable into a single Lean environment (see README \"Supported Projects\").\n" ++
+        "Possible causes: a stale .olean from a renamed or deleted module that Lake\n" ++
+        "did not remove (fix: run `lake clean` in the target project, then re-run\n" ++
+        "extract), or a duplicate the preflight check cannot see. A non-conflicting\n" ++
+        "subset can be extracted manually with `--module <exact.module.name>`." ++
+        skippedModulesNote skippedPreflight
       return .error s!"Failed to import modules: {msg}{hint}"
     if containsSubstring msg "incompatible header" then
       let targetTC ← readToolchain projectPath
@@ -288,7 +303,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   IO.println "Extracting declarations..."
 
   -- Use the catalogue's game-head allowlist for codomain-shape (not the placeholder).
-  let decls := getProjectDecls env modules Catalogue.gameHeads
+  let decls := getProjectDecls env moduleNames Catalogue.gameHeads
 
   IO.println s!"Found {decls.size} declarations"
 
@@ -310,7 +325,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Name)
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
-    let atom ← declInfoToAtom env projectPath modules crate fileCache decl
+    let atom ← declInfoToAtom env projectPath moduleNames crate fileCache decl
     atoms := atoms.push atom
 
   return .ok (atoms, detectedClass, classifications)

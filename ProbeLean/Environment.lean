@@ -158,11 +158,13 @@ partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System
     module with relative path `A/B/C` is source-backed iff `<root>/A/B/C.lean`
     exists under some `root` in `sourceRoots`. An empty `sourceRoots` defaults to
     `#["."]`. Conservative: a module is an orphan only when *no* root has its
-    source, so an unknown `srcDir` cannot silently drop a live module. -/
+    source, so an unknown `srcDir` cannot silently drop a live module.
+    Kept entries retain their `(name, relPath)` tuple so callers never have to
+    re-join names with paths after the fact. -/
 def partitionBySource (projectPath : System.FilePath) (sourceRoots : Array String)
-    (oleans : Array (Lean.Name × String)) : IO (Array Lean.Name × Array Lean.Name) := do
+    (oleans : Array (Lean.Name × String)) : IO (Array (Lean.Name × String) × Array Lean.Name) := do
   let roots := if sourceRoots.isEmpty then #["."] else sourceRoots
-  let mut kept : Array Lean.Name := #[]
+  let mut kept : Array (Lean.Name × String) := #[]
   let mut orphans : Array Lean.Name := #[]
   for (name, relPath) in oleans do
     let mut hasSource := false
@@ -173,19 +175,29 @@ def partitionBySource (projectPath : System.FilePath) (sourceRoots : Array Strin
         hasSource := true
         break
     if hasSource then
-      kept := kept.push name
+      kept := kept.push (name, relPath)
     else
       orphans := orphans.push name
   return (kept, orphans)
 
+/-- A project module paired with the `.olean` it was discovered from. The
+    pairing is established once at discovery and preserved through every
+    filter, so a module name can never be matched with the wrong olean
+    (the preflight co-importability check reads the olean by this path). -/
+structure ProjectModule where
+  name      : Lean.Name
+  oleanPath : System.FilePath
+  deriving Inhabited
+
 /-- Get the list of the project's own modules by scanning its build directory
     (`.lake/build/lib[/lean]`) for `.olean` files, keeping only modules that
-    still have a backing `.lean` source.
+    still have a backing `.lean` source. Each kept module carries the path of
+    the olean it was discovered from (`ProjectModule`).
 
     Lake never garbage-collects oleans, so after a file is renamed or deleted the
     stale "orphan" olean lingers on disk. Importing such an orphan alongside the
     module that replaced it makes `importModules` abort with
-    `environment already contains '...'` (see issue #51). We drop a module only
+    `environment already contains '...'`. We drop a module only
     when *no* candidate source root has a source for it, so a missing `srcDir`
     can never silently drop a live module; any dropped orphans are reported.
 
@@ -195,7 +207,7 @@ def partitionBySource (projectPath : System.FilePath) (sourceRoots : Array Strin
     `lake env` call validates that the Lake environment is usable before scanning. -/
 def getProjectModules (projectPath : System.FilePath)
     (nixMode : Option NixMode := none) (sourceRoots : Array String := #["."])
-    : IO (Except String (Array Lean.Name)) := do
+    : IO (Except String (Array ProjectModule)) := do
   let (_, stderr, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] projectPath nixMode
   if exitCode != 0 then
     return .error s!"Failed to get LEAN_PATH:\n{stderr}"
@@ -213,14 +225,17 @@ def getProjectModules (projectPath : System.FilePath)
       pure buildLibPath
 
   -- Collect all .olean files, then keep only those with a backing source.
-  let mut modules : Array Lean.Name := #[]
+  -- Records are built straight from the kept (name, relPath) tuples, so name
+  -- and olean path can never be paired up wrong.
+  let mut modules : Array ProjectModule := #[]
   let mut orphans : Array Lean.Name := #[]
 
   if ← projectBuildPath.pathExists then
     let oleans ← collectOleanFiles projectBuildPath projectBuildPath
     let (kept, dropped) ← partitionBySource projectPath sourceRoots oleans
-    modules := kept
     orphans := dropped
+    for (name, relPath) in kept do
+      modules := modules.push { name, oleanPath := projectBuildPath / (relPath ++ ".olean") }
 
   if !orphans.isEmpty then
     let sorted := orphans.qsort fun a b => a.toString < b.toString
@@ -229,7 +244,7 @@ def getProjectModules (projectPath : System.FilePath)
       IO.println s!"  - {o}"
 
   -- Sort for deterministic import order (P14)
-  let sortedModules := modules.qsort fun a b => a.toString < b.toString
+  let sortedModules := modules.qsort fun a b => a.name.toString < b.name.toString
   return .ok sortedModules
 
 /-- Information about a loaded project -/

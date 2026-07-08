@@ -98,7 +98,8 @@ Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (o
 - `ProbeLean/Analysis.lean` — Core analysis: walks Lean environment, extracts dependencies (type vs term)
 - `ProbeLean/Atomize.lean` — Converts declarations to `Atom` structs, applies filtering flags
 - `ProbeLean/NixEnv.lean` — Nix environment detection (`NixMode`, `detectNixShell`, `isNixAvailable`)
-- `ProbeLean/Environment.lean` — Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), build cache
+- `ProbeLean/Environment.lean` — Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), build cache, `ProjectModule` discovery
+- `ProbeLean/Coimport.lean` — Preflight co-importability check: detects duplicate declarations across project modules from `.olean` headers before import
 - `ProbeLean/VerifyInternal.lean` — Parses sorry warnings from build output
 - `ProbeLean/Extract.lean` — Orchestrates the pipeline, produces `UnifiedAtom` output
 - `ProbeLean/Transitive.lean` — Reverse-BFS contamination for `transitively-verified` status enrichment
