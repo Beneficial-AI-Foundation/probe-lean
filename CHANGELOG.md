@@ -7,22 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.10.0] - 2026-07-08
+## [0.9.4] - 2026-06-24
 
-### Added
+### Fixed
 
-- **`probe-lean --toolchain`** prints the Lean toolchain the binary was built with
-  (e.g. `leanprover/lean4:4.28.0-rc1`). Useful when several versioned binaries are
-  installed behind the `probe-lean` symlink.
-- **MCP `check_toolchain` now asks the binary.** Instead of reading the probe-lean
-  source tree's `lean-toolchain` (which can drift from the installed binary), the
-  MCP server resolves probe-lean's toolchain with the precedence
-  `PROBE_LEAN_TOOLCHAIN` env → `probe-lean --toolchain`, and reports which source
-  won in a new `probe_lean_toolchain_source` field. If neither answers (binary
-  missing or pre-0.10.0), the toolchain is reported as unknown with an upgrade
-  hint — never guessed from the source tree. Toolchain comparison now normalizes
-  version tags, so `leanprover/lean4:4.28.0-rc1` (the binary's `Lean.toolchain`,
-  no `v`) matches `leanprover/lean4:v4.28.0-rc1` (the file form).
+- **`extract` no longer crashes on orphan `.olean` files.** Module discovery scanned
+  `.lake/build/lib/lean` for every `.olean` on disk and imported them all into one
+  environment. Lake never garbage-collects oleans, so after a `.lean` file was renamed or
+  deleted its stale "orphan" olean lingered and — when it re-declared a name now owned by
+  the module that replaced it — made the import abort with `environment already contains
+  '...'` (issue #51). `getProjectModules` now keeps only modules with a backing `.lean`
+  source, resolving each module against `"."` plus every `srcDir` declared in
+  `lakefile.toml`. The check is conservative (a module is dropped only when *no* source
+  root has its source, so an unknown `srcDir` can't silently drop a live module) and any
+  dropped orphans are reported. As a safety net, an `already contains` import failure now
+  prints an actionable `lake clean` hint instead of a raw error.
+
+## [0.9.3] - 2026-06-23
+
+### Changed
+
+- **Installer `--from-project` auto-detects the toolchain recursively.** When the given
+  directory has no top-level `lean-toolchain` (common in monorepos where the Lean package
+  lives in a subfolder, e.g. `cedar-spec/cedar-lean`), both `tools/bash/install.sh` and
+  `tools/python/install.py` now search recursively (excluding `.lake`) and use the toolchain
+  they find, so the installer works unattended when handed a repo root. If the found files
+  disagree on the version, it errors and lists them rather than guessing. Bad paths
+  (nonexistent, a file, or a directory with no toolchain anywhere) now give distinct,
+  actionable errors instead of the previous terse `lean-toolchain not found`.
 
 ## [0.9.2] - 2026-06-22
 
