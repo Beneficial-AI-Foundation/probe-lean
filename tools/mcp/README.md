@@ -79,9 +79,11 @@ in `probe_lean_toolchain_source`:
 2. `"binary"` — `probe-lean --toolchain`, run through the same
    `PROBE_LEAN_BIN`/`PATH` resolution as `extract`, so the answer describes the
    binary that will actually run. This is the normal path.
-3. `"repo-file"` — the probe-lean repo-root `lean-toolchain`, a last resort for
-   binaries predating `--toolchain` (< 0.10.0); a `note` flags that this may
-   not match the installed binary.
+
+If neither answers (binary missing, or predates `--toolchain` / < 0.10.0), the
+toolchain is reported as `null` with a `note` suggesting an upgrade — it is
+never guessed from the probe-lean source tree, which may not match the
+installed binary.
 
 `match` compares normalized version tags: the binary reports
 `leanprover/lean4:4.28.0-rc1` (no `v`) while the `lean-toolchain` file says
@@ -147,7 +149,7 @@ Every failure returns a structured object instead of a stack trace:
 ```bash
 cd tools/mcp
 pip install -e '.[dev]'
-python -m pytest           # 55 tests; run against a saved extract fixture, no lake/binary needed
+python -m pytest           # 54 tests; run against a saved extract fixture, no lake/binary needed
 ```
 
 For the full testing approach — unit tests, a protocol-level stdio test, the MCP

@@ -129,13 +129,15 @@ with this precedence, and echoes which source won in
 2. `probe-lean --toolchain` (`"binary"`) — the binary (resolved via
    `PROBE_LEAN_BIN`/`PATH`, same as `extract`) prints the toolchain it was
    built with. This is the normal path: it reflects the build that will run.
-3. The probe-lean repo-root `lean-toolchain` file (`"repo-file"`) — last
-   resort for binaries predating `--toolchain` (< 0.10.0); flagged in `note`
-   since the source tree may not match the installed binary.
+
+If neither source answers (binary missing or predating `--toolchain`
+/ < 0.10.0), `probe_lean_toolchain` and its source are `null` and a `note`
+suggests upgrading — the value is never guessed from the probe-lean repo's
+`lean-toolchain` file, which may not match the installed binary.
 
 `match` compares normalized version tags (`Lean.toolchain` omits the `v` that
 the `lean-toolchain` file carries, e.g. `leanprover/lean4:4.28.0-rc1` vs
 `leanprover/lean4:v4.28.0-rc1`).
 
 ---
-Status: implemented (see `tools/mcp/`; 49 pytest tests passing)
+Status: implemented (see `tools/mcp/`; 54 pytest tests passing)

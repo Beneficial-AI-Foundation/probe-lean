@@ -349,15 +349,3 @@ def toolchain_from_env() -> str | None:
     """The ``PROBE_LEAN_TOOLCHAIN`` override, or ``None`` if unset/blank."""
     env = os.environ.get("PROBE_LEAN_TOOLCHAIN")
     return env.strip() if env and env.strip() else None
-
-
-def toolchain_from_repo() -> str | None:
-    """Fallback: the probe-lean repo root's ``lean-toolchain``.
-
-    This describes the source tree the server ships inside, NOT necessarily the
-    installed binary — only used when the binary is too old to report its own
-    toolchain via ``probe-lean --toolchain``.
-    """
-    # tools/mcp/probe_lean_mcp/core.py -> repo root is three levels up.
-    repo_root = Path(__file__).resolve().parents[3]
-    return read_toolchain(repo_root)

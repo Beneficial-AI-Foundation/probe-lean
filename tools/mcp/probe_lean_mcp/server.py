@@ -177,12 +177,13 @@ def viewify(
 TOOLCHAIN_TIMEOUT_S = 30
 
 
-def _probe_toolchain() -> tuple[str | None, str]:
+def _probe_toolchain() -> tuple[str | None, str | None]:
     """Resolve probe-lean's build toolchain and where the answer came from.
 
-    Precedence: PROBE_LEAN_TOOLCHAIN env -> the binary itself (`--toolchain`)
-    -> the probe-lean repo-root `lean-toolchain` file. Returns (value, source)
-    with source one of "env", "binary", "repo-file".
+    Precedence: PROBE_LEAN_TOOLCHAIN env -> the binary itself (`--toolchain`).
+    Returns (value, source) with source "env" or "binary", or (None, None) if
+    neither can answer (binary missing or predates --toolchain) — never a guess
+    from the source tree, which may not match the installed binary.
     """
     env_tc = core.toolchain_from_env()
     if env_tc:
@@ -192,8 +193,8 @@ def _probe_toolchain() -> tuple[str | None, str]:
         if cp.returncode == 0 and cp.stdout and cp.stdout.strip():
             return cp.stdout.strip().splitlines()[0].strip(), "binary"
     except ProbeError:
-        pass  # binary missing or hung; fall through to the repo file
-    return core.toolchain_from_repo(), "repo-file"
+        pass  # binary missing or hung
+    return None, None
 
 
 @mcp.tool()
@@ -226,7 +227,8 @@ def check_toolchain(project_path: str) -> dict:
         notes.append("No lean-toolchain file found in the project.")
     elif probe_tc is None:
         notes.append(
-            "Could not determine probe-lean's toolchain; "
+            "Could not determine probe-lean's toolchain "
+            "(binary missing or predates --toolchain); "
             "upgrade probe-lean (>= 0.10.0 supports --toolchain) "
             "or set PROBE_LEAN_TOOLCHAIN to compare."
         )
@@ -234,12 +236,6 @@ def check_toolchain(project_path: str) -> dict:
         notes.append(
             "Toolchain mismatch: extract will likely fail. "
             "Rebuild probe-lean against the project's toolchain, or vice versa."
-        )
-    if source == "repo-file" and probe_tc is not None:
-        notes.append(
-            "The installed probe-lean binary predates --toolchain; this value "
-            "was read from the probe-lean source tree and may not match the "
-            "binary that will run."
         )
     if notes:
         result["note"] = " ".join(notes)

@@ -234,12 +234,6 @@ def test_toolchain_from_env_unset(monkeypatch):
     assert core.toolchain_from_env() is None
 
 
-def test_toolchain_from_repo_reads_repo_root():
-    # The server ships inside the probe-lean repo, whose lean-toolchain exists.
-    tc = core.toolchain_from_repo()
-    assert tc and "lean4" in tc
-
-
 def test_toolchain_tag():
     # The lean-toolchain file carries a `v`; Lean.toolchain does not.
     assert core.toolchain_tag("leanprover/lean4:v4.28.0-rc1") == "4.28.0-rc1"

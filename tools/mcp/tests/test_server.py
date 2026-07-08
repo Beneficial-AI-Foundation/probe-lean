@@ -87,28 +87,30 @@ def test_check_toolchain_asks_binary(monkeypatch, tmp_path):
     assert result["probe_lean_toolchain_source"] == "binary"
 
 
-def test_check_toolchain_old_binary_falls_back_to_repo_file(monkeypatch, tmp_path):
+def test_check_toolchain_old_binary_reports_unknown(monkeypatch, tmp_path):
     (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.28.0-rc1\n")
     monkeypatch.delenv("PROBE_LEAN_TOOLCHAIN", raising=False)
-    # An old binary rejects the unknown --toolchain flag.
+    # An old binary rejects the unknown --toolchain flag; no guessing from the
+    # source tree -- the toolchain is reported as unknown instead.
     monkeypatch.setattr(server, "_run", lambda argv, timeout: fake_cp(1, stderr="unknown flag"))
-    monkeypatch.setattr(server.core, "toolchain_from_repo", lambda: "leanprover/lean4:v4.30.0")
     result = server.check_toolchain(str(tmp_path))
-    assert result["probe_lean_toolchain_source"] == "repo-file"
+    assert result["probe_lean_toolchain"] is None
+    assert result["probe_lean_toolchain_source"] is None
     assert result["match"] is False
-    assert "predates --toolchain" in result["note"]
+    assert "upgrade probe-lean" in result["note"]
 
 
-def test_check_toolchain_binary_missing_falls_back(monkeypatch, tmp_path):
+def test_check_toolchain_binary_missing_reports_unknown(monkeypatch, tmp_path):
     (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0\n")
     monkeypatch.delenv("PROBE_LEAN_TOOLCHAIN", raising=False)
     monkeypatch.delenv("PROBE_LEAN_BIN", raising=False)
     monkeypatch.setattr(server.shutil, "which", lambda _: None)
-    monkeypatch.setattr(server.core, "toolchain_from_repo", lambda: "leanprover/lean4:v4.30.0")
     result = server.check_toolchain(str(tmp_path))
     assert "error" not in result
-    assert result["probe_lean_toolchain_source"] == "repo-file"
-    assert result["match"] is True
+    assert result["probe_lean_toolchain"] is None
+    assert result["probe_lean_toolchain_source"] is None
+    assert result["match"] is False
+    assert "note" in result
 
 
 def test_check_toolchain_mismatch(monkeypatch, tmp_path):

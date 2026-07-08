@@ -14,7 +14,7 @@ cd tools/mcp
 
 ## Layer 1 — Unit tests (fastest; no build, no binary)
 
-The 55 pytest tests run against a saved extract fixture
+The 54 pytest tests run against a saved extract fixture
 (`tests/fixtures/sample_extract.json`), so they are fast and never touch
 `lake` or the `probe-lean` binary. They cover CLI argument mapping, JSON
 parsing/filtering/pagination, name resolution, every error code, and a
@@ -25,7 +25,7 @@ pip install -e '.[dev]'      # once: installs pytest + the mcp SDK
 python -m pytest -q
 ```
 
-Expected: `55 passed`.
+Expected: `54 passed`.
 
 The tests are split so the pure logic (`probe_lean_mcp/core.py`) and the tool
 layer (`probe_lean_mcp/server.py`, with `subprocess` mocked) are exercised
@@ -36,7 +36,8 @@ independently:
   version-tag normalization.
 - `tests/test_server.py` — each tool's happy path and error path, with the
   build subprocess mocked (no real `lake` run), including `check_toolchain`'s
-  env → binary (`--toolchain`) → repo-file resolution order.
+  env → binary (`--toolchain`) resolution order and the unknown-toolchain
+  path for binaries predating the flag.
 - `tests/test_protocol.py` — launches the server as a real stdio subprocess
   and drives it over MCP JSON-RPC (layer 2, automated).
 
