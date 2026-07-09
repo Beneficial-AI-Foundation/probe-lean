@@ -78,6 +78,8 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
 | `--class <NAME>` | | Override the detected project class (e.g. `security-protocol`). Normally auto-detected from a VCVio dependency; this is for manual runs |
 
+Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
+
 For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
 `scheme → construction → {correctness, security}` hierarchy and emits `source.class` plus a per-atom
 `classification` object (see [SCHEMA.md](SCHEMA.md#security-protocol-classification)). Schemes not
@@ -336,13 +338,20 @@ Example config (`.verilib/probes/config.json`):
 
 You're almost certainly compiling Mathlib from source. probe-lean auto-downloads the cache on first run (see [Mathlib cache](#mathlib-cache-auto-downloaded)), but if that failed, run `lake exe cache get` in the target project manually.
 
-### "environment already contains 'main'"
+### "Co-importability check failed"
 
-The project has multiple modules that define `main`. This typically happens with utility scripts included as `[[lean_lib]]`. Use `--library` to target only the main library, or ensure the project's `defaultTargets` excludes conflicting libraries.
+Projects with modules that declare the same fully-qualified name build because Lake compiles each module independently, but `probe-lean` must import **all** built modules into a single Lean environment, and Lean forbids duplicate declarations in one environment (see the co-importability requirement under [Supported Projects](../README.md#supported-projects) in the README).
+
+probe-lean detects this *before* importing and lists the duplicated names with their owning modules. Note that lakefile-level grouping does **not** avoid it: `defaultTargets` and `[[lean_lib]]` splits only affect what is *built* — probe-lean analyzes every built `.olean` on disk.
+
+Fixes, in order of preference:
+
+1. **Restructure the project** (the only fix that works for automated consumers like verilib, which cannot pass per-project flags): give each variant family its own namespace, or have the dependent module `import` the shared module instead of restating its definitions.
+2. **Manual runs only**: extract a non-conflicting subset with `--module`, e.g. `probe-lean extract . --module H1.solution`. Note `--module` selects the named module *plus its submodules*, so for a root/submodule clash name the deepest module. (`--library` matches module-name roots, not lakefile library names, so it usually cannot select across this kind of split.)
 
 ### "environment already contains '...'" after renaming or deleting a file
 
-A stale *orphan* `.olean` from the old module is still on disk (Lake never removes oleans for deleted/renamed sources) and re-declares a name now owned by another module. probe-lean drops orphan oleans automatically by checking each module against its backing `.lean` source — but it only knows `srcDir`s declared in `lakefile.toml`. If your project uses a Lean-DSL `lakefile.lean` with a custom `srcDir`, the orphan may slip through; the error message includes a `lake clean` hint. Run `lake clean && lake build` in the target project, then re-run extract.
+A stale *orphan* `.olean` from the old module is still on disk (Lake never removes oleans for deleted/renamed sources) and re-declares a name now owned by another module. probe-lean drops orphan oleans automatically by checking each module against its backing `.lean` source — but it only knows `srcDir`s declared in `lakefile.toml`. If your project uses a Lean-DSL `lakefile.lean` with a custom `srcDir`, the orphan may slip through the source check *and* the co-importability preflight; the error message covers this case with a `lake clean` hint. Run `lake clean && lake build` in the target project, then re-run extract.
 
 ### "Failed to import modules"
 

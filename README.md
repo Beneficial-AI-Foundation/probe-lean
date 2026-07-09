@@ -19,6 +19,7 @@ probe-lean can analyze any Lean 4 project that meets these requirements:
 |-------------|--------|
 | **Lean version** | **≥ v4.28.0-rc1** — the `.olean` binary format is not compatible across Lean versions, and probe-lean cannot be built for older toolchains |
 | **Buildable Lean libraries** | probe-lean only needs the `.olean` files from `lake build <lib>`. If the Lean library targets compile but the final executable linking fails (e.g., missing GPU drivers), extraction can still succeed — use `--library <lib>` to build only the library |
+| **Co-importable modules** | All built modules must load into a **single Lean environment**: no two modules may declare the same fully-qualified name (identical-statement theorem/axiom restatements are the narrow exception Lean itself tolerates). Extraction runs a preflight check and lists any duplicated names with their owning modules |
 
 ### Projects with native dependencies
 
@@ -34,6 +35,7 @@ Some Lean projects depend on system-level C/C++ libraries (Vulkan, CUDA, OpenSSL
 - **Projects on Lean < v4.28.0-rc1** — probe-lean uses stdlib APIs introduced in v4.28; there are no pre-built binaries for older versions, and source builds will fail
 - **Projects whose Lean libraries don't compile** — if `lake build <lib>` can't produce `.olean` files, extraction cannot proceed. Note: linking failures for executables don't matter if the library targets succeed
 - **Toolchain mismatches** — even a patch-level difference (e.g., v4.28.0-rc1 vs v4.29.0) requires a matching probe-lean build. Use the installer's `--from-project` flag to auto-install the right version
+- **Projects with duplicate declarations across modules** — two built modules declaring the same fully-qualified name, often unnamespaced root declarations like `F`, `main`, or `digit`. A concrete example is [zeta-h123](https://github.com/AxiomMath/zeta-h123), which ships parallel `problem.lean`/`solution.lean` files restating the same definitions without namespaces. `lake build` succeeds because Lake compiles modules independently, but the modules cannot coexist in one Lean environment; extraction aborts with a preflight report of the duplicated names (failure signature without the preflight: `environment already contains '<Name>' from <Module>`). Lakefile-level grouping (`defaultTargets`, `[[lean_lib]]` splits) does **not** avoid it — every built `.olean` on disk is analyzed. Fix the project structure (per-family namespaces, or `import` the shared module instead of restating it), or for manual runs extract a non-conflicting subset with `--module <module-name>` (selects the named module plus its submodules)
 
 ## Installation
 

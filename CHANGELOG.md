@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-07-08
+
+### Fixed
+
+- **Duplicate-declaration failures are now caught by a preflight check with an
+  accurate, actionable diagnostic** (issues #61, #62). Projects where two built
+  modules declare the same fully-qualified name (e.g. parallel
+  `problem.lean`/`solution.lean` files restating definitions without namespaces)
+  build fine under Lake but cannot be imported into probe-lean's single analysis
+  environment. Previously the mid-import abort blamed a stale orphan `.olean`
+  and suggested `lake clean` — a dead end for this case. `extract` now reads each
+  module's own declarations from its `.olean` header before importing and, on a
+  collision, aborts with the duplicated names and their owning modules, the
+  structural fixes, and the exact `--module` escape hatch for manual runs. The
+  check replicates the importer's duplicate-tolerance rule (identical-statement
+  theorem/axiom restatements are exempt), so it never rejects a project the
+  importer would accept; collisions it cannot see (dependency modules,
+  module-system split parts, unreadable oleans) still fail at import time with a
+  hint that now covers both causes. Module discovery returns `ProjectModule`
+  records (name + olean path) so filters preserve the pairing. The
+  co-importability requirement is documented under README "Supported Projects".
+
 ## [0.9.4] - 2026-06-24
 
 ### Fixed
