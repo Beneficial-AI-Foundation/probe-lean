@@ -2793,6 +2793,15 @@ def testCoimportCollisions (result : TestResult) : IO TestResult := do
   result ← test "detection keys on the declared name, not ConstantInfo.name"
     ((findCoimportCollisions #[alias1, alias2]).map (·.declName) == #[`Renamed]) result
 
+  -- Equal declared name but differing info names, everything else equal: the
+  -- importer's subsumption re-checks the INFO names, so even otherwise
+  -- identical axioms must collide. This is the case that fails if the
+  -- `a.name == b.name` guard is ever dropped from `constSubsumes`.
+  let ghost1 := (`M1, #[((`shared : Lean.Name), mkTestAxiom `X prop)])
+  let ghost2 := (`M2, #[((`shared : Lean.Name), mkTestAxiom `Y prop)])
+  result ← test "equal declared name, differing info names: collision"
+    ((findCoimportCollisions #[ghost1, ghost2]).size == 1) result
+
   return result
 
 def testCoimportFormat (result : TestResult) : IO TestResult := do

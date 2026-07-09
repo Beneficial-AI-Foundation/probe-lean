@@ -78,7 +78,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
 | `--class <NAME>` | | Override the detected project class (e.g. `security-protocol`). Normally auto-detected from a VCVio dependency; this is for manual runs |
 
-Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)). This catches problem/solution-style layouts before the expensive import instead of failing mid-import with a raw kernel error.
+Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
 
 For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
 `scheme → construction → {correctness, security}` hierarchy and emits `source.class` plus a per-atom
@@ -340,7 +340,7 @@ You're almost certainly compiling Mathlib from source. probe-lean auto-downloads
 
 ### "Co-importability check failed"
 
-Two or more built modules declare the same fully-qualified name — commonly parallel `problem.lean`/`solution.lean` (or spec/impl) files that restate the same definitions without namespaces, or sibling modules that independently define common root-namespace names (`F`, `main`, `digit`, …). The project builds because Lake compiles each module independently, but probe-lean must import **all** built modules into a single Lean environment, and Lean forbids duplicate declarations in one environment (see the co-importability requirement under [Supported Projects](../README.md#supported-projects) in the README).
+Projects with modules that declare the same fully-qualified name build because Lake compiles each module independently, but `probe-lean` must import **all** built modules into a single Lean environment, and Lean forbids duplicate declarations in one environment (see the co-importability requirement under [Supported Projects](../README.md#supported-projects) in the README).
 
 probe-lean detects this *before* importing and lists the duplicated names with their owning modules. Note that lakefile-level grouping does **not** avoid it: `defaultTargets` and `[[lean_lib]]` splits only affect what is *built* — probe-lean analyzes every built `.olean` on disk.
 
