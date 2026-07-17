@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `extract` enrichment now separates benign references to constructors/fields of
+  extracted types (`inductive`/`structure`/`class`) from genuine orphan
+  dependencies. Such type-member references are summarised in a single note
+  instead of emitting one "not found in atom map" warning each, so real missing
+  dependencies are no longer drowned out. Genuine orphans (e.g. instance
+  projections, trait-impl references) are still reported individually. New
+  `partitionMissingDeps` helper in `ProbeLean/Transitive.lean`.
+
 ## [0.9.5] - 2026-07-08
 
 ### Fixed
