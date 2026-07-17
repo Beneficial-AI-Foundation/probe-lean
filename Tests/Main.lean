@@ -3346,6 +3346,49 @@ def testTransitiveVerificationProperties (result : TestResult) : IO TestResult :
 
   return result
 
+def testPartitionMissingDeps (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing partitionMissingDeps..."
+
+  -- An enum-variant reference whose parent is an extracted inductive is a
+  -- benign type member (suppressed); a genuine orphan is reported.
+  let enumAtom := { mkUnified "probe:M.Error" #[] none with kind := .inductive }
+  let caller := mkUnified "probe:M.f" #["probe:M.Error.StateDecode", "probe:totally_unknown"]
+    (some .verified)
+  let (orphans, memberCount) :=
+    partitionMissingDeps #[enumAtom, caller]
+      #["probe:M.Error.StateDecode", "probe:totally_unknown"]
+  result ← test "enum variant ref suppressed as type member" (memberCount == 1) result
+  result ← test "genuine orphan still reported"
+    (orphans == #["probe:totally_unknown"]) result
+
+  -- Struct field reference whose parent is an extracted structure is suppressed.
+  let structAtom := { mkUnified "probe:M.S" #[] none with kind := .structure }
+  let (orphans2, memberCount2) :=
+    partitionMissingDeps #[structAtom] #["probe:M.S.field"]
+  result ← test "struct field ref suppressed" (memberCount2 == 1 && orphans2.isEmpty) result
+
+  -- Class field reference whose parent is an extracted class is suppressed.
+  let classAtom := { mkUnified "probe:M.C" #[] none with kind := .class }
+  let (_, memberCount3) := partitionMissingDeps #[classAtom] #["probe:M.C.proj"]
+  result ← test "class field ref suppressed" (memberCount3 == 1) result
+
+  -- A member of a non-type parent (a `def`) is a genuine orphan, still reported.
+  let defAtom := mkUnified "probe:M.g" #[] none
+  let (orphans4, memberCount4) :=
+    partitionMissingDeps #[defAtom] #["probe:M.g.inner"]
+  result ← test "member of non-type parent still reported"
+    (memberCount4 == 0 && orphans4 == #["probe:M.g.inner"]) result
+
+  -- A dep whose parent is absent from the map is a genuine orphan.
+  let (orphans5, memberCount5) :=
+    partitionMissingDeps #[] #["probe:Unknown.Variant"]
+  result ← test "absent-parent ref reported as orphan"
+    (memberCount5 == 0 && orphans5 == #["probe:Unknown.Variant"]) result
+
+  return result
+
 def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3451,6 +3494,7 @@ def main : IO UInt32 := do
   result ← testTransitiveVerificationTrust result
   result ← testTransitiveVerificationGraph result
   result ← testTransitiveVerificationProperties result
+  result ← testPartitionMissingDeps result
   result ← testTransitiveVerificationJson result
 
   IO.println ""

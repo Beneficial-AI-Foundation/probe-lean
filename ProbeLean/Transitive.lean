@@ -19,6 +19,52 @@ private def isContaminationSource (status : Option WebVerificationStatus) : Bool
   | some .unverified | some .failed => true
   | _ => false
 
+/-- Kinds whose members (enum constructors, struct fields/projections, class
+    fields) are referenced as dependencies but are not emitted as standalone
+    atoms. -/
+def isTypeDefinition (kind : DeclKind) : Bool :=
+  match kind with
+  | .inductive | .structure | .class => true
+  | _ => false
+
+/-- The parent path segment of a dotted code-name: everything before the final
+    `.` (e.g. `probe:spqr.Error.StateDecode` → `probe:spqr.Error`). `none` when
+    the name has no `.` separator. -/
+def parentName (dep : String) : Option String :=
+  let parts := dep.splitOn "."
+  if parts.length ≤ 1 then none
+  else some (String.intercalate "." parts.dropLast)
+
+/-- Partition missing-dependency names into genuine orphans vs. benign
+    references to members of an extracted type. A dep `Foo.Bar` is a benign
+    "type member" when `Foo` names an extracted `inductive`/`structure`/`class`
+    atom: its constructors/fields/projections are not emitted as their own
+    atoms, carry no verification status, and treating them as trusted is
+    correct — so they should not be surfaced. Everything else (a reference whose
+    parent is absent, or whose parent is a `def`/`theorem`/etc.) is a genuine
+    orphan worth reporting.
+
+    Returns `(orphans, typeMemberCount)`. `orphans` preserves the sorted,
+    deduplicated order of `missingDeps` (P14). -/
+def partitionMissingDeps (atoms : Array UnifiedAtom) (missingDeps : Array String)
+    : Array String × Nat := Id.run do
+  let mut typeDefs : RBTree String compare := .empty
+  for atom in atoms do
+    if isTypeDefinition atom.kind then
+      typeDefs := typeDefs.insert atom.name
+  let mut orphans : Array String := #[]
+  let mut typeMemberCount : Nat := 0
+  for dep in missingDeps do
+    let isMember :=
+      match parentName dep with
+      | some parent => typeDefs.contains parent
+      | none => false
+    if isMember then
+      typeMemberCount := typeMemberCount + 1
+    else
+      orphans := orphans.push dep
+  (orphans, typeMemberCount)
+
 /-- Enrich verification status through the dependency graph using
     reverse-BFS contamination.
 

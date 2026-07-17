@@ -306,8 +306,14 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   else do
     IO.println "=== Enrich ==="
     let (enriched, transitive, local_, missingDeps) := enrichTransitiveVerification unifiedAtoms
-    for dep in missingDeps do
+    -- Only surface genuine orphans. References to constructors/fields of an
+    -- extracted type (inductive/structure/class) are benign and collapsed into
+    -- a single note so real gaps are not lost in the noise.
+    let (orphans, typeMemberCount) := partitionMissingDeps unifiedAtoms missingDeps
+    for dep in orphans do
       IO.eprintln s!"Warning: dependency \"{dep}\" not found in atom map (treated as trusted)"
+    if typeMemberCount > 0 then
+      IO.eprintln s!"Note: {typeMemberCount} reference(s) to constructors/fields of extracted types treated as trusted"
     let notVerified := enriched.size - transitive - local_
     IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
     pure enriched
