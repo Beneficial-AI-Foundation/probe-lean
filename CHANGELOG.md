@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-07-17
+
 ### Changed
 
 - `extract` enrichment now separates benign references to constructors/fields of
