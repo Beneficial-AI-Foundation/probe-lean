@@ -55,7 +55,7 @@ extract output:
 
 | Test function | Checks | What it validates |
 |---------------|--------|-------------------|
-| `testExampleJsonEnvelopeStructure` | 8 | Schema is `probe-lean/extract`, version `2.0`, non-empty timestamp, tool name/command, source package/language, data object present |
+| `testExampleJsonEnvelopeStructure` | 8 | Schema is `probe-lean/extract`, version `3.0`, non-empty timestamp, tool name/command, source package/language, data object present |
 | `testExampleJsonLoadAtoms` | 4 | `loadAtoms` succeeds, >1000 atoms, all keys start with `probe:`, all atoms have language `"lean"` |
 | `testExampleJsonAtomRequiredFields` | 8 | Non-empty `display-name`, `code-module`, `code-path`; valid `DeclKind`; has `def`, `theorem`, and `projection` atoms; all atoms have source location |
 | `testExampleJsonVerificationStatus` | 6 | All atoms have valid `verification-status` (verified/unverified/failed/trusted); at least some `"verified"` and `"trusted"`; all trusted have valid `trusted-reason`; non-trusted have no `trusted-reason` |

@@ -1,21 +1,21 @@
-# Schema 2.0: Lean Instantiation
+# Schema 3.0: Lean Instantiation
 
-Version: 2.0
+Version: 3.0
 Date: 2026-05-22
 Parent document: [probes/docs/envelope-rationale.md](https://github.com/Beneficial-AI-Foundation/probe/blob/main/docs/envelope-rationale.md)
 
-This document defines the Lean-specific details for Schema 2.0 as produced by `probe-lean`.
+This document defines the Lean-specific details for Schema 3.0 as produced by `probe-lean`.
 It instantiates the generic envelope and atom schema from the parent document with Lean
 declaration kinds, code-name URIs, versioning, and field mappings.
 
 ## Envelope Example
 
-A complete probe-lean extract output with the Schema 2.0 envelope:
+A complete probe-lean extract output with the Schema 3.0 envelope:
 
 ```json
 {
   "schema": "probe-lean/extract",
-  "schema-version": "2.0",
+  "schema-version": "3.0",
   "tool": {
     "name": "probe-lean",
     "version": "0.4.5",

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped schema-version to 3.0 (breaking) to align with the ecosystem-wide major
+  bump for the is-disabled→untracked atom field rename.
+
 ## [0.9.6] - 2026-07-17
 
 ### Changed
