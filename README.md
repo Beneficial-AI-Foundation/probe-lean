@@ -2,7 +2,7 @@
 
 Analyze Lean 4 projects: extract dependency graphs with verification status and spec relationships.
 
-`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 2.0 envelope format; see [docs/SCHEMA.md](docs/SCHEMA.md) for the full specification.
+`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 3.0 envelope format; see [docs/SCHEMA.md](docs/SCHEMA.md) for the full specification.
 
 ## Prerequisites
 
@@ -163,7 +163,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 ```json
 {
   "schema": "probe-lean/extract",
-  "schema-version": "2.0",
+  "schema-version": "3.0",
   "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
@@ -209,7 +209,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
     4. Sole spec — if a definition has exactly one spec theorem, it is used as primary spec
 5. **Verify** -- parses sorry warnings from build output to determine verification status (shallow: checks only the declaration's own body, not its dependencies); axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
 6. **Enrich** -- upgrades `"verified"` atoms to `"transitively-verified"` when all transitive dependencies are verified or trusted, using reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`; skippable via `--skip-enrich`)
-7. **Schema 2.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
+7. **Schema 3.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 
 ## How probe-lean decides what to analyze
 

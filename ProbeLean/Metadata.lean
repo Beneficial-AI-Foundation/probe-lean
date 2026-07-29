@@ -1,5 +1,5 @@
 /-
-  Schema 2.0 metadata gathering and output path construction.
+  Schema 3.0 metadata gathering and output path construction.
   Reads git info and lakefile to populate envelope fields.
   Callers construct typed `Envelope α` directly rather than using generic wrappers.
 -/

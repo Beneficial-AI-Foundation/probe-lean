@@ -32,7 +32,7 @@ def testConstants (result : TestResult) : IO TestResult := do
   result ← test "mapsDir" (Constants.mapsDir == "maps") result
   result ← test "toolName" (Constants.toolName == "probe-lean") result
   result ← test "toolVersion" (Constants.toolVersion == ProbeLean.version) result
-  result ← test "schemaVersion" (Constants.schemaVersion == "2.0") result
+  result ← test "schemaVersion" (Constants.schemaVersion == "3.0") result
   result ← test "schemaExtract" (Constants.schemaExtract == "probe-lean/extract") result
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
   return result
@@ -200,7 +200,7 @@ def testTypeJsonSerialization (result : TestResult) : IO TestResult := do
   let hasSchema := match envJson.getObjValAs? String "schema" with
     | .ok "probe-lean/extract" => true | _ => false
   let hasSchemaVer := match envJson.getObjValAs? String "schema-version" with
-    | .ok "2.0" => true | _ => false
+    | .ok "3.0" => true | _ => false
   let hasTool := match envJson.getObjVal? "tool" with
     | .ok _ => true | _ => false
   let hasSource := match envJson.getObjVal? "source" with
@@ -1602,7 +1602,7 @@ def testEnvelopeAwareLoading (result : TestResult) : IO TestResult := do
   ]
   let enveloped := Lean.Json.mkObj [
     ("schema", Lean.toJson "probe-lean/extract"),
-    ("schema-version", Lean.toJson "2.0"),
+    ("schema-version", Lean.toJson "3.0"),
     ("data", bareDict)
   ]
   let bareStr := Lean.Json.pretty bareDict
@@ -1658,7 +1658,7 @@ def testEnvelopeAwareLoading (result : TestResult) : IO TestResult := do
   IO.println "Testing unwrapEnvelope accepts any schema prefix..."
   let foreignEnvelope := Lean.Json.mkObj [
     ("schema", Lean.toJson "probe-verus/atoms"),
-    ("schema-version", Lean.toJson "2.0"),
+    ("schema-version", Lean.toJson "3.0"),
     ("data", bareDict)
   ]
   let foreignUnwrapped := match Lean.Json.parse (Lean.Json.pretty foreignEnvelope) with
@@ -2211,8 +2211,8 @@ def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
       | .ok "probe-lean/extract" => true | _ => false
     result ← test "envelope schema is probe-lean/extract" schemaOk result
     let versionOk := match json.getObjValAs? String "schema-version" with
-      | .ok "2.0" => true | _ => false
-    result ← test "envelope schema-version is 2.0" versionOk result
+      | .ok "3.0" => true | _ => false
+    result ← test "envelope schema-version is 3.0" versionOk result
     let hasTimestamp := match json.getObjValAs? String "timestamp" with
       | .ok s => !s.isEmpty | _ => false
     result ← test "envelope has non-empty timestamp" hasTimestamp result

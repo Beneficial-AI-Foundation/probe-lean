@@ -1,6 +1,6 @@
 /-
   Shared loading functions for probe-lean output files.
-  Handles both bare-dict (Schema 1.x) and enveloped (Schema 2.0) formats.
+  Handles both bare-dict (Schema 1.x) and enveloped (Schema 3.0) formats.
 -/
 import Lean
 import ProbeLean.Types
@@ -9,7 +9,7 @@ namespace ProbeLean
 
 open Lean
 
-/-- Extract the atom data from JSON, unwrapping the Schema 2.0 envelope if present. -/
+/-- Extract the atom data from JSON, unwrapping the Schema 3.0 envelope if present. -/
 def unwrapEnvelope (json : Json) : Json :=
   match json.getObjVal? "schema", json.getObjVal? "data" with
   | .ok (.str _), .ok data => data
