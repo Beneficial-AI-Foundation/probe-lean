@@ -378,16 +378,18 @@ web UI. Dropping them would be unsound — a surviving theorem depending on such
 instance would lose the contamination path through it and could be falsely
 upgraded to `transitively-verified`. -/
 def derivedInstanceClusterNames (decls : Array DeclInfo) : Std.HashSet Name := Id.run do
-  let typeDefs := decls.filter fun d =>
-    (d.kind == .inductive || d.kind == .structure || d.kind == .class) && d.sourceInfo.isSome
+  -- Pre-index type-definition source ranges by module so each `insideTypeDef`
+  -- check only scans ranges from the same module, not every type in the project.
+  let mut typeRangesByModule : Std.HashMap Name (Array CodeTextInfo) := {}
+  for d in decls do
+    if d.kind == .inductive || d.kind == .structure || d.kind == .class then
+      if let some r := d.sourceInfo then
+        typeRangesByModule := typeRangesByModule.insert d.moduleName
+          ((typeRangesByModule.getD d.moduleName #[]).push r)
   let insideTypeDef : DeclInfo → Bool := fun d =>
     match d.sourceInfo with
     | none => false
-    | some r => typeDefs.any fun t =>
-        t.moduleName == d.moduleName &&
-        (match t.sourceInfo with
-         | some tr => coversRange tr r
-         | none => false)
+    | some r => (typeRangesByModule.getD d.moduleName #[]).any fun tr => coversRange tr r
   -- Auto-named instances synthesized inside a type definition = deriving output.
   let mut derived : Std.HashSet Name := {}
   for d in decls do

@@ -83,7 +83,7 @@ def checkAxiomsCmd : Cmd := `[Cli|
 
   FLAGS:
     m, module : String; "Filter to specific module prefix"
-    l, library : String; "Comma-separated library names to build AND restrict analysis to"
+    l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to audit"
