@@ -3,12 +3,14 @@ import ProbeLean.NixEnv
 import ProbeLean.Environment
 import ProbeLean.Coimport
 import ProbeLean.Analysis
+import ProbeLean.AxiomCheck
 import ProbeLean.Loader
 import ProbeLean.Metadata
 import ProbeLean.Atomize
 import ProbeLean.VerifyInternal
 import ProbeLean.Transitive
 import ProbeLean.Extract
+import ProbeLean.CheckAxioms
 import ProbeLean.View
 import ProbeLean.Classify.Catalogue
 import ProbeLean.Classify.SecurityProtocol

@@ -83,8 +83,10 @@ def hasAnySuffix (name : String) (suffixes : Array String) : Bool :=
 def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (artifactSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
   atoms.map fun atom =>
     let nameWithoutPrefix := stripProbePrefix atom.name
-    let isHidden := hiddenList.contains nameWithoutPrefix
-    let isExtractionArtifact := hasAnySuffix nameWithoutPrefix artifactSuffixes
+    -- OR with any flag already set (e.g. auto-detected generated code), so config
+    -- adds to rather than overwrites automatic detection.
+    let isHidden := atom.isHidden || hiddenList.contains nameWithoutPrefix
+    let isExtractionArtifact := atom.isExtractionArtifact || hasAnySuffix nameWithoutPrefix artifactSuffixes
     let isIgnored := ignoredList.contains nameWithoutPrefix
     { atom with isHidden := isHidden, isExtractionArtifact := isExtractionArtifact, isIgnored := isIgnored }
 
@@ -219,15 +221,12 @@ def classifyProject (env : Environment) (decls : Array DeclInfo)
   IO.println s!"Classified {classifications.size} declarations"
   return classifications
 
-/-- Run analysis via lake env to get correct search paths.
-    Returns the atoms, the effective project class (`none` when no class is
-    detected), and the per-declaration classifications (empty when no class).
-    The class is resolved here — where both the environment and the project path
-    are available. Precedence: `classOverride` (from `--class`) >
-    `lake-manifest.json` (package-level) > imported-module signal. -/
-def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array ProjectModule) (crate : String)
-    (nixMode : Option NixMode := none) (classOverride : Option String := none)
-    : IO (Except String (Array Atom × Option String × Array (Name × Classification))) := do
+/-- Import the target project's built modules into a single `Environment`, with the
+    same LEAN_PATH / search-path setup and co-import preflight the analysis uses.
+    Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command so both see the
+    exact same environment. -/
+def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectModule)
+    (nixMode : Option NixMode := none) : IO (Except String Environment) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
@@ -261,8 +260,8 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
 
   IO.println s!"Importing {imports.size} modules..."
 
-  let env ← try
-    importModules imports {} 0
+  try
+    return .ok (← importModules imports {} 0)
   catch e =>
     let msg := toString e
     if containsSubstring msg "already contains" then
@@ -300,12 +299,30 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
       return .error s!"Failed to import modules: {msg}{hint}"
     return .error s!"Failed to import modules: {msg}"
 
+/-- Run analysis via lake env to get correct search paths.
+    Returns the atoms, the effective project class (`none` when no class is
+    detected), and the per-declaration classifications (empty when no class).
+    The class is resolved here — where both the environment and the project path
+    are available. Precedence: `classOverride` (from `--class`) >
+    `lake-manifest.json` (package-level) > imported-module signal. -/
+def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array ProjectModule) (crate : String)
+    (nixMode : Option NixMode := none) (classOverride : Option String := none)
+    : IO (Except String (Array Atom × Option String × Array (Name × Classification))) := do
+  let env ← match ← importProjectEnv projectPath modules nixMode with
+    | .error msg => return .error msg
+    | .ok env => pure env
+  let moduleNames := modules.map (·.name)
+
   IO.println "Extracting declarations..."
 
   -- Use the catalogue's game-head allowlist for codomain-shape (not the placeholder).
   let decls := getProjectDecls env moduleNames Catalogue.gameHeads
 
   IO.println s!"Found {decls.size} declarations"
+
+  -- Auto-detected `deriving`-generated instance clusters (names only). Flagged
+  -- below alongside projections; see the marking loop for why.
+  let derivedNames := derivedInstanceClusterNames decls
 
   -- Effective class: --class override > manifest (package-level) > imported modules.
   -- This is a disjunction (`orElse`): any positive signal classifies, so the order
@@ -326,6 +343,13 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath moduleNames crate fileCache decl
+    -- Lean-generated code (deriving clusters + structure/class projections) is flagged
+    -- hidden + extraction-artifact so viewify and the web UI omit it from the presented
+    -- graph. It is kept in the atom set (not dropped), so `enrichTransitiveVerification`
+    -- still traverses it and contamination still flows through it — hiding is sound
+    -- precisely because the atom stays in the graph, unlike dropping.
+    let isGenerated := derivedNames.contains decl.name || decl.kind == .projection
+    let atom := if isGenerated then { atom with isHidden := true, isExtractionArtifact := true } else atom
     atoms := atoms.push atom
 
   return .ok (atoms, detectedClass, classifications)

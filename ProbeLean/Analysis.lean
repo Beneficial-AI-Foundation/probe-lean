@@ -353,6 +353,53 @@ def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo)
     codomainShape := classifyCodomain gameHeads info.type,
     classAttributes := detectClassAttrs env name }
 
+/-- `outer` covers `inner`'s line range, sharing boundaries allowed but not the
+identical range. Ranges are line-only (no columns), so a member reported on the
+type's last line counts as covered — which is what we want for a `deriving`
+clause that Lean collapses onto the type's final line. -/
+def coversRange (outer inner : CodeTextInfo) : Bool :=
+  decide (outer.linesStart ≤ inner.linesStart) &&
+  decide (inner.linesEnd ≤ outer.linesEnd) &&
+  !(inner.linesStart == outer.linesStart && inner.linesEnd == outer.linesEnd)
+
+/-- Names of `deriving`-generated instance clusters (`instDecidableEq…`,
+`instRepr…`, plus their backing `.decEq`/`.repr`/… members).
+
+A member qualifies when it is an auto-named `instance` (or a member whose
+name-prefix is such an instance) whose source range sits inside an
+`inductive`/`structure`/`class` in the same module — i.e. inside that type's
+`deriving` clause. Hand-written top-level instances, structure projections, and
+proof-fields are excluded.
+
+These names are marked `isExtractionArtifact` (see `markAtomFlags`), **not
+dropped**: the atoms stay in the dependency graph so transitive-verification
+contamination still flows through them, while `viewify` filters them from the
+web UI. Dropping them would be unsound — a surviving theorem depending on such an
+instance would lose the contamination path through it and could be falsely
+upgraded to `transitively-verified`. -/
+def derivedInstanceClusterNames (decls : Array DeclInfo) : Std.HashSet Name := Id.run do
+  let typeDefs := decls.filter fun d =>
+    (d.kind == .inductive || d.kind == .structure || d.kind == .class) && d.sourceInfo.isSome
+  let insideTypeDef : DeclInfo → Bool := fun d =>
+    match d.sourceInfo with
+    | none => false
+    | some r => typeDefs.any fun t =>
+        t.moduleName == d.moduleName &&
+        (match t.sourceInfo with
+         | some tr => coversRange tr r
+         | none => false)
+  -- Auto-named instances synthesized inside a type definition = deriving output.
+  let mut derived : Std.HashSet Name := {}
+  for d in decls do
+    if d.kind == .instance && insideTypeDef d then
+      derived := derived.insert d.name
+  -- Backing members of a derived instance (e.g. `instReprPoint.repr`).
+  let mut result := derived
+  for d in decls do
+    if insideTypeDef d && derived.contains d.name.getPrefix then
+      result := result.insert d.name
+  return result
+
 /-- Get all project declarations from an environment. `gameHeads` is threaded to
 `analyzeDecl` for `codomainShape` (default placeholder until Commit 3's catalogue). -/
 def getProjectDecls (env : Environment) (projectModules : Array Name)

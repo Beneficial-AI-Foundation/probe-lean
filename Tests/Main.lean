@@ -37,6 +37,83 @@ def testConstants (result : TestResult) : IO TestResult := do
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
   return result
 
+def testCoversRange (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing coversRange..."
+  let r (s e : Nat) : CodeTextInfo := { linesStart := s, linesEnd := e }
+  -- strict interior
+  result ← test "interior" (coversRange (r 10 20) (r 12 15)) result
+  -- shared boundary (deriving collapsed onto type's last line) still covered
+  result ← test "shared end boundary" (coversRange (r 63 69) (r 69 69)) result
+  result ← test "shared start boundary" (coversRange (r 63 69) (r 63 65)) result
+  -- identical range is excluded
+  result ← test "equal range excluded" (!coversRange (r 63 69) (r 63 69)) result
+  -- outside / partial overlap not covered (the DecidableEq-after-type case)
+  result ← test "after type" (!coversRange (r 63 69) (r 71 75)) result
+  result ← test "partial overlap" (!coversRange (r 63 69) (r 68 72)) result
+  result ← test "disjoint" (!coversRange (r 10 20) (r 30 40)) result
+  return result
+
+def testAxiomReachability (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing sorry-axiom reachability (reaches / reachingNames)..."
+  -- Fabricated dependency graph exercising the risky traversal logic: direct hit,
+  -- transitive hit, no hit, self-cycle, a cycle that still reaches the target, a
+  -- pure cycle, and a diamond (shared subtree must be memoized, not miscounted).
+  let children : Lean.Name → Array Lean.Name := fun n => match n with
+    | `a => #[`b]
+    | `b => #[`SORRY]
+    | `c => #[`d]
+    | `e => #[`e]              -- self-cycle, never reaches target
+    | `f => #[`g, `SORRY]
+    | `g => #[`f]              -- cycle, but f reaches target
+    | `h => #[`i]
+    | `i => #[`h]              -- pure cycle, no target
+    | `x => #[`y, `z]          -- diamond
+    | `y => #[`SORRY]
+    | `z => #[`w]
+    | _  => #[]
+  let R := reaches children `SORRY
+  result ← test "transitive hit" (R `a) result
+  result ← test "no hit" (!R `c) result
+  result ← test "self-cycle, no hit" (!R `e) result
+  result ← test "cycle reaching target (f)" (R `f) result
+  result ← test "cycle reaching target (g via f)" (R `g) result
+  result ← test "pure cycle, no hit" (!R `h) result
+  result ← test "diamond hit via y" (R `x) result
+  result ← test "target itself" (R `SORRY) result
+  let flagged := reachingNames children `SORRY #[`a, `c, `e, `x, `h]
+  result ← test "reachingNames selects reachers only"
+    (flagged.contains `a && flagged.contains `x &&
+     !flagged.contains `c && !flagged.contains `e && !flagged.contains `h) result
+  return result
+
+def testDerivedInstanceClusterNames (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing derivedInstanceClusterNames..."
+  let mk (name : Lean.Name) (kind : DeclKind) (s e : Nat) : DeclInfo :=
+    { name, displayName := getDisplayName name, moduleName := `Test, kind,
+      dependencies := #[], typeDependencies := #[], termDependencies := #[],
+      sourceInfo := some { linesStart := s, linesEnd := e } }
+  let decls : Array DeclInfo := #[
+    mk `Foo .structure 10 15,                 -- the type
+    mk `instReprFoo .instance 15 15,          -- derived instance (inside) → selected
+    mk `instReprFoo.repr .def 15 15,          -- backing member (prefix is derived) → selected
+    mk `Foo.field .projection 12 12,          -- projection: handled separately, NOT here
+    mk `Foo.helper .def 11 11,                -- plain member inside type → not selected
+    mk `instBar .instance 20 22 ]             -- hand-written top-level instance → not selected
+  let got := derivedInstanceClusterNames decls
+  result ← test "derived instance selected" (got.contains `instReprFoo) result
+  result ← test "backing member selected" (got.contains `instReprFoo.repr) result
+  result ← test "projection not selected" (!got.contains `Foo.field) result
+  result ← test "plain inside-type member not selected" (!got.contains `Foo.helper) result
+  result ← test "hand-written top-level instance not selected" (!got.contains `instBar) result
+  result ← test "type itself not selected" (!got.contains `Foo) result
+  return result
+
 def testAnalysisHelpers (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -287,16 +364,31 @@ def testAtomizeHelpers (result : TestResult) : IO TestResult := do
     codeText := none
     kind := .def
   }
+  -- Pre-flagged atom (e.g. an auto-detected generated atom): markAtomFlags must
+  -- OR, not overwrite — the config pass adds to automatic detection.
+  let preFlagged : Atom := {
+    name := "probe:Test.instReprFoo"
+    displayName := "instReprFoo"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Test.lean"
+    codeText := none
+    kind := .instance
+    isHidden := true
+    isExtractionArtifact := true
+  }
   let hiddenList : Array String := #["Test.foo"]
   let artifactSuffixes : Array String := #["_body", "_loop"]
   let ignoredList : Array String := #["Test.ignored_func"]
-  let markedAtoms := markAtomFlags #[testAtomForHidden, testAtomForHidden2, testAtomArtifact, testAtomIgnored] hiddenList artifactSuffixes ignoredList
+  let markedAtoms := markAtomFlags #[testAtomForHidden, testAtomForHidden2, testAtomArtifact, testAtomIgnored, preFlagged] hiddenList artifactSuffixes ignoredList
   result ← test "marked atom is hidden" markedAtoms[0]!.isHidden result
   result ← test "unmarked atom is not hidden" (!markedAtoms[1]!.isHidden) result
   result ← test "artifact atom is extraction artifact" markedAtoms[2]!.isExtractionArtifact result
   result ← test "non-artifact atom is not extraction artifact" (!markedAtoms[0]!.isExtractionArtifact) result
   result ← test "ignored atom is ignored" markedAtoms[3]!.isIgnored result
   result ← test "non-ignored atom is not ignored" (!markedAtoms[0]!.isIgnored) result
+  result ← test "pre-set hidden survives (OR, not overwrite)" markedAtoms[4]!.isHidden result
+  result ← test "pre-set artifact survives (OR, not overwrite)" markedAtoms[4]!.isExtractionArtifact result
   return result
 
 def testComputeSpecs (result : TestResult) : IO TestResult := do
@@ -3423,6 +3515,30 @@ def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
   result ← test "UnifiedAtom transitively-verified round-trips" tvRtOk result
   return result
 
+/-- Regression guard for the mark-not-drop fix: a theorem T that reaches an
+    unverified U *only through* a derived instance I must NOT be reported as
+    `transitively-verified`. Dropping I (removing it from the atom set while T still
+    lists it as a dep) is exactly what would falsely upgrade T — so this pins why
+    generated atoms are hidden, not dropped. -/
+def testDropRegression (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing mark-not-drop contamination (T → I → U)..."
+  let u := mkUnified "U" #[] (some .unverified)
+  let i := mkUnified "I" #["U"] (some .verified)     -- derived instance, locally verified
+  let t := mkUnified "T" #["I"] (some .verified)
+  -- I present: contamination U → I → T, so T is held at `verified` (sound).
+  let (kept, _, _, _) := enrichTransitiveVerification #[t, i, u]
+  result ← test "I kept → T stays verified (not upgraded)"
+    (getVS (findUA kept "T").get! == some .verified) result
+  result ← test "I kept → I stays verified (contaminated)"
+    (getVS (findUA kept "I").get! == some .verified) result
+  -- I dropped (T still lists it): the U → I → T path is severed → T wrongly upgraded.
+  let (dropped, _, _, _) := enrichTransitiveVerification #[t, u]
+  result ← test "I dropped → T wrongly transitively-verified (the avoided bug)"
+    (getVS (findUA dropped "T").get! == some .transitivelyVerified) result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -3496,6 +3612,10 @@ def main : IO UInt32 := do
   result ← testTransitiveVerificationProperties result
   result ← testPartitionMissingDeps result
   result ← testTransitiveVerificationJson result
+  result ← testCoversRange result
+  result ← testAxiomReachability result
+  result ← testDerivedInstanceClusterNames result
+  result ← testDropRegression result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

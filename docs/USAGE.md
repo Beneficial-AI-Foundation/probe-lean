@@ -85,6 +85,30 @@ For VCVio-based cryptographic projects, `extract` additionally classifies declar
 `classification` object (see [SCHEMA.md](SCHEMA.md#security-protocol-classification)). Schemes not
 named `*Scheme`/`*Alg` must carry `@[scheme_def]` (import `ProbeLean.Attrs`) to be detected.
 
+`extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters and
+structure/class projections — as `is-hidden` + `is-extraction-artifact`, so `viewify` and the web UI
+omit it. These atoms stay in the dependency graph, so transitive-verification remains sound.
+
+### `check-axioms`
+
+Audit a Lean 4 project: report every declaration (of those `extract` would emit as an atom) whose
+*complete* transitive closure reaches the `sorryAx` axiom.
+
+```
+probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
+```
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--module <PREFIX>` | `-m` | Filter to specific module prefix |
+| `--library <LIBS>` | `-l` | Comma-separated library names to build **and** restrict analysis to |
+
+This is the kernel ground truth for "rests on a `sorry`", walked via `Lean`'s constant closure
+(generated code included) and therefore independent of probe-lean's own dependency graph. Use it to
+cross-check `extract`: no atom marked `"transitively-verified"` should appear in this list. The audit
+walks each declaration's closure (`O(declarations × closure size)`), so on Mathlib-scale projects use
+`-m`/`-l` to narrow scope.
+
 ---
 
 ## Walkthrough: Analyzing Real Projects

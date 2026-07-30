@@ -7,10 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `check-axioms` command: audits a project and reports every declaration (of those
+  `extract` emits as atoms) whose transitive closure reaches the `sorryAx` axiom —
+  the kernel ground truth for "rests on a `sorry`", independent of the extract
+  dependency graph. Supports `-m`/`-l` scoping. New `ProbeLean/AxiomCheck.lean`.
+
 ### Changed
 
 - Bumped schema-version to 3.0 (breaking) to align with the ecosystem-wide major
   bump for the is-disabled→untracked atom field rename.
+- `extract` now auto-flags Lean-generated code — `deriving`-generated instance
+  clusters and structure/class projections — as `is-hidden` + `is-extraction-artifact`,
+  so `viewify` and the web UI omit it from the presented graph. These atoms remain in
+  the dependency graph, so transitive-verification stays sound. **Note:** `viewify`
+  output no longer includes projection or derived-instance nodes.
+- `markAtomFlags` now ORs the `is-hidden` / `is-extraction-artifact` flags with any
+  already set, so config-based flagging adds to (rather than overwrites) the automatic
+  detection above.
 
 ## [0.9.6] - 2026-07-17
 
