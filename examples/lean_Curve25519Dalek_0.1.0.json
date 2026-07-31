@@ -38,6 +38,9 @@
    "code-module": "Curve25519Dalek.Aux"
   },
   "probe:Array.getElem_eq_getElem!": {
+   "codomain-head": "Eq",
+   "codomain-is-prop": false,
+   "codomain-last-arg-is-bool": false,
    "verification-status": "verified",
    "type-dependencies": [],
    "term-dependencies": [
@@ -213,6 +216,8 @@
    "code-module": "Curve25519Dalek.Aux"
   },
   "probe:BitList.Equiv": {
+   "codomain-is-prop": true,
+   "codomain-last-arg-is-bool": false,
    "verification-status": "verified",
    "type-dependencies": [],
    "term-dependencies": [],
@@ -910,6 +915,9 @@
    "code-module": "Curve25519Dalek.Math.BitList"
   },
   "probe:BitList.ofNat": {
+   "codomain-head": "List",
+   "codomain-is-prop": false,
+   "codomain-last-arg-is-bool": true,
    "verification-status": "verified",
    "type-dependencies": [],
    "term-dependencies": [],

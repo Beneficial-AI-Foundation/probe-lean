@@ -106,9 +106,9 @@ Do **not** hardcode version strings anywhere else — use `ProbeLean.version` (o
 - `ProbeLean/Version.lean` — Single version constant, generated from `lakefile.toml`
 - `ProbeLean/Types.lean` — All data structures and JSON serialization
 - `ProbeLean/View.lean` — `viewify` command (filters atoms → molecules for web UI)
-- `ProbeLean/Attrs.lean` — Shared tag attributes (`@[primary_spec]`, `@[externally_verified]`, and the security-protocol tags `@[scheme_def]`/`@[construction_def]`/`@[correctness_spec]`/`@[security_spec]`)
-- `ProbeLean/Classify/Catalogue.lean` — VCVio anchor catalogue (FQN sets) + drift diagnostic, for security-protocol classification
-- `ProbeLean/Classify/SecurityProtocol.lean` — Pure classifier: `scheme → construction → {correctness, security}` (run from `runAnalysisViaLakeEnv` when the `security-protocol` class is detected)
+- `ProbeLean/Attrs.lean` — Shared tag attributes (`@[primary_spec]`, `@[externally_verified]`, and the four classification tag hooks `@[scheme_def]`/`@[construction_def]`/`@[correctness_spec]`/`@[security_spec]`, kept registered for target projects but interpreted by the external `probe-vcvio` tool, not probe-lean)
+
+Security-protocol (VCVio) classification is **not** in probe-lean — it lives in the sibling `probe-vcvio` tool, which consumes probe-lean's envelope. probe-lean emits neutral `codomain-head`/`codomain-is-prop`/`codomain-last-arg-is-bool` facts (`ProbeLean/Analysis.lean`: `codomainHeadOf`, `codomainIsPropOf`, `lastArgIsBool`) that probe-vcvio uses to reconstruct the codomain shape.
 
 ### Key design decisions
 

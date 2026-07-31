@@ -26,8 +26,14 @@ initialize externallyVerifiedAttr : TagAttribute ←
     "Marks a theorem as externally verified (sorry is intentional)."
 
 -- ============================================================
--- Security-protocol classification tags (authoritative `via: attribute`).
--- See docs/classification-security-protocol.md.
+-- Security-protocol classification tag hooks.
+--
+-- These four tags are *registered* here so target projects that
+-- `import ProbeLean.Attrs` can annotate declarations with them, but probe-lean
+-- itself no longer interprets them: the security-protocol classifier lives in
+-- the standalone `probe-vcvio` tool, which reads the tags back off the generic
+-- `attributes` array that `probe-lean extract` emits. Kept here (rather than in
+-- a separate shim) so existing target projects need no migration.
 -- ============================================================
 
 /-- `@[scheme_def]` marks a declaration as a cryptographic *scheme* — the

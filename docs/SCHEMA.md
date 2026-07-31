@@ -57,7 +57,10 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "rust-source": null,
       "specs": ["probe:ArkLib.SumCheck.Protocol.Prover.prove_spec"],
       "primary-spec": "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec",
-      "verification-status": "verified"
+      "verification-status": "verified",
+      "codomain-head": "ArkLib.SumCheck.Protocol.Prover.State",
+      "codomain-is-prop": false,
+      "codomain-last-arg-is-bool": false
     },
     "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec": {
       "display-name": "prove_spec",
@@ -302,38 +305,15 @@ Each value contains all atom fields plus verification status and specs:
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. |
 | `verification-status` | string or absent | `"transitively-verified"`, `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. A declaration is `"verified"` if its own body does not contain `sorry`; it is upgraded to `"transitively-verified"` if, additionally, all its transitive dependencies are verified or trusted (computed via reverse-BFS contamination, skippable with `--skip-enrich`). Declarations that are locally sorry-free but have at least one unverified or failed transitive dependency remain `"verified"`. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
 | `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"externally_verified"` (declaration tagged `@[externally_verified]` — proof discharged outside Lean), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |
-| `classification` | object or absent | Security-protocol classification (absent unless the project class is `security-protocol` and the atom is classified). See *Security-protocol classification* below. |
+| `codomain-head` | string or absent | Fully-qualified head constant of the declaration's result type (after stripping `∀`/`→` binders), if the head is a constant. Absent otherwise. A neutral fact about the declaration's shape; a downstream tool can combine it with its own catalogue to classify the codomain. |
+| `codomain-is-prop` | boolean | The result type is `Sort 0` (a `Prop`). |
+| `codomain-last-arg-is-bool` | boolean | The final application argument of the result type is the constant `Bool`. |
 
-### Security-protocol classification
-
-For VCVio-based cryptographic projects, probe-lean classifies each declaration into a
-`scheme → construction → {correctness, security}` hierarchy so a consumer can render an
-accordion. This is **additive**: two optional fields appear, and only when a project class is
-detected — non-class projects are byte-identical to before.
-
-- Envelope **`source.class`** — the detected project class (currently `"security-protocol"`).
-  Absent when no class is detected. Resolved by precedence: `extract --class <name>` override >
-  Lake manifest (package-level VCVio dependency) > imported-module signal.
-- Per-atom **`classification`** — an object, **absent** (not `null`) when the atom is unclassified:
-
-  | field | type | meaning |
-  |-------|------|---------|
-  | `category` | string | `scheme`, `construction`, `correctness`, `security`, or `ambiguous` |
-  | `via` | string | how it was determined — `attribute`, `type`, or `naming` (the *weakest* signal in the chain) |
-  | `scheme` | string or array, or absent | code-name(s) of the scheme this atom is about — present when resolvable |
-  | `construction` | string or array, or absent | code-name(s) of the construction a property is about — present when resolvable |
-
-  `category: "ambiguous"` marks an atom recognised as a crypto *property* whose
-  correctness-vs-security axis could not be decided — an equal-depth reachability tie (e.g. a
-  reduction theorem referencing both a correctness assumption and a security advantage),
-  conflicting `@[correctness_spec]`/`@[security_spec]` tags, or a name matching both patterns. It still carries its links; resolve it
-  with an explicit tag. Link fields are **fail-closed**: a string when uniquely resolved, an array
-  when genuinely ambiguous, and absent when unresolvable (links never reference non-emitted atoms,
-  e.g. an imported VCVio scheme). Schemes that are not conventionally named (`*Scheme`/`*Alg`) are
-  not auto-detected and must carry `@[scheme_def]`.
-
-  Full design, signals, and the anchor catalogue:
-  [docs/classification-security-protocol.md](classification-security-protocol.md).
+The `codomain-*` fields are neutral, domain-agnostic primitives emitted for every atom. They
+replace the earlier `classification` object: security-protocol classification now lives in the
+standalone [`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio) tool, which
+consumes this envelope and reconstructs the codomain shape from these primitives plus its own
+catalogue. probe-lean no longer emits `classification` or `source.class`.
 
 ### `probe-lean/viewify` (molecules)
 
