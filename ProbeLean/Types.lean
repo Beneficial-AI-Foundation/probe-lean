@@ -348,7 +348,7 @@ structure Atom where
   language : String := "lean"
   isHidden : Bool := false
   isLeanGenerated : Bool := false
-  isAenesGenerated : Bool := false
+  isAeneasGenerated : Bool := false
   isIgnored : Bool := false
   isRelevant : Bool := true
   isInPackage : Bool := true
@@ -373,7 +373,7 @@ instance : Lean.ToJson Atom where
       ("language", Lean.toJson atom.language),
       ("is-hidden", Lean.toJson atom.isHidden),
       ("is-lean-generated", Lean.toJson atom.isLeanGenerated),
-      ("is-aeneas-generated", Lean.toJson atom.isAenesGenerated),
+      ("is-aeneas-generated", Lean.toJson atom.isAeneasGenerated),
       ("is-ignored", Lean.toJson atom.isIgnored),
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("is-in-package", Lean.toJson atom.isInPackage),
@@ -402,7 +402,7 @@ instance : Lean.FromJson Atom where
     let language ← json.getObjValAs? String "language" <|> pure "lean"
     let isHidden ← json.getObjValAs? Bool "is-hidden" <|> pure false
     let isLeanGenerated ← json.getObjValAs? Bool "is-lean-generated" <|> pure false
-    let isAenesGenerated ← json.getObjValAs? Bool "is-aeneas-generated" <|> pure false
+    let isAeneasGenerated ← json.getObjValAs? Bool "is-aeneas-generated" <|> pure false
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let isInPackage ← json.getObjValAs? Bool "is-in-package" <|> pure true
@@ -411,7 +411,7 @@ instance : Lean.FromJson Atom where
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
     let isPrimarySpec ← json.getObjValAs? Bool "is-primary-spec" <|> pure false
     let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAenesGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec }
 
 /-- Output format for atoms - an object keyed by atom name -/
 structure AtomsOutput where
@@ -567,7 +567,7 @@ structure UnifiedAtom where
   language : String := "lean"
   isHidden : Bool := false
   isLeanGenerated : Bool := false
-  isAenesGenerated : Bool := false
+  isAeneasGenerated : Bool := false
   isIgnored : Bool := false
   isRelevant : Bool := true
   isInPackage : Bool := true
@@ -595,7 +595,7 @@ instance : Lean.ToJson UnifiedAtom where
       ("language", Lean.toJson atom.language),
       ("is-hidden", Lean.toJson atom.isHidden),
       ("is-lean-generated", Lean.toJson atom.isLeanGenerated),
-      ("is-aeneas-generated", Lean.toJson atom.isAenesGenerated),
+      ("is-aeneas-generated", Lean.toJson atom.isAeneasGenerated),
       ("is-ignored", Lean.toJson atom.isIgnored),
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("is-in-package", Lean.toJson atom.isInPackage),
@@ -633,7 +633,7 @@ instance : Lean.FromJson UnifiedAtom where
     let language ← json.getObjValAs? String "language" <|> pure "lean"
     let isHidden ← json.getObjValAs? Bool "is-hidden" <|> pure false
     let isLeanGenerated ← json.getObjValAs? Bool "is-lean-generated" <|> pure false
-    let isAenesGenerated ← json.getObjValAs? Bool "is-aeneas-generated" <|> pure false
+    let isAeneasGenerated ← json.getObjValAs? Bool "is-aeneas-generated" <|> pure false
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let isInPackage ← json.getObjValAs? Bool "is-in-package" <|> pure true
@@ -645,7 +645,7 @@ instance : Lean.FromJson UnifiedAtom where
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
     let trustedReason ← json.getObjValAs? (Option String) "trusted-reason" <|> pure none
     let classification ← json.getObjValAs? (Option Classification) "classification" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAenesGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, classification }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, classification }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

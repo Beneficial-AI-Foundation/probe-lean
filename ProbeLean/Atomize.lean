@@ -51,7 +51,7 @@ def loadIsHiddenList (userConfig : Option Lean.Json) : Array String :=
 /-- Load the extraction-artifact-suffixes list from .verilib/probes/config.json.
     Reads the `extraction-artifact-suffixes` config key for backward compatibility
     but now feeds the `is-aeneas-generated` field. -/
-def loadAenesGeneratedSuffixes (userConfig : Option Lean.Json) : Array String :=
+def loadAeneasGeneratedSuffixes (userConfig : Option Lean.Json) : Array String :=
   match userConfig with
   | none => #[]
   | some userObj =>
@@ -81,16 +81,16 @@ def loadRelevantCrate (userConfig : Option Lean.Json) : String :=
 def hasAnySuffix (name : String) (suffixes : Array String) : Bool :=
   suffixes.any fun suffix => name.endsWith suffix
 
-/-- Set isHidden, isAenesGenerated, and isIgnored fields on atoms based on config -/
-def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (aenesGeneratedSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
+/-- Set isHidden, isAeneasGenerated, and isIgnored fields on atoms based on config -/
+def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (aeneasGeneratedSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
   atoms.map fun atom =>
     let nameWithoutPrefix := stripProbePrefix atom.name
     -- OR with any flag already set (e.g. auto-detected generated code), so config
     -- adds to rather than overwrites automatic detection.
     let isHidden := atom.isHidden || hiddenList.contains nameWithoutPrefix
-    let isAenesGenerated := atom.isAenesGenerated || hasAnySuffix nameWithoutPrefix aenesGeneratedSuffixes
+    let isAeneasGenerated := atom.isAeneasGenerated || hasAnySuffix nameWithoutPrefix aeneasGeneratedSuffixes
     let isIgnored := ignoredList.contains nameWithoutPrefix
-    { atom with isHidden := isHidden, isAenesGenerated := isAenesGenerated, isIgnored := isIgnored }
+    { atom with isHidden := isHidden, isAeneasGenerated := isAeneasGenerated, isIgnored := isIgnored }
 
 /-- Attributes from verification frameworks that indicate a theorem is a
     primary specification. Used as a signal in primary-spec detection.

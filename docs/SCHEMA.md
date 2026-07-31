@@ -243,7 +243,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
 | `is-in-package` | bool | Whether the declaration belongs to the current package (not an imported dependency) |
 | `is-relevant` | bool | Whether the declaration is relevant for analysis (see computation rules below) |
-| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for lean-generated atoms that are not `transitively-verified` (so contaminated instances remain visible). |
+| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for *contaminated* lean-generated atoms — locally verified but not `transitively-verified`, or `unverified`/`failed` (so they remain visible for tracing); `transitively-verified` and `trusted` generated atoms stay hidden. |
 | `is-lean-generated` | bool | Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
 | `is-aeneas-generated` | bool | Name ends with suffix from `extraction-artifact-suffixes` config (Aeneas scaffolding) |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
@@ -256,7 +256,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 |-------|--------|---------|
 | `is-in-package` | **AUTO** | Always `true` for atoms emitted by probe-lean, since only declarations from the project's own modules are extracted. Provided as a generic signal for downstream tools. |
 | `is-relevant` | **AUTO / CONFIG** | Defaults to `true` for all in-package declarations. When `relevant-crate` is set in `.verilib/probes/config.json`, declarations with `rust-source` are filtered to only those whose source matches the configured crate. |
-| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for lean-generated atoms. After transitive enrichment, `is-hidden` is cleared on lean-generated atoms not `transitively-verified` so contaminated instances remain visible. |
+| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for lean-generated atoms. After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`); `transitively-verified` and `trusted` generated atoms stay hidden. |
 | `is-lean-generated` | **AUTO** | Auto-detected for `deriving`-generated instance clusters and structure/class projections. |
 | `is-aeneas-generated` | **CONFIG** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json`. probe-lean checks if the declaration name ends with any configured suffix. |
 | `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |

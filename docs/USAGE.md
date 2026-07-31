@@ -88,8 +88,9 @@ named `*Scheme`/`*Alg` must carry `@[scheme_def]` (import `ProbeLean.Attrs`) to 
 `extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters and
 structure/class projections — as `is-hidden` + `is-lean-generated`, so `viewify` and the web UI
 omit it. These atoms stay in the dependency graph, so transitive-verification remains sound.
-After transitive enrichment, `is-hidden` is cleared on lean-generated atoms that are not
-`transitively-verified`, so contaminated instances remain visible for tracing.
+After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms —
+locally verified but not `transitively-verified`, or `unverified`/`failed` — so they remain
+visible for tracing. Clean (`transitively-verified`) and `trusted` generated atoms stay hidden.
 
 ### `check-axioms`
 
