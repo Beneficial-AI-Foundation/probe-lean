@@ -1,9 +1,11 @@
 /-
   CLI entry point for probe-lean.
-  Two commands: extract (combined atomize+specify+sorry detection) and viewify (molecules output).
+  Commands: extract (combined atomize+specify+sorry detection), viewify (molecules
+  output), and check-axioms (transitive sorryAx audit).
 -/
 import Cli
 import ProbeLean.Extract
+import ProbeLean.CheckAxioms
 import ProbeLean.View
 import ProbeLean.Version
 
@@ -66,6 +68,27 @@ def extractCmd : Cmd := `[Cli|
     projectPath : String; "Path to the Lean 4 project to analyze"
 ]
 
+/-- Run the check-axioms command -/
+def runCheckAxioms (parsed : Parsed) : IO UInt32 := do
+  let projectPath := normalizePath (parsed.positionalArg! "projectPath" |>.as! String)
+  let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
+  let libraries := parsed.flag? "library" |>.map fun f =>
+    (f.as! String).splitOn "," |>.map (fun s => s.trimAscii.toString) |>.toArray
+  runCheckAxiomsInProject projectPath libraries moduleFilter
+
+/-- The check-axioms subcommand -/
+def checkAxiomsCmd : Cmd := `[Cli|
+  "check-axioms" VIA runCheckAxioms; ["0.0.0"]
+  "Audit a Lean 4 project: report declarations whose transitive closure depends on `sorryAx`"
+
+  FLAGS:
+    m, module : String; "Filter to specific module prefix"
+    l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
+
+  ARGS:
+    projectPath : String; "Path to the Lean 4 project to audit"
+]
+
 /-- Run the viewify command -/
 def runView (parsed : Parsed) : IO UInt32 := do
   let projectPath := normalizePath (parsed.positionalArg! "projectPath" |>.as! String)
@@ -107,7 +130,8 @@ def probeleanCmd : Cmd :=
 
     SUBCOMMANDS:
       extractCmd;
-      viewCmd
+      viewCmd;
+      checkAxiomsCmd
   ]).withVersion ProbeLean.version
 
 /-- Entry point -/

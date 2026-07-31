@@ -156,14 +156,18 @@ def duplicateAtomNames (atoms : Array Atom) : Array String := Id.run do
   let dups := counts.toList.filterMap fun (name, n) => if n > 1 then some name else none
   return dups.toArray.qsort (· < ·)
 
-/-- Run the combined extract pipeline: build → atomize → markAtomFlags → specs → sorry detection → merge → enrich → envelope → write -/
-def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
-  if !(← isLakeProject config.projectPath) then
-    IO.eprintln s!"Error: Not a Lake project: {config.projectPath}"
-    return 1
+/-- Build (honouring the cache) and discover/select the project's modules.
+    Shared by `runExtractInProject` and the `check-axioms` command so the audit path
+    and the extraction path can't drift on nix detection, build, or module selection.
+    Returns `(selected modules, nix mode, captured build output)`, or an exit code. -/
+def prepareProject (projectPath : System.FilePath) (libraries : Option (Array String))
+    (moduleFilter : Option String) : IO (Except UInt32 (Array ProjectModule × Option NixMode × String)) := do
+  if !(← isLakeProject projectPath) then
+    IO.eprintln s!"Error: Not a Lake project: {projectPath}"
+    return .error 1
 
   let nixMode ← do
-    match ← detectNixShell config.projectPath with
+    match ← detectNixShell projectPath with
     | some mode =>
       if ← isNixAvailable mode then
         IO.println s!"Nix environment detected ({mode}.nix), lake commands will run inside it."
@@ -177,58 +181,55 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     | none => pure none
 
   let probeLeanVersion := Lean.versionString
-  let targetTC ← readToolchain config.projectPath
+  let targetTC ← readToolchain projectPath
   let targetVersionStr := match targetTC with
     | some tc => parseToolchainVersion tc
     | none    => "unknown (no lean-toolchain file)"
   IO.println s!"probe-lean built with Lean {probeLeanVersion}, target project uses {targetVersionStr}"
 
-  let libs ← match config.libraries with
+  let libs ← match libraries with
     | some ls => pure ls
-    | none => getLeanLibs config.projectPath
+    | none => getLeanLibs projectPath
 
-  let buildOutput ← if ← isCacheValid config.projectPath then
+  let buildOutput ← if ← isCacheValid projectPath then
     IO.println "Build cache is up-to-date, skipping lake build..."
-    match ← loadCache config.projectPath with
+    match ← loadCache projectPath with
     | some cached => pure cached
     | none => pure ""
   else do
-    ensureMathlibCache config.projectPath nixMode
+    ensureMathlibCache projectPath nixMode
     let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
     if !libs.isEmpty then
       IO.println s!"Building libraries: {", ".intercalate libs.toList}"
-    IO.println s!"Building project at {config.projectPath}..."
-    let (buildStdout, buildStderr, buildExit) ← runLakeCmd buildArgs (some config.projectPath) nixMode
+    IO.println s!"Building project at {projectPath}..."
+    let (buildStdout, buildStderr, buildExit) ← runLakeCmd buildArgs (some projectPath) nixMode
     if buildExit != 0 then
       IO.eprintln s!"Lake build failed:\n{buildStderr}"
-      return 1
+      return .error 1
     let output := buildStdout ++ "\n" ++ buildStderr
-    saveCache config.projectPath output
+    saveCache projectPath output
     pure output
 
-  -- === Step 1: Atomize ===
-  IO.println "=== Step 1/3: Atomize ==="
-
   IO.println "Getting project modules..."
-  let sourceRoots ← getSourceRoots config.projectPath
-  let modules ← match ← getProjectModules config.projectPath nixMode sourceRoots with
+  let sourceRoots ← getSourceRoots projectPath
+  let modules ← match ← getProjectModules projectPath nixMode sourceRoots with
     | .error msg =>
       IO.eprintln msg
-      return 1
+      return .error 1
     | .ok mods => pure mods
 
   if modules.isEmpty then
     IO.eprintln "Error: No modules found in project"
-    return 1
+    return .error 1
 
-  let filteredModules := selectModules modules config.libraries config.moduleFilter
+  let filteredModules := selectModules modules libraries moduleFilter
 
   -- Warn about any explicit `--library` entry that matched no built module, so a
   -- partial filter (e.g. one good name + one typo, or a name that differs from
   -- the library's actual module root) isn't applied silently. Note `--library`
   -- matches by module-name prefix, so it cannot select a library whose `roots`
   -- differ from its name (use `--module <root>` for those).
-  if let some libs := config.libraries then
+  if let some libs := libraries then
     for lib in libs do
       if !(modules.any fun m => moduleInLibraries m.name #[lib]) then
         IO.eprintln s!"Warning: --library {lib} matched no built module (it is not a module-name root)."
@@ -241,9 +242,20 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.eprintln s!"  {modules.size} module(s) were built but none matched the requested filter."
     let roots := (modules.map fun m => (m.name.toString.splitOn ".").headD m.name.toString).toList.eraseDups
     IO.eprintln s!"  Available top-level module roots: {", ".intercalate roots}"
-    return 1
+    return .error 1
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
+  return .ok (filteredModules, nixMode, buildOutput)
+
+/-- Run the combined extract pipeline: build → atomize → markAtomFlags → specs → sorry detection → merge → enrich → envelope → write -/
+def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
+  let (filteredModules, nixMode, buildOutput) ←
+    match ← prepareProject config.projectPath config.libraries config.moduleFilter with
+    | .error code => return code
+    | .ok r => pure r
+
+  -- === Step 1: Atomize ===
+  IO.println "=== Step 1/3: Atomize ==="
 
   let userConfig ← loadUserConfig config.projectPath
   let crate := loadRelevantCrate userConfig

@@ -129,6 +129,7 @@ For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **
 | Command | Description |
 |---------|-------------|
 | `extract` | Analyze a Lean 4 project: extract atoms, detect sorries, compute specs |
+| `check-axioms` | Audit a project: report declarations transitively depending on `sorryAx` |
 
 ### `extract`
 
@@ -145,6 +146,22 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--from-file <FILE>` | Use existing build output for sorry detection |
 | `--skip-enrich` | Skip transitive verification enrichment (no `"transitively-verified"` status) |
 | `--class <NAME>` | Override the detected project class (e.g. `security-protocol`) |
+
+### `check-axioms`
+
+```bash
+probe-lean check-axioms <PROJECT_PATH> [-m <PREFIX>] [-l <LIBS>]
+```
+
+Builds and imports the project, then lists every declaration whose *complete*
+transitive closure reaches the `sorryAx` axiom — the kernel ground truth for
+"rests on a `sorry`", independent of the extract dependency graph. Use it to
+cross-check `extract` output: no atom marked `"transitively-verified"` should
+appear here (if one does, the emitted graph lost a contamination path).
+
+> Note: the audit walks each declaration's axiom closure independently
+> (`O(declarations × closure size)`), so on very large projects (Mathlib-scale
+> closures) it can be slow. Use `-m`/`-l` to narrow the scope.
 
 ### Security-protocol classification
 
@@ -201,7 +218,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
-3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`)
+3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`), and auto-flags Lean-generated code — `deriving`-generated instance clusters and structure/class projections — as `is-hidden` + `is-extraction-artifact` so `viewify` and the web UI omit it. Such atoms are **kept in the dependency graph** (so transitive-verification stays sound), only hidden from the presented view
 4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
     2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
