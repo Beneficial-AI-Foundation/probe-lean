@@ -45,10 +45,10 @@ def parseLines (lines : String) : CodeTextInfo :=
       { linesStart := n, linesEnd := n }
     | _ => { linesStart := 0, linesEnd := 0 }
 
-/-- Filter atoms for the view: not hidden, not extraction artifact, relevant, Funs.lean -/
+/-- Filter atoms for the view: not hidden, not lean-generated, not aeneas-generated, relevant, Funs.lean -/
 def filterAtomsForView (atoms : Array Atom) : Array Atom :=
   atoms.filter fun atom =>
-    !atom.isHidden && !atom.isExtractionArtifact && atom.isRelevant
+    !atom.isHidden && !atom.isLeanGenerated && !atom.isAenesGenerated && atom.isRelevant
       && atom.codePath.endsWith "Funs.lean"
 
 /-- Generate unique keys for atoms, using short form when possible, full name when clashes occur -/
@@ -113,7 +113,7 @@ def runViewInProject (config : ViewConfig) : IO UInt32 := do
   IO.println s!"Loaded {atoms.atoms.size} atoms"
 
   let filtered := filterAtomsForView atoms.atoms
-  IO.println s!"Filtered to {filtered.size} atoms (excluding hidden, extraction artifacts, irrelevant, non-Funs.lean)"
+  IO.println s!"Filtered to {filtered.size} atoms (excluding hidden, lean-generated, aeneas-generated, irrelevant, non-Funs.lean)"
 
   let output := generateMoleculesOutput filtered
   let timestamp ← getCurrentTimestamp

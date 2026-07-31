@@ -1,21 +1,21 @@
-# Schema 3.0: Lean Instantiation
+# Schema 4.0: Lean Instantiation
 
-Version: 3.0
+Version: 4.0
 Date: 2026-05-22
 Parent document: [probes/docs/envelope-rationale.md](https://github.com/Beneficial-AI-Foundation/probe/blob/main/docs/envelope-rationale.md)
 
-This document defines the Lean-specific details for Schema 3.0 as produced by `probe-lean`.
+This document defines the Lean-specific details for Schema 4.0 as produced by `probe-lean`.
 It instantiates the generic envelope and atom schema from the parent document with Lean
 declaration kinds, code-name URIs, versioning, and field mappings.
 
 ## Envelope Example
 
-A complete probe-lean extract output with the Schema 3.0 envelope:
+A complete probe-lean extract output with the Schema 4.0 envelope:
 
 ```json
 {
   "schema": "probe-lean/extract",
-  "schema-version": "3.0",
+  "schema-version": "4.0",
   "tool": {
     "name": "probe-lean",
     "version": "0.4.5",
@@ -51,7 +51,8 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-in-package": true,
       "is-relevant": true,
       "is-hidden": false,
-      "is-extraction-artifact": false,
+      "is-lean-generated": false,
+      "is-aeneas-generated": false,
       "is-ignored": false,
       "rust-source": null,
       "specs": ["probe:ArkLib.SumCheck.Protocol.Prover.prove_spec"],
@@ -75,7 +76,8 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-in-package": true,
       "is-relevant": true,
       "is-hidden": false,
-      "is-extraction-artifact": false,
+      "is-lean-generated": false,
+      "is-aeneas-generated": false,
       "is-ignored": false,
       "attributes": ["primary_spec"],
       "rust-source": null,
@@ -94,7 +96,8 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-in-package": true,
       "is-relevant": true,
       "is-hidden": false,
-      "is-extraction-artifact": false,
+      "is-lean-generated": false,
+      "is-aeneas-generated": false,
       "is-ignored": false,
       "rust-source": null,
       "verification-status": "trusted",
@@ -119,7 +122,7 @@ probe-lean exposes two commands:
 
 - **`extract`**: The primary command. Combines atom extraction, specs computation,
   and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
-- **`viewify`**: Reads extract output, filters atoms (not hidden, not extraction artifact,
+- **`viewify`**: Reads extract output, filters atoms (not hidden, not lean-generated, not aeneas-generated,
   is relevant, code-path ends with `Funs.lean`), and outputs molecules to `.verilib/views/`.
 
 ## Package Versioning for Lean
@@ -240,8 +243,9 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
 | `is-in-package` | bool | Whether the declaration belongs to the current package (not an imported dependency) |
 | `is-relevant` | bool | Whether the declaration is relevant for analysis (see computation rules below) |
-| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list |
-| `is-extraction-artifact` | bool | Name ends with suffix from `extraction-artifact-suffixes` |
+| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for lean-generated atoms that are not `transitively-verified` (so contaminated instances remain visible). |
+| `is-lean-generated` | bool | Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
+| `is-aeneas-generated` | bool | Name ends with suffix from `extraction-artifact-suffixes` config (Aeneas scaffolding) |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
 | `attributes` | array of strings | Lean tag attributes detected on this declaration (absent when empty) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
@@ -252,13 +256,14 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 |-------|--------|---------|
 | `is-in-package` | **AUTO** | Always `true` for atoms emitted by probe-lean, since only declarations from the project's own modules are extracted. Provided as a generic signal for downstream tools. |
 | `is-relevant` | **AUTO / CONFIG** | Defaults to `true` for all in-package declarations. When `relevant-crate` is set in `.verilib/probes/config.json`, declarations with `rust-source` are filtered to only those whose source matches the configured crate. |
-| `is-hidden` | **CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`. probe-lean does not auto-detect hidden declarations. |
-| `is-extraction-artifact` | **CONFIG** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json`. probe-lean checks if the declaration name ends with any configured suffix. |
+| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for lean-generated atoms. After transitive enrichment, `is-hidden` is cleared on lean-generated atoms not `transitively-verified` so contaminated instances remain visible. |
+| `is-lean-generated` | **AUTO** | Auto-detected for `deriving`-generated instance clusters and structure/class projections. |
+| `is-aeneas-generated` | **CONFIG** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json`. probe-lean checks if the declaration name ends with any configured suffix. |
 | `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |
 | `attributes` | **AUTO** | Lean attributes detected on the declaration. Populated from two sources: (1) handle-based detection for attributes registered via `ProbeLean.Attrs` (`primary_spec`, `externally_verified`), and (2) source-level scanning of `@[...]` annotations in `.lean` files. Source scanning acts as a general fallback that works for any attribute, including those registered independently by the target project. probe-lean uses known verification-framework attributes (`progress`, `pspec`, `step`) as a signal for primary-spec detection; all other attributes are raw fact data for consumers. |
 | `rust-source` | **AUTO** | Extracted from Aeneas-generated docstrings (`Source: 'path'` pattern). `null` for declarations without Aeneas docstrings. |
 
-**Note:** The `is-hidden`, `is-extraction-artifact`, and `is-ignored` fields are set by
+**Note:** The `is-hidden`, `is-lean-generated`, `is-aeneas-generated`, and `is-ignored` fields are set by
 probe-lean from config only as a backward-compatible convenience. In the recommended
 pipeline for Aeneas projects, these fields are computed by **probe-aeneas** using
 Aeneas-specific heuristics applied to the generic facts (`attributes`, name patterns,
@@ -284,8 +289,9 @@ Each value contains all atom fields plus verification status and specs:
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
 | `is-in-package` | bool | Declaration belongs to the current package |
 | `is-relevant` | bool | Declaration is relevant for analysis |
-| `is-hidden` | bool | From config's hidden list |
-| `is-extraction-artifact` | bool | From config's artifact suffixes |
+| `is-hidden` | bool | Hidden from UI; cleared for contaminated lean-generated atoms after enrichment |
+| `is-lean-generated` | bool | Lean-generated code (deriving clusters, projections) |
+| `is-aeneas-generated` | bool | Aeneas-generated scaffolding (suffix-matched) |
 | `is-ignored` | bool | From config's ignored list |
 | `attributes` | array or absent | Lean tag attributes on this declaration. Absent when empty. |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |

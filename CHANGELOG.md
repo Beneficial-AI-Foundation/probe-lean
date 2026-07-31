@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Split `is-extraction-artifact` into `is-lean-generated` + `is-aeneas-generated`**
+  (breaking). The old field conflated two distinct origins: Lean-generated code
+  (derived instances, projections) and Aeneas-generated scaffolding (`_body`, `_loop`
+  suffixes). Each now has its own field with accurate naming.
+- **Conditional `is-hidden` for lean-generated atoms.** After transitive enrichment,
+  `is-hidden` is cleared on lean-generated atoms that are not `transitively-verified`.
+  This ensures contaminated instances remain visible in the UI so users can trace why
+  downstream atoms aren't dark green (fully verified). Clean lean-generated atoms stay
+  hidden.
+- Bumped schema-version to 4.0 (breaking): `is-extraction-artifact` replaced by
+  `is-lean-generated` + `is-aeneas-generated`, `is-hidden` semantics updated.
+- The config key `extraction-artifact-suffixes` in `.verilib/probes/config.json` now
+  feeds the `is-aeneas-generated` field (backward compatible, no config migration).
 - Bumped schema-version to 3.0 (breaking) to align with the ecosystem-wide major
   bump for the is-disabled→untracked atom field rename.
 - `extract` now auto-flags Lean-generated code — `deriving`-generated instance

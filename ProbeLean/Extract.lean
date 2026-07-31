@@ -72,7 +72,8 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     kind := atom.kind
     language := atom.language
     isHidden := atom.isHidden
-    isExtractionArtifact := atom.isExtractionArtifact
+    isLeanGenerated := atom.isLeanGenerated
+    isAenesGenerated := atom.isAenesGenerated
     isIgnored := atom.isIgnored
     isRelevant := atom.isRelevant
     isInPackage := atom.isInPackage
@@ -275,9 +276,9 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
 
   -- Mark filtering flags from .verilib/probes/config.json (bug fix: was missing in old pipeline)
   let hiddenList := loadIsHiddenList userConfig
-  let artifactSuffixes := loadExtractionArtifactSuffixes userConfig
+  let aenesGeneratedSuffixes := loadAenesGeneratedSuffixes userConfig
   let ignoredList := loadIsIgnoredList userConfig
-  let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
+  let atoms := markAtomFlags atoms hiddenList aenesGeneratedSuffixes ignoredList
   let atoms := computeSpecs atoms
 
   -- === Step 2: Sorry detection ===
@@ -329,6 +330,13 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     let notVerified := enriched.size - transitive - local_
     IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
     pure enriched
+
+  -- Lean-generated atoms that are NOT transitively-verified have their isHidden
+  -- cleared so the user can trace why downstream atoms aren't fully verified.
+  let unifiedAtoms := unifiedAtoms.map fun atom =>
+    if atom.isLeanGenerated && atom.verificationStatus != some .transitivelyVerified then
+      { atom with isHidden := false }
+    else atom
 
   let baseSource ← collectSourceInfo config.projectPath
   let source := { baseSource with sourceClass := projectClass }

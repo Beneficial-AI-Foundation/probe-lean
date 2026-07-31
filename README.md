@@ -2,7 +2,7 @@
 
 Analyze Lean 4 projects: extract dependency graphs with verification status and spec relationships.
 
-`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 3.0 envelope format; see [docs/SCHEMA.md](docs/SCHEMA.md) for the full specification.
+`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 4.0 envelope format; see [docs/SCHEMA.md](docs/SCHEMA.md) for the full specification.
 
 ## Prerequisites
 
@@ -180,7 +180,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 ```json
 {
   "schema": "probe-lean/extract",
-  "schema-version": "3.0",
+  "schema-version": "4.0",
   "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
@@ -202,7 +202,8 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
       "code-path": "MyModule.lean",
       "code-text": { "lines-start": 5, "lines-end": 8 },
       "is-hidden": false,
-      "is-extraction-artifact": false,
+      "is-lean-generated": false,
+      "is-aeneas-generated": false,
       "is-ignored": false,
       "is-relevant": true,
       "rust-source": null,
@@ -218,7 +219,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies
-3. **Filter** -- applies config-based flags (`is-hidden`, `is-extraction-artifact`, `is-ignored`, `is-relevant`), and auto-flags Lean-generated code — `deriving`-generated instance clusters and structure/class projections — as `is-hidden` + `is-extraction-artifact` so `viewify` and the web UI omit it. Such atoms are **kept in the dependency graph** (so transitive-verification stays sound), only hidden from the presented view
+3. **Filter** -- applies config-based flags (`is-hidden`, `is-lean-generated`, `is-aeneas-generated`, `is-ignored`, `is-relevant`), and auto-flags Lean-generated code — `deriving`-generated instance clusters and structure/class projections — as `is-hidden` + `is-lean-generated` so `viewify` and the web UI omit it. Such atoms are **kept in the dependency graph** (so transitive-verification stays sound), only hidden from the presented view
 4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
     2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
@@ -226,7 +227,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
     4. Sole spec — if a definition has exactly one spec theorem, it is used as primary spec
 5. **Verify** -- parses sorry warnings from build output to determine verification status (shallow: checks only the declaration's own body, not its dependencies); axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
 6. **Enrich** -- upgrades `"verified"` atoms to `"transitively-verified"` when all transitive dependencies are verified or trusted, using reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`; skippable via `--skip-enrich`)
-7. **Schema 3.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
+7. **Schema 4.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 
 ## How probe-lean decides what to analyze
 

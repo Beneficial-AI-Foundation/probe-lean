@@ -86,8 +86,10 @@ For VCVio-based cryptographic projects, `extract` additionally classifies declar
 named `*Scheme`/`*Alg` must carry `@[scheme_def]` (import `ProbeLean.Attrs`) to be detected.
 
 `extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters and
-structure/class projections — as `is-hidden` + `is-extraction-artifact`, so `viewify` and the web UI
+structure/class projections — as `is-hidden` + `is-lean-generated`, so `viewify` and the web UI
 omit it. These atoms stay in the dependency graph, so transitive-verification remains sound.
+After transitive enrichment, `is-hidden` is cleared on lean-generated atoms that are not
+`transitively-verified`, so contaminated instances remain visible for tracing.
 
 ### `check-axioms`
 
@@ -288,12 +290,12 @@ probe-lean extract ./my-project -m MyProject.Core
 
 For the complete JSON schema specification, see [SCHEMA.md](SCHEMA.md).
 
-The `extract` command produces a JSON file wrapped in a Schema 3.0 metadata envelope:
+The `extract` command produces a JSON file wrapped in a Schema 4.0 metadata envelope:
 
 ```json
 {
   "schema": "probe-lean/extract",
-  "schema-version": "3.0",
+  "schema-version": "4.0",
   "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
@@ -315,7 +317,8 @@ The `extract` command produces a JSON file wrapped in a Schema 3.0 metadata enve
       "code-path": "MyModule.lean",
       "code-text": { "lines-start": 5, "lines-end": 8 },
       "is-hidden": false,
-      "is-extraction-artifact": false,
+      "is-lean-generated": false,
+      "is-aeneas-generated": false,
       "is-ignored": false,
       "is-relevant": true,
       "rust-source": null,
@@ -336,7 +339,7 @@ For the full atom field reference and verification-status mapping, see [SCHEMA.m
 Atom filtering flags are populated from the project's `.verilib/probes/config.json`:
 
 - `is-hidden`: `true` if the atom name (without `probe:` prefix) appears in `is-hidden`
-- `is-extraction-artifact`: `true` if the atom name ends with any suffix in `extraction-artifact-suffixes`
+- `is-aeneas-generated`: `true` if the atom name ends with any suffix in `extraction-artifact-suffixes`
 - `is-ignored`: `true` if the atom name appears in `is-ignored`
 
 The `is-relevant` field is computed from `relevant-crate` and the `rust-source` field:
