@@ -45,7 +45,8 @@ def parseLines (lines : String) : CodeTextInfo :=
       { linesStart := n, linesEnd := n }
     | _ => { linesStart := 0, linesEnd := 0 }
 
-/-- Filter atoms for the view: not hidden, not lean-generated, not aeneas-generated, relevant, Funs.lean -/
+/-- Filter atoms for the view: not hidden, never lean-generated or aeneas-generated
+    (dropped regardless of `is-hidden`), relevant, and code-path ends with `Funs.lean`. -/
 def filterAtomsForView (atoms : Array Atom) : Array Atom :=
   atoms.filter fun atom =>
     !atom.isHidden && !atom.isLeanGenerated && !atom.isAeneasGenerated && atom.isRelevant

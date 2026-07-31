@@ -122,8 +122,11 @@ probe-lean exposes two commands:
 
 - **`extract`**: The primary command. Combines atom extraction, specs computation,
   and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
-- **`viewify`**: Reads extract output, filters atoms (not hidden, not lean-generated, not aeneas-generated,
-  is relevant, code-path ends with `Funs.lean`), and outputs molecules to `.verilib/views/`.
+- **`viewify`**: Reads extract output, filters atoms (not hidden, and never lean-generated
+  or aeneas-generated — dropped regardless of `is-hidden` — is relevant, code-path ends with
+  `Funs.lean`), and outputs molecules to `.verilib/views/`. Consumers that instead read the
+  `extract` output directly (e.g. the web UI) honor `is-hidden` and so surface contaminated
+  lean-generated atoms once enrichment clears their `is-hidden` (see below).
 
 ## Package Versioning for Lean
 
@@ -243,7 +246,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
 | `is-in-package` | bool | Whether the declaration belongs to the current package (not an imported dependency) |
 | `is-relevant` | bool | Whether the declaration is relevant for analysis (see computation rules below) |
-| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for *contaminated* lean-generated atoms — locally verified but not `transitively-verified`, or `unverified`/`failed` (so they remain visible for tracing); `transitively-verified` and `trusted` generated atoms stay hidden. |
+| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for *contaminated* lean-generated atoms — locally verified but not `transitively-verified`, or `unverified`/`failed` — so consumers that read `extract` output directly (e.g. the web UI) surface them for tracing; `transitively-verified` and `trusted` generated atoms stay hidden. `viewify` omits all generated atoms regardless of this flag. |
 | `is-lean-generated` | bool | Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
 | `is-aeneas-generated` | bool | Name ends with suffix from `extraction-artifact-suffixes` config (Aeneas scaffolding) |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
@@ -256,7 +259,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 |-------|--------|---------|
 | `is-in-package` | **AUTO** | Always `true` for atoms emitted by probe-lean, since only declarations from the project's own modules are extracted. Provided as a generic signal for downstream tools. |
 | `is-relevant` | **AUTO / CONFIG** | Defaults to `true` for all in-package declarations. When `relevant-crate` is set in `.verilib/probes/config.json`, declarations with `rust-source` are filtered to only those whose source matches the configured crate. |
-| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for lean-generated atoms. After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`); `transitively-verified` and `trusted` generated atoms stay hidden. |
+| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for lean-generated atoms. After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`); `transitively-verified` and `trusted` generated atoms stay hidden. Clearing surfaces them only to consumers reading `extract` output directly (e.g. the web UI); `viewify` omits all generated atoms regardless. |
 | `is-lean-generated` | **AUTO** | Auto-detected for `deriving`-generated instance clusters and structure/class projections. |
 | `is-aeneas-generated` | **CONFIG** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json`. probe-lean checks if the declaration name ends with any configured suffix. |
 | `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |

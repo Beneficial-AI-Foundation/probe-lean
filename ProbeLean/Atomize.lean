@@ -89,7 +89,7 @@ def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (aeneasGenera
     -- adds to rather than overwrites automatic detection.
     let isHidden := atom.isHidden || hiddenList.contains nameWithoutPrefix
     let isAeneasGenerated := atom.isAeneasGenerated || hasAnySuffix nameWithoutPrefix aeneasGeneratedSuffixes
-    let isIgnored := ignoredList.contains nameWithoutPrefix
+    let isIgnored := atom.isIgnored || ignoredList.contains nameWithoutPrefix
     { atom with isHidden := isHidden, isAeneasGenerated := isAeneasGenerated, isIgnored := isIgnored }
 
 /-- Attributes from verification frameworks that indicate a theorem is a

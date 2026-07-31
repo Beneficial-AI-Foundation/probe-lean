@@ -99,8 +99,10 @@ def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
     | some .verified | some .unverified | some .failed => true
     | _ => false
 
-/-- Clear `is-hidden` on contaminated lean-generated atoms so they remain visible
-    for tracing; clean (transitively-verified/trusted) generated atoms stay hidden. -/
+/-- Clear `is-hidden` on contaminated lean-generated atoms so consumers that read
+    `extract` output directly (e.g. the web UI) surface them for tracing; clean
+    (transitively-verified/trusted) generated atoms stay hidden. Note: `viewify`
+    (`filterAtomsForView`) drops all generated atoms regardless of `is-hidden`. -/
 def unhideContaminatedGenerated (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
   atoms.map fun atom =>
     if isContaminatedGenerated atom then { atom with isHidden := false } else atom

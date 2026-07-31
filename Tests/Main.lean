@@ -3637,6 +3637,30 @@ def testConditionalHiding (result : TestResult) : IO TestResult := do
   result ← test "trusted TrustedI status is trusted" (getVS trustedResult == some .trusted) result
   return result
 
+/-- `viewify` (`filterAtomsForView`) drops all generated atoms regardless of `is-hidden`:
+    the pipeline's un-hiding of contaminated lean-generated atoms is only observable to
+    consumers that read `extract` output directly, never through `viewify` molecules. -/
+def testViewFilterOmitsGenerated (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing filterAtomsForView omits generated atoms regardless of is-hidden..."
+  let base : Atom := {
+    name := "x", displayName := "x", dependencies := #[],
+    codeModule := "Test", codePath := "Test/Funs.lean",
+    codeText := some { linesStart := 1, linesEnd := 2 }, kind := .def
+  }
+  -- An unhidden (contaminated) lean-generated atom must still be dropped by viewify.
+  let genLean := { base with name := "genLean", isLeanGenerated := true, isHidden := false }
+  let genAeneas := { base with name := "genAeneas", isAeneasGenerated := true, isHidden := false }
+  let normal := { base with name := "normal" }
+  let hidden := { base with name := "hidden", isHidden := true }
+  let names := (filterAtomsForView #[genLean, genAeneas, normal, hidden]).map (·.name)
+  result ← test "viewify drops unhidden lean-generated" (!names.contains "genLean") result
+  result ← test "viewify drops unhidden aeneas-generated" (!names.contains "genAeneas") result
+  result ← test "viewify keeps normal Funs.lean atom" (names.contains "normal") result
+  result ← test "viewify drops hidden atom" (!names.contains "hidden") result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -3716,6 +3740,7 @@ def main : IO UInt32 := do
   result ← testDropRegression result
   result ← testGeneratedFieldRoundTrip result
   result ← testConditionalHiding result
+  result ← testViewFilterOmitsGenerated result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
