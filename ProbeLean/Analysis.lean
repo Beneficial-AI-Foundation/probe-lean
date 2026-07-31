@@ -239,9 +239,10 @@ result a *game*. Minimal placeholder; Commit 3's catalogue supersedes/extends
 this against the VCVio commit the protocol repos pin. -/
 def defaultGameHeads : Array Name := #[`ProbComp, `OracleComp, `SPMF]
 
-/-- True when the final application argument of `e` is the constant `Bool`. -/
-def lastArgIsBool (e : Expr) : Bool :=
-  match e.getAppArgs.back? with
+/-- True when the final application argument of the result type is the constant
+`Bool`. Strips leading ∀/→ binders internally so the caller need not do it. -/
+def lastArgIsBool (type : Expr) : Bool :=
+  match (stripForalls type).getAppArgs.back? with
   | some (.const n _) => n == `Bool
   | _ => false
 
@@ -371,7 +372,7 @@ name-prefix is such an instance) whose source range sits inside an
 `deriving` clause. Hand-written top-level instances, structure projections, and
 proof-fields are excluded.
 
-These names are marked `isExtractionArtifact` (see `markAtomFlags`), **not
+These names are marked `isLeanGenerated` (see `runAnalysisViaLakeEnv`), **not
 dropped**: the atoms stay in the dependency graph so transitive-verification
 contamination still flows through them, while `viewify` filters them from the
 web UI. Dropping them would be unsound — a surviving theorem depending on such an

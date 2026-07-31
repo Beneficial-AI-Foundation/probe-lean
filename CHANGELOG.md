@@ -16,14 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Bumped schema-version to 3.0 (breaking) to align with the ecosystem-wide major
-  bump for the is-disabled→untracked atom field rename.
-- `extract` now auto-flags Lean-generated code — `deriving`-generated instance
-  clusters and structure/class projections — as `is-hidden` + `is-extraction-artifact`,
-  so `viewify` and the web UI omit it from the presented graph. These atoms remain in
-  the dependency graph, so transitive-verification stays sound. **Note:** `viewify`
-  output no longer includes projection or derived-instance nodes.
-- `markAtomFlags` now ORs the `is-hidden` / `is-extraction-artifact` flags with any
+- **Split `is-extraction-artifact` into `is-lean-generated` + `is-aeneas-generated`**
+  (breaking). The old field conflated two distinct origins: Lean-generated code
+  (derived instances, projections) and Aeneas-generated scaffolding (`_body`, `_loop`
+  suffixes). Each now has its own field with accurate naming.
+- **Conditional `is-hidden` for lean-generated atoms.** After transitive enrichment,
+  `is-hidden` is cleared on *contaminated* lean-generated atoms — those that are
+  locally verified but not transitively verified, or are themselves unverified/failed —
+  so consumers that read `extract` output directly (e.g. the web UI) can trace why
+  downstream atoms aren't dark green (fully verified). Clean (`transitively-verified`)
+  and `trusted` lean-generated atoms stay hidden. `viewify` molecules omit all generated
+  atoms regardless of `is-hidden`.
+- Bumped schema-version to 4.0 (breaking): `is-extraction-artifact` replaced by
+  `is-lean-generated` + `is-aeneas-generated`, `is-hidden` semantics updated.
+- The config key `extraction-artifact-suffixes` in `.verilib/probes/config.json` now
+  feeds the `is-aeneas-generated` field (backward compatible, no config migration).
+- `extract` auto-flags Lean-generated code — `deriving`-generated instance clusters and
+  structure/class projections — as `is-hidden` + `is-lean-generated`, so it is omitted
+  from the presented graph (`viewify` drops all generated atoms; `extract` consumers honor
+  `is-hidden`). These atoms remain in the dependency graph, so transitive-verification
+  stays sound.
+- `markAtomFlags` now ORs the `is-hidden` / `is-aeneas-generated` flags with any
   already set, so config-based flagging adds to (rather than overwrites) the automatic
   detection above.
 

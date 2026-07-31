@@ -72,7 +72,8 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     kind := atom.kind
     language := atom.language
     isHidden := atom.isHidden
-    isExtractionArtifact := atom.isExtractionArtifact
+    isLeanGenerated := atom.isLeanGenerated
+    isAeneasGenerated := atom.isAeneasGenerated
     isIgnored := atom.isIgnored
     isRelevant := atom.isRelevant
     isInPackage := atom.isInPackage
@@ -85,6 +86,26 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     trustedReason := reason
     classification := classification
   }
+
+/-- A lean-generated atom is *contaminated* — worth surfacing so users can trace
+    why a downstream atom isn't fully verified — when, after full enrichment, it is
+    locally verified but not transitively verified (`.verified`), or is itself
+    `.unverified`/`.failed`. `.transitivelyVerified` and `.trusted` generated atoms
+    are clean and stay hidden. (Assumes enrichment ran; `--skip-enrich` is a
+    debugging path and not accounted for here.) -/
+def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
+  atom.isLeanGenerated &&
+    match atom.verificationStatus with
+    | some .verified | some .unverified | some .failed => true
+    | _ => false
+
+/-- Clear `is-hidden` on contaminated lean-generated atoms so consumers that read
+    `extract` output directly (e.g. the web UI) surface them for tracing; clean
+    (transitively-verified/trusted) generated atoms stay hidden. Note: `viewify`
+    (`filterAtomsForView`) drops all generated atoms regardless of `is-hidden`. -/
+def unhideContaminatedGenerated (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
+  atoms.map fun atom =>
+    if isContaminatedGenerated atom then { atom with isHidden := false } else atom
 
 /-- Index per-declaration classifications by the emitted atom's `probe:`-prefixed
     code-name, so the merge can attach each atom's classification in O(1). The
@@ -275,9 +296,9 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
 
   -- Mark filtering flags from .verilib/probes/config.json (bug fix: was missing in old pipeline)
   let hiddenList := loadIsHiddenList userConfig
-  let artifactSuffixes := loadExtractionArtifactSuffixes userConfig
+  let aeneasGeneratedSuffixes := loadAeneasGeneratedSuffixes userConfig
   let ignoredList := loadIsIgnoredList userConfig
-  let atoms := markAtomFlags atoms hiddenList artifactSuffixes ignoredList
+  let atoms := markAtomFlags atoms hiddenList aeneasGeneratedSuffixes ignoredList
   let atoms := computeSpecs atoms
 
   -- === Step 2: Sorry detection ===
@@ -329,6 +350,10 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     let notVerified := enriched.size - transitive - local_
     IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
     pure enriched
+
+  -- Contaminated lean-generated atoms have their isHidden cleared so the user can
+  -- trace why downstream atoms aren't fully verified (see `isContaminatedGenerated`).
+  let unifiedAtoms := unhideContaminatedGenerated unifiedAtoms
 
   let baseSource ← collectSourceInfo config.projectPath
   let source := { baseSource with sourceClass := projectClass }

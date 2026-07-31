@@ -48,8 +48,10 @@ def loadIsHiddenList (userConfig : Option Lean.Json) : Array String :=
     | .error _ => #[]
     | .ok arr => arr
 
-/-- Load the extraction-artifact-suffixes list from .verilib/probes/config.json -/
-def loadExtractionArtifactSuffixes (userConfig : Option Lean.Json) : Array String :=
+/-- Load the extraction-artifact-suffixes list from .verilib/probes/config.json.
+    Reads the `extraction-artifact-suffixes` config key for backward compatibility
+    but now feeds the `is-aeneas-generated` field. -/
+def loadAeneasGeneratedSuffixes (userConfig : Option Lean.Json) : Array String :=
   match userConfig with
   | none => #[]
   | some userObj =>
@@ -79,16 +81,16 @@ def loadRelevantCrate (userConfig : Option Lean.Json) : String :=
 def hasAnySuffix (name : String) (suffixes : Array String) : Bool :=
   suffixes.any fun suffix => name.endsWith suffix
 
-/-- Set isHidden, isExtractionArtifact, and isIgnored fields on atoms based on config -/
-def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (artifactSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
+/-- Set isHidden, isAeneasGenerated, and isIgnored fields on atoms based on config -/
+def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (aeneasGeneratedSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
   atoms.map fun atom =>
     let nameWithoutPrefix := stripProbePrefix atom.name
     -- OR with any flag already set (e.g. auto-detected generated code), so config
     -- adds to rather than overwrites automatic detection.
     let isHidden := atom.isHidden || hiddenList.contains nameWithoutPrefix
-    let isExtractionArtifact := atom.isExtractionArtifact || hasAnySuffix nameWithoutPrefix artifactSuffixes
-    let isIgnored := ignoredList.contains nameWithoutPrefix
-    { atom with isHidden := isHidden, isExtractionArtifact := isExtractionArtifact, isIgnored := isIgnored }
+    let isAeneasGenerated := atom.isAeneasGenerated || hasAnySuffix nameWithoutPrefix aeneasGeneratedSuffixes
+    let isIgnored := atom.isIgnored || ignoredList.contains nameWithoutPrefix
+    { atom with isHidden := isHidden, isAeneasGenerated := isAeneasGenerated, isIgnored := isIgnored }
 
 /-- Attributes from verification frameworks that indicate a theorem is a
     primary specification. Used as a signal in primary-spec detection.
@@ -344,12 +346,12 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
   for decl in decls do
     let atom ← declInfoToAtom env projectPath moduleNames crate fileCache decl
     -- Lean-generated code (deriving clusters + structure/class projections) is flagged
-    -- hidden + extraction-artifact so viewify and the web UI omit it from the presented
+    -- hidden + lean-generated so viewify and the web UI omit it from the presented
     -- graph. It is kept in the atom set (not dropped), so `enrichTransitiveVerification`
     -- still traverses it and contamination still flows through it — hiding is sound
     -- precisely because the atom stays in the graph, unlike dropping.
     let isGenerated := derivedNames.contains decl.name || decl.kind == .projection
-    let atom := if isGenerated then { atom with isHidden := true, isExtractionArtifact := true } else atom
+    let atom := if isGenerated then { atom with isHidden := true, isLeanGenerated := true } else atom
     atoms := atoms.push atom
 
   return .ok (atoms, detectedClass, classifications)

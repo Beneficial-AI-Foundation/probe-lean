@@ -32,7 +32,7 @@ def testConstants (result : TestResult) : IO TestResult := do
   result ← test "mapsDir" (Constants.mapsDir == "maps") result
   result ← test "toolName" (Constants.toolName == "probe-lean") result
   result ← test "toolVersion" (Constants.toolVersion == ProbeLean.version) result
-  result ← test "schemaVersion" (Constants.schemaVersion == "3.0") result
+  result ← test "schemaVersion" (Constants.schemaVersion == "4.0") result
   result ← test "schemaExtract" (Constants.schemaExtract == "probe-lean/extract") result
   result ← test "schemaView" (Constants.schemaView == "probe-lean/viewify") result
   return result
@@ -277,7 +277,7 @@ def testTypeJsonSerialization (result : TestResult) : IO TestResult := do
   let hasSchema := match envJson.getObjValAs? String "schema" with
     | .ok "probe-lean/extract" => true | _ => false
   let hasSchemaVer := match envJson.getObjValAs? String "schema-version" with
-    | .ok "3.0" => true | _ => false
+    | .ok "4.0" => true | _ => false
   let hasTool := match envJson.getObjVal? "tool" with
     | .ok _ => true | _ => false
   let hasSource := match envJson.getObjVal? "source" with
@@ -375,7 +375,7 @@ def testAtomizeHelpers (result : TestResult) : IO TestResult := do
     codeText := none
     kind := .instance
     isHidden := true
-    isExtractionArtifact := true
+    isLeanGenerated := true
   }
   let hiddenList : Array String := #["Test.foo"]
   let artifactSuffixes : Array String := #["_body", "_loop"]
@@ -383,12 +383,12 @@ def testAtomizeHelpers (result : TestResult) : IO TestResult := do
   let markedAtoms := markAtomFlags #[testAtomForHidden, testAtomForHidden2, testAtomArtifact, testAtomIgnored, preFlagged] hiddenList artifactSuffixes ignoredList
   result ← test "marked atom is hidden" markedAtoms[0]!.isHidden result
   result ← test "unmarked atom is not hidden" (!markedAtoms[1]!.isHidden) result
-  result ← test "artifact atom is extraction artifact" markedAtoms[2]!.isExtractionArtifact result
-  result ← test "non-artifact atom is not extraction artifact" (!markedAtoms[0]!.isExtractionArtifact) result
+  result ← test "artifact atom is aeneas-generated" markedAtoms[2]!.isAeneasGenerated result
+  result ← test "non-artifact atom is not aeneas-generated" (!markedAtoms[0]!.isAeneasGenerated) result
   result ← test "ignored atom is ignored" markedAtoms[3]!.isIgnored result
   result ← test "non-ignored atom is not ignored" (!markedAtoms[0]!.isIgnored) result
   result ← test "pre-set hidden survives (OR, not overwrite)" markedAtoms[4]!.isHidden result
-  result ← test "pre-set artifact survives (OR, not overwrite)" markedAtoms[4]!.isExtractionArtifact result
+  result ← test "pre-set lean-generated survives (OR, not overwrite)" markedAtoms[4]!.isLeanGenerated result
   return result
 
 def testComputeSpecs (result : TestResult) : IO TestResult := do
@@ -516,20 +516,35 @@ def testAtomsOutputJson (result : TestResult) : IO TestResult := do
     | _ => false
   result ← test "atom has is-hidden true" hasIsHiddenTrue result
 
-  let hasIsExtractionArtifact := match atomsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? Bool "is-extraction-artifact" with
+  let hasIsLeanGenerated := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-lean-generated" with
       | .ok false => true | _ => false
     | _ => false
-  result ← test "atom has is-extraction-artifact field" hasIsExtractionArtifact result
+  result ← test "atom has is-lean-generated field" hasIsLeanGenerated result
 
-  let artifactAtom : Atom := { testAtom with isExtractionArtifact := true }
-  let artifactAtomsOutput : AtomsOutput := { atoms := #[artifactAtom] }
-  let artifactAtomsJson := Lean.toJson artifactAtomsOutput
-  let hasIsExtractionArtifactTrue := match artifactAtomsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? Bool "is-extraction-artifact" with
+  let leanGenAtom : Atom := { testAtom with isLeanGenerated := true }
+  let leanGenAtomsOutput : AtomsOutput := { atoms := #[leanGenAtom] }
+  let leanGenAtomsJson := Lean.toJson leanGenAtomsOutput
+  let hasIsLeanGeneratedTrue := match leanGenAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-lean-generated" with
       | .ok true => true | _ => false
     | _ => false
-  result ← test "atom has is-extraction-artifact true" hasIsExtractionArtifactTrue result
+  result ← test "atom has is-lean-generated true" hasIsLeanGeneratedTrue result
+
+  let hasIsAeneasGenerated := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-aeneas-generated" with
+      | .ok false => true | _ => false
+    | _ => false
+  result ← test "atom has is-aeneas-generated field" hasIsAeneasGenerated result
+
+  let aeneasGenAtom : Atom := { testAtom with isAeneasGenerated := true }
+  let aeneasGenAtomsOutput : AtomsOutput := { atoms := #[aeneasGenAtom] }
+  let aeneasGenAtomsJson := Lean.toJson aeneasGenAtomsOutput
+  let hasIsAeneasGeneratedTrue := match aeneasGenAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-aeneas-generated" with
+      | .ok true => true | _ => false
+    | _ => false
+  result ← test "atom has is-aeneas-generated true" hasIsAeneasGeneratedTrue result
 
   let hasIsIgnored := match atomsJson.getObjVal? "probe:Test.foo" with
     | .ok v => match v.getObjValAs? Bool "is-ignored" with
@@ -1098,6 +1113,7 @@ def testCodomainShape (result : TestResult) : IO TestResult := do
   result ← test "head of Sort 0 is none" (codomainHeadOf propSort == none) result
   result ← test "lastArgIsBool ProbComp Bool" (lastArgIsBool probCompBool == true) result
   result ← test "lastArgIsBool ENNReal is false" (lastArgIsBool ennreal == false) result
+  result ← test "lastArgIsBool forallGame strips binders" (lastArgIsBool forallGame == true) result
   return result
 
 def testDetectClass (result : TestResult) : IO TestResult := do
@@ -1686,7 +1702,8 @@ def testEnvelopeAwareLoading (result : TestResult) : IO TestResult := do
       ("kind", Lean.toJson "def"),
       ("language", Lean.toJson "lean"),
       ("is-hidden", Lean.toJson false),
-      ("is-extraction-artifact", Lean.toJson false),
+      ("is-lean-generated", Lean.toJson false),
+      ("is-aeneas-generated", Lean.toJson false),
       ("is-ignored", Lean.toJson false),
       ("is-relevant", Lean.toJson true),
       ("rust-source", Lean.Json.null)
@@ -1694,7 +1711,7 @@ def testEnvelopeAwareLoading (result : TestResult) : IO TestResult := do
   ]
   let enveloped := Lean.Json.mkObj [
     ("schema", Lean.toJson "probe-lean/extract"),
-    ("schema-version", Lean.toJson "3.0"),
+    ("schema-version", Lean.toJson "4.0"),
     ("data", bareDict)
   ]
   let bareStr := Lean.Json.pretty bareDict
@@ -1750,7 +1767,7 @@ def testEnvelopeAwareLoading (result : TestResult) : IO TestResult := do
   IO.println "Testing unwrapEnvelope accepts any schema prefix..."
   let foreignEnvelope := Lean.Json.mkObj [
     ("schema", Lean.toJson "probe-verus/atoms"),
-    ("schema-version", Lean.toJson "3.0"),
+    ("schema-version", Lean.toJson "4.0"),
     ("data", bareDict)
   ]
   let foreignUnwrapped := match Lean.Json.parse (Lean.Json.pretty foreignEnvelope) with
@@ -1934,7 +1951,8 @@ def testTypedDependencies (result : TestResult) : IO TestResult := do
     ("kind", Lean.toJson "def"),
     ("language", Lean.toJson "lean"),
     ("is-hidden", Lean.toJson false),
-    ("is-extraction-artifact", Lean.toJson false),
+    ("is-lean-generated", Lean.toJson false),
+    ("is-aeneas-generated", Lean.toJson false),
     ("is-ignored", Lean.toJson false),
     ("is-relevant", Lean.toJson true),
     ("rust-source", Lean.Json.null)
@@ -2303,8 +2321,8 @@ def testExampleJsonEnvelopeStructure (result : TestResult) : IO TestResult := do
       | .ok "probe-lean/extract" => true | _ => false
     result ← test "envelope schema is probe-lean/extract" schemaOk result
     let versionOk := match json.getObjValAs? String "schema-version" with
-      | .ok "3.0" => true | _ => false
-    result ← test "envelope schema-version is 3.0" versionOk result
+      | .ok "4.0" => true | _ => false
+    result ← test "envelope schema-version is 4.0" versionOk result
     let hasTimestamp := match json.getObjValAs? String "timestamp" with
       | .ok s => !s.isEmpty | _ => false
     result ← test "envelope has non-empty timestamp" hasTimestamp result
@@ -3539,6 +3557,110 @@ def testDropRegression (result : TestResult) : IO TestResult := do
     (getVS (findUA dropped "T").get! == some .transitivelyVerified) result
   return result
 
+def testGeneratedFieldRoundTrip (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing generated-field round-trip (is-lean-generated / is-aeneas-generated)..."
+  let leanGenAtom : UnifiedAtom := {
+    name := "probe:Test.leanGen", displayName := "leanGen",
+    dependencies := #[], codeModule := "Test", codePath := "Test.lean",
+    codeText := some { linesStart := 1, linesEnd := 5 },
+    kind := .instance, isLeanGenerated := true, verificationStatus := some .verified
+  }
+  let leanGenJson := Lean.toJson leanGenAtom
+  let leanGenJsonStr := leanGenJson.pretty
+  result ← test "is-lean-generated: true in JSON"
+    (containsSubstring leanGenJsonStr "\"is-lean-generated\": true") result
+  result ← test "is-extraction-artifact NOT in JSON"
+    (!containsSubstring leanGenJsonStr "is-extraction-artifact") result
+  let leanGenRt := match Lean.FromJson.fromJson? leanGenJson (α := UnifiedAtom) with
+    | .ok a => a.isLeanGenerated && !a.isAeneasGenerated
+    | .error _ => false
+  result ← test "lean-generated round-trips" leanGenRt result
+  let aeneasGenAtom : UnifiedAtom := {
+    name := "probe:Test.aeneasGen", displayName := "aeneasGen",
+    dependencies := #[], codeModule := "Test", codePath := "Funs.lean",
+    codeText := some { linesStart := 10, linesEnd := 15 },
+    kind := .def, isAeneasGenerated := true, verificationStatus := some .verified
+  }
+  let aeneasGenJson := Lean.toJson aeneasGenAtom
+  let aeneasGenJsonStr := aeneasGenJson.pretty
+  result ← test "is-aeneas-generated: true in JSON"
+    (containsSubstring aeneasGenJsonStr "\"is-aeneas-generated\": true") result
+  let aeneasGenRt := match Lean.FromJson.fromJson? aeneasGenJson (α := UnifiedAtom) with
+    | .ok a => a.isAeneasGenerated && !a.isLeanGenerated
+    | .error _ => false
+  result ← test "aeneas-generated round-trips" aeneasGenRt result
+  return result
+
+def testConditionalHiding (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing conditional hiding for lean-generated atoms..."
+  let u := mkUnified "U" #[] (some .unverified)
+  let iAtom : UnifiedAtom := {
+    name := "I", displayName := "I", dependencies := #["U"],
+    codeModule := "Test", codePath := "Test.lean",
+    codeText := some { linesStart := 1, linesEnd := 5 },
+    kind := .instance, isLeanGenerated := true, isHidden := true,
+    verificationStatus := some .verified
+  }
+  let t := mkUnified "T" #["I"] (some .verified)
+  let cleanI : UnifiedAtom := {
+    name := "CleanI", displayName := "CleanI", dependencies := #[],
+    codeModule := "Test", codePath := "Test.lean",
+    codeText := some { linesStart := 10, linesEnd := 15 },
+    kind := .instance, isLeanGenerated := true, isHidden := true,
+    verificationStatus := some .verified
+  }
+  -- A trusted lean-generated atom is clean: it must stay hidden.
+  let trustedI : UnifiedAtom := {
+    name := "TrustedI", displayName := "TrustedI", dependencies := #[],
+    codeModule := "Test", codePath := "Test.lean",
+    codeText := some { linesStart := 20, linesEnd := 25 },
+    kind := .instance, isLeanGenerated := true, isHidden := true,
+    verificationStatus := some .trusted
+  }
+  let (enriched, _, _, _) := enrichTransitiveVerification #[u, iAtom, t, cleanI, trustedI]
+  -- Exercise the *production* pass, not a copy of it.
+  let withHiding := unhideContaminatedGenerated enriched
+  let iResult := (findUA withHiding "I").get!
+  result ← test "contaminated I has isHidden=false" (!iResult.isHidden) result
+  result ← test "contaminated I is still lean-generated" iResult.isLeanGenerated result
+  result ← test "contaminated I status is verified" (getVS iResult == some .verified) result
+  let cleanResult := (findUA withHiding "CleanI").get!
+  result ← test "clean CleanI has isHidden=true" cleanResult.isHidden result
+  result ← test "clean CleanI status is transitively-verified"
+    (getVS cleanResult == some .transitivelyVerified) result
+  let trustedResult := (findUA withHiding "TrustedI").get!
+  result ← test "trusted TrustedI stays hidden" trustedResult.isHidden result
+  result ← test "trusted TrustedI status is trusted" (getVS trustedResult == some .trusted) result
+  return result
+
+/-- `viewify` (`filterAtomsForView`) drops all generated atoms regardless of `is-hidden`:
+    the pipeline's un-hiding of contaminated lean-generated atoms is only observable to
+    consumers that read `extract` output directly, never through `viewify` molecules. -/
+def testViewFilterOmitsGenerated (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing filterAtomsForView omits generated atoms regardless of is-hidden..."
+  let base : Atom := {
+    name := "x", displayName := "x", dependencies := #[],
+    codeModule := "Test", codePath := "Test/Funs.lean",
+    codeText := some { linesStart := 1, linesEnd := 2 }, kind := .def
+  }
+  -- An unhidden (contaminated) lean-generated atom must still be dropped by viewify.
+  let genLean := { base with name := "genLean", isLeanGenerated := true, isHidden := false }
+  let genAeneas := { base with name := "genAeneas", isAeneasGenerated := true, isHidden := false }
+  let normal := { base with name := "normal" }
+  let hidden := { base with name := "hidden", isHidden := true }
+  let names := (filterAtomsForView #[genLean, genAeneas, normal, hidden]).map (·.name)
+  result ← test "viewify drops unhidden lean-generated" (!names.contains "genLean") result
+  result ← test "viewify drops unhidden aeneas-generated" (!names.contains "genAeneas") result
+  result ← test "viewify keeps normal Funs.lean atom" (names.contains "normal") result
+  result ← test "viewify drops hidden atom" (!names.contains "hidden") result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testConstants result
@@ -3616,6 +3738,9 @@ def main : IO UInt32 := do
   result ← testAxiomReachability result
   result ← testDerivedInstanceClusterNames result
   result ← testDropRegression result
+  result ← testGeneratedFieldRoundTrip result
+  result ← testConditionalHiding result
+  result ← testViewFilterOmitsGenerated result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
