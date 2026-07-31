@@ -76,14 +76,14 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-verify` | | Skip the sorry detection step (graph structure only) |
 | `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
 | `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
-| `--class <NAME>` | | Override the detected project class (e.g. `security-protocol`). Normally auto-detected from a VCVio dependency; this is for manual runs |
 
 Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
 
-For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
-`scheme → construction → {correctness, security}` hierarchy and emits `source.class` plus a per-atom
-`classification` object (see [SCHEMA.md](SCHEMA.md#security-protocol-classification)). Schemes not
-named `*Scheme`/`*Alg` must carry `@[scheme_def]` (import `ProbeLean.Attrs`) to be detected.
+Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
+facts about its result type (see [SCHEMA.md](SCHEMA.md)). Security-protocol (VCVio) classification
+is no longer part of probe-lean — it lives in the standalone
+[`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio) tool, which consumes this
+envelope.
 
 `extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters and
 structure/class projections — as `is-hidden` + `is-lean-generated`, so `viewify` and the web UI

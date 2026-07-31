@@ -145,7 +145,6 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-verify` | Skip sorry detection (graph structure only) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
 | `--skip-enrich` | Skip transitive verification enrichment (no `"transitively-verified"` status) |
-| `--class <NAME>` | Override the detected project class (e.g. `security-protocol`) |
 
 ### `check-axioms`
 
@@ -163,13 +162,15 @@ appear here (if one does, the emitted graph lost a contamination path).
 > (`O(declarations × closure size)`), so on very large projects (Mathlib-scale
 > closures) it can be slow. Use `-m`/`-l` to narrow the scope.
 
-### Security-protocol classification
+### Codomain facts & downstream classification
 
-For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
-`scheme → construction → {correctness, security}` hierarchy — emitting `source.class` and a per-atom
-`classification` object so a consumer can render an accordion. The class is auto-detected from a
-VCVio dependency; schemes not named `*Scheme`/`*Alg` should carry `@[scheme_def]` (from
-`ProbeLean.Attrs`). See **[docs/classification-security-protocol.md](docs/classification-security-protocol.md)**.
+Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
+facts about its result type. Security-protocol (VCVio) classification is **not** part of probe-lean;
+it lives in the standalone [`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio)
+tool, which consumes probe-lean's envelope and reconstructs the codomain shape from these
+primitives. The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
+`@[correctness_spec]`, `@[security_spec]`) remain registered in `ProbeLean.Attrs` for target
+projects to annotate declarations; probe-vcvio reads them from the emitted `attributes` array.
 
 For the full command reference with examples, see **[docs/USAGE.md](docs/USAGE.md)**. For the complete JSON schema specification, see **[docs/SCHEMA.md](docs/SCHEMA.md)**.
 

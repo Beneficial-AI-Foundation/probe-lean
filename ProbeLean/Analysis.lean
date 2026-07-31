@@ -193,29 +193,11 @@ def isRelevantSource (source : Option String) (crate : String) : Bool :=
     !containsSubstring s "/cargo/registry/"
 
 -- ============================================================
--- Security-protocol classification facts (pure, .olean-derived)
--- These facts are computed here so the pure classifier (Commit 4) can consume
--- them without re-walking the environment. See
--- docs/classification-security-protocol.md.
+-- Neutral codomain facts (pure, .olean-derived)
+-- Computed here, once, during the environment walk, so an external classifier
+-- (e.g. probe-vcvio) can reconstruct a declaration's codomain shape from these
+-- primitives plus its own catalogue without re-walking the environment.
 -- ============================================================
-
-/-- Structural shape of a declaration's result type (codomain). Used as a
-*type* signal by the classifier. Computed by naive `Expr` inspection (no
-`whnf`); the validation gate decides whether reducible-alias unfolding is
-needed. -/
-inductive CodomainShape where
-  | prop       -- result is `Sort 0` (a predicate, when the decl is a `def`)
-  | game       -- probabilistic computation returning `Bool` (a security/correctness game)
-  | advantage  -- result head is a probability/real type
-  | other
-  deriving Repr, BEq, Inhabited
-
-instance : ToString CodomainShape where
-  toString
-    | .prop => "prop"
-    | .game => "game"
-    | .advantage => "advantage"
-    | .other => "other"
 
 /-- Strip leading `∀`/`→` binders, returning the result type. The body may
 contain loose bvars, but head/last-arg inspection does not look inside them. -/
@@ -230,92 +212,19 @@ def codomainHeadOf (type : Expr) : Option Name :=
   | .const n _ => some n
   | _ => none
 
-/-- Result-type head constants that mark an *advantage* (a probability bound).
-Mathlib-fixed, so inlined rather than catalogued. -/
-def advantageHeads : Array Name := #[`Real, `ENNReal, `NNReal]
-
-/-- Default probabilistic-computation head constants that make a `… → Bool`
-result a *game*. Minimal placeholder; Commit 3's catalogue supersedes/extends
-this against the VCVio commit the protocol repos pin. -/
-def defaultGameHeads : Array Name := #[`ProbComp, `OracleComp, `SPMF]
-
-/-- True when the final application argument of the result type is the constant
-`Bool`. Strips leading ∀/→ binders internally so the caller need not do it. -/
-def lastArgIsBool (type : Expr) : Bool :=
-  match (stripForalls type).getAppArgs.back? with
+/-- True when the final application argument of `e` is the constant `Bool`. -/
+def lastArgIsBool (e : Expr) : Bool :=
+  match e.getAppArgs.back? with
   | some (.const n _) => n == `Bool
   | _ => false
 
-/-- Classify the shape of a result type. `gameHeads` is the allowlist of
-probabilistic-computation head constants (so the pure function is testable and
-the catalogue is injectable). The "final arg is `Bool`" check alone overmatches
-(`List Bool`, `Array Bool`, `Except ε Bool`), so the head must be in the
-allowlist for the `game` verdict. -/
-def classifyCodomain (gameHeads : Array Name) (type : Expr) : CodomainShape :=
-  let result := stripForalls type
-  match result with
-  | .sort .zero => .prop
-  | _ =>
-    match result.getAppFn with
-    | .const n _ =>
-      if advantageHeads.contains n then .advantage
-      else if gameHeads.contains n && lastArgIsBool result then .game
-      else .other
-    | _ => .other
-
-/-- Handle-based detection (pure, `env`-only) of the four classification tags.
-Works when the target project imports `ProbeLean.Attrs`. -/
-def detectClassAttrs (env : Environment) (name : Name) : Array String := Id.run do
-  let mut a : Array String := #[]
-  if schemeDefAttr.hasTag env name then a := a.push "scheme_def"
-  if constructionDefAttr.hasTag env name then a := a.push "construction_def"
-  if correctnessSpecAttr.hasTag env name then a := a.push "correctness_spec"
-  if securitySpecAttr.hasTag env name then a := a.push "security_spec"
-  return a
-
-/-- Decide whether a list of (imported) module names indicates a VCVio-based
-security-protocol project. Factored out so it is testable without an
-`Environment`. -/
-def moduleListIndicatesSecurityProtocol (mods : Array Name) : Bool :=
-  mods.any fun m => m == `VCVio || m.toString.startsWith "VCVio."
-
-/-- Detect the project class from the imported environment (import-level signal).
-Returns `none` when no class is detected. -/
-def detectClass (env : Environment) : Option String :=
-  if moduleListIndicatesSecurityProtocol env.allImportedModuleNames then
-    some "security-protocol"
-  else
-    none
-
-/-- Does a `lake-manifest.json` body declare a **direct** VCVio dependency? We
-parse the JSON and require a `packages[]` entry with `name == "VCVio"` **and**
-`inherited == false` — a direct dep, not one pulled in transitively (those are
-`inherited: true`, e.g. via Mathlib). This avoids false positives from transitive
-deps, git urls, or comments. Unparseable JSON ⇒ `false` (the import-graph signal
-in `detectClass` still backstops). Pure, so it is unit-testable. -/
-def manifestDeclaresVCVio (content : String) : Bool :=
-  match Lean.Json.parse content with
-  | .error _ => false
-  | .ok json =>
-    let pkgs := (json.getObjValAs? (Array Lean.Json) "packages").toOption.getD #[]
-    pkgs.any fun p =>
-      let inherited := (p.getObjValAs? Bool "inherited").toOption.getD true
-      (p.getObjValAs? String "name").toOption.getD "" == "VCVio" && !inherited
-
-/-- Package-level class detection from `lake-manifest.json`: a **direct**
-(non-inherited) VCVio dependency ⇒ `security-protocol`. Independent of which
-modules were selected for analysis (so it does not false-negative when a
-`--module`/`--library` slice happens not to import VCVio). Manifest problems
-fail closed *consistently*: a missing, unreadable, or unparseable manifest ⇒
-`none`, so detection falls back to the import-graph signal rather than aborting
-extraction. -/
-def detectClassFromManifest (projectPath : System.FilePath) : IO (Option String) := do
-  let manifestPath := projectPath / "lake-manifest.json"
-  if !(← manifestPath.pathExists) then return none
-  -- Read can still fail (permissions, a TOCTOU delete after `pathExists`, a
-  -- flaky mount); treat that like an unparseable manifest and fall back.
-  let content ← try IO.FS.readFile manifestPath catch _ => return none
-  return if manifestDeclaresVCVio content then some "security-protocol" else none
+/-- True when the result type (after stripping `∀`/`→` binders) is `Sort 0`, i.e.
+a `Prop`. Neutral primitive emitted per atom (independent of any domain
+catalogue) so a downstream tool can reconstruct the codomain shape. -/
+def codomainIsPropOf (type : Expr) : Bool :=
+  match stripForalls type with
+  | .sort .zero => true
+  | _ => false
 
 /-- Information about a declaration for analysis -/
 structure DeclInfo where
@@ -329,17 +238,15 @@ structure DeclInfo where
   sourceInfo : Option CodeTextInfo
   /-- Result-type head constant (approximate; see `codomainHeadOf`). -/
   codomainHead : Option Name := none
-  /-- Structural shape of the result type (see `classifyCodomain`). -/
-  codomainShape : CodomainShape := .other
-  /-- Handle-detected classification tags present on the declaration
-      (the four class tags only; distinct from the emitted `Atom.attributes`). -/
-  classAttributes : Array String := #[]
+  /-- Result type is `Sort 0` (a `Prop`). Neutral primitive (see
+      `codomainIsPropOf`). -/
+  codomainIsProp : Bool := false
+  /-- Final application arg of the result type is `Bool`. Neutral primitive (see
+      `lastArgIsBool`). -/
+  codomainLastArgIsBool : Bool := false
 
-/-- Analyze a single declaration. `gameHeads` is the probabilistic-computation
-head allowlist used to compute `codomainShape`; it is injected so Commit 3 can
-supply the catalogue's set in place of `defaultGameHeads`. -/
-def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo)
-    (gameHeads : Array Name := defaultGameHeads) : DeclInfo :=
+/-- Analyze a single declaration. -/
+def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo) : DeclInfo :=
   let displayName := getDisplayName name
   let moduleName := getModuleName env name |>.getD .anonymous
   let kind := getDeclKind env name info
@@ -351,8 +258,8 @@ def analyzeDecl (env : Environment) (name : Name) (info : ConstantInfo)
     termDependencies := deps.termDeps,
     sourceInfo,
     codomainHead := codomainHeadOf info.type,
-    codomainShape := classifyCodomain gameHeads info.type,
-    classAttributes := detectClassAttrs env name }
+    codomainIsProp := codomainIsPropOf info.type,
+    codomainLastArgIsBool := lastArgIsBool (stripForalls info.type) }
 
 /-- `outer` covers `inner`'s line range, sharing boundaries allowed but not the
 identical range. Ranges are line-only (no columns), so a member reported on the
@@ -403,10 +310,8 @@ def derivedInstanceClusterNames (decls : Array DeclInfo) : Std.HashSet Name := I
       result := result.insert d.name
   return result
 
-/-- Get all project declarations from an environment. `gameHeads` is threaded to
-`analyzeDecl` for `codomainShape` (default placeholder until Commit 3's catalogue). -/
-def getProjectDecls (env : Environment) (projectModules : Array Name)
-    (gameHeads : Array Name := defaultGameHeads) : Array DeclInfo := Id.run do
+/-- Get all project declarations from an environment. -/
+def getProjectDecls (env : Environment) (projectModules : Array Name) : Array DeclInfo := Id.run do
   let mut decls : Array DeclInfo := #[]
   for (name, info) in env.constants.map₁.toList do
     -- Skip internal names
@@ -420,7 +325,7 @@ def getProjectDecls (env : Environment) (projectModules : Array Name)
     | .ctorInfo _ => continue
     | .recInfo _ => continue
     | _ => pure ()
-    let decl := analyzeDecl env name info gameHeads
+    let decl := analyzeDecl env name info
     -- Skip declarations without source location (auto-generated by the kernel)
     if decl.sourceInfo.isNone then
       continue
@@ -554,6 +459,9 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     rustSource := rustSource
     attributes := sortedAttrs
     isPrimarySpec := isPrimarySpec
+    codomainHead := info.codomainHead.map (·.toString)
+    codomainIsProp := info.codomainIsProp
+    codomainLastArgIsBool := info.codomainLastArgIsBool
   }
 
 end ProbeLean

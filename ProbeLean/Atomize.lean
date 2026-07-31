@@ -7,7 +7,6 @@ import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Coimport
 import ProbeLean.Analysis
-import ProbeLean.Classify.SecurityProtocol
 
 namespace ProbeLean
 
@@ -199,30 +198,6 @@ def findProbeLeanLib : IO (List System.FilePath) := do
   if ← lakeBuildLib.pathExists then paths := lakeBuildLib :: paths
   return paths
 
-/-- The security-protocol classifier runs **only** for this class — other/unknown
-    class values (e.g. a `--class` override for a class with no classifier yet)
-    carry no classification, keeping the dispatch forward-compatible. -/
-def isSecurityProtocolClass : Option String → Bool
-  | some "security-protocol" => true
-  | _ => false
-
-/-- Run the security-protocol classifier (when the class matches), emitting tag
-    diagnostics and catalogue-drift warnings to stderr. Returns the
-    `(name, classification)` pairs (empty for other/no class). -/
-def classifyProject (env : Environment) (decls : Array DeclInfo)
-    (detectedClass : Option String) : IO (Array (Name × Classification)) := do
-  if !isSecurityProtocolClass detectedClass then return #[]
-  let (classifications, diags) := Classify.classify decls
-  for d in diags do
-    IO.eprintln s!"Warning: classification: {d}"
-  let drifts := Catalogue.driftWarnings env
-  unless drifts.isEmpty do
-    IO.eprintln s!"Warning: {drifts.size} classification-catalogue drift warning(s):"
-    for w in drifts do
-      IO.eprintln s!"  {w}"
-  IO.println s!"Classified {classifications.size} declarations"
-  return classifications
-
 /-- Import the target project's built modules into a single `Environment`, with the
     same LEAN_PATH / search-path setup and co-import preflight the analysis uses.
     Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command so both see the
@@ -301,15 +276,10 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
       return .error s!"Failed to import modules: {msg}{hint}"
     return .error s!"Failed to import modules: {msg}"
 
-/-- Run analysis via lake env to get correct search paths.
-    Returns the atoms, the effective project class (`none` when no class is
-    detected), and the per-declaration classifications (empty when no class).
-    The class is resolved here — where both the environment and the project path
-    are available. Precedence: `classOverride` (from `--class`) >
-    `lake-manifest.json` (package-level) > imported-module signal. -/
+/-- Run analysis via lake env to get correct search paths. Returns the atoms. -/
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array ProjectModule) (crate : String)
-    (nixMode : Option NixMode := none) (classOverride : Option String := none)
-    : IO (Except String (Array Atom × Option String × Array (Name × Classification))) := do
+    (nixMode : Option NixMode := none)
+    : IO (Except String (Array Atom)) := do
   let env ← match ← importProjectEnv projectPath modules nixMode with
     | .error msg => return .error msg
     | .ok env => pure env
@@ -317,29 +287,13 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
 
   IO.println "Extracting declarations..."
 
-  -- Use the catalogue's game-head allowlist for codomain-shape (not the placeholder).
-  let decls := getProjectDecls env moduleNames Catalogue.gameHeads
+  let decls := getProjectDecls env moduleNames
 
   IO.println s!"Found {decls.size} declarations"
 
   -- Auto-detected `deriving`-generated instance clusters (names only). Flagged
   -- below alongside projections; see the marking loop for why.
   let derivedNames := derivedInstanceClusterNames decls
-
-  -- Effective class: --class override > manifest (package-level) > imported modules.
-  -- This is a disjunction (`orElse`): any positive signal classifies, so the order
-  -- does not affect false positives — only each signal's precision does (the
-  -- manifest signal fires only on a *direct* VCVio dep; see `detectClassFromManifest`).
-  -- Manifest-first preserves filter-independence: a `--module` slice that doesn't
-  -- import VCVio still classifies via the package-level manifest.
-  let manifestClass ← detectClassFromManifest projectPath
-  let detectedClass := classOverride.orElse fun () =>
-    manifestClass.orElse fun () => detectClass env
-  match detectedClass with
-  | some c => IO.println s!"Project class: {c}"
-  | none => pure ()
-
-  let classifications ← classifyProject env decls detectedClass
 
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
@@ -354,6 +308,6 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
     let atom := if isGenerated then { atom with isHidden := true, isLeanGenerated := true } else atom
     atoms := atoms.push atom
 
-  return .ok (atoms, detectedClass, classifications)
+  return .ok atoms
 
 end ProbeLean

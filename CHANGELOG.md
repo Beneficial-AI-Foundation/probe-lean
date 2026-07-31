@@ -7,16 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-
-- **Support Lean patch releases when installing and releasing.** `lean4-cli` tags
-  `major.minor` lines and RCs but not every patch, so probe-lean previously failed
-  to build for a patch-release toolchain (e.g. `v4.32.2`): the source build pinned
-  `lean4-cli` to the exact Lean version (`revision not found`) and no pre-built
-  binary was published. Both paths now resolve `lean4-cli` to the highest
-  compatible tag in the target's `major.minor` line (stable targets pair only with
-  stable tags), matching what was previously done by hand. Newly supported:
-  patch releases such as `v4.28.1`, `v4.29.1`, `v4.32.1`, `v4.32.2`. (#79)
+## [0.11.0]
 
 ### Added
 
@@ -24,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `extract` emits as atoms) whose transitive closure reaches the `sorryAx` axiom —
   the kernel ground truth for "rests on a `sorry`", independent of the extract
   dependency graph. Supports `-m`/`-l` scoping. New `ProbeLean/AxiomCheck.lean`.
+- Neutral per-atom codomain facts, emitted for every atom: `codomain-head`
+  (result-type head constant), `codomain-is-prop`, `codomain-last-arg-is-bool`.
+  A downstream tool reconstructs the codomain shape from these plus its own catalogue.
+
+### Removed
+
+- **Security-protocol (VCVio) classification moved out of probe-lean** into the
+  standalone `probe-vcvio` tool. Removed from the `extract` output: the per-atom
+  `classification` object and the envelope `source.class` field. Removed from the
+  CLI: the `--class` flag. Removed internally: `ProbeLean/Classify/` (the anchor
+  catalogue + classifier), the `Classification`/`SecurityProtocolCategory`/`ClassVia`
+  types, and project-class/manifest detection. These fields were never part of a
+  released schema and had no consumers, so their removal is not a schema break (the
+  schema-version stays 4.0). probe-vcvio consumes probe-lean's envelope and
+  reproduces the same `classification` shape from the emitted `codomain-*` facts.
 
 ### Changed
 
@@ -50,6 +56,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `markAtomFlags` now ORs the `is-hidden` / `is-aeneas-generated` flags with any
   already set, so config-based flagging adds to (rather than overwrites) the automatic
   detection above.
+- The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
+  `@[correctness_spec]`, `@[security_spec]`) remain **registered** in
+  `ProbeLean.Attrs` (so target projects need no migration) but are no longer
+  interpreted by probe-lean; probe-vcvio reads them from the emitted `attributes` array.
+
+### Fixed
+
+- **Support Lean patch releases when installing and releasing.** `lean4-cli` tags
+  `major.minor` lines and RCs but not every patch, so probe-lean previously failed
+  to build for a patch-release toolchain (e.g. `v4.32.2`): the source build pinned
+  `lean4-cli` to the exact Lean version (`revision not found`) and no pre-built
+  binary was published. Both paths now resolve `lean4-cli` to the highest
+  compatible tag in the target's `major.minor` line (stable targets pair only with
+  stable tags), matching what was previously done by hand. Newly supported:
+  patch releases such as `v4.28.1`, `v4.29.1`, `v4.32.1`, `v4.32.2`. (#79)
 
 ## [0.9.6] - 2026-07-17
 
