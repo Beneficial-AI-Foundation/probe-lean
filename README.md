@@ -284,6 +284,13 @@ are imported into a **single Lean environment** before atomizing.
 > libraries with custom `roots`) is tracked in
 > [#40](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/40).
 
+## Documentation
+
+- [docs/USAGE.md](docs/USAGE.md) — full command reference and real-project walkthroughs
+- [docs/SCHEMA.md](docs/SCHEMA.md) — envelope schema specification
+- [docs/classification-security-protocol.md](docs/classification-security-protocol.md) — VCVio security-protocol classification
+- [docs/lean-verification-landscape.md](docs/lean-verification-landscape.md) — how specs surface across Lean verification frameworks (Aeneas, Loom/Velvet, Std.Do.Triple, VCVio) and how probe-lean discovers them
+
 ## Testing
 
 ```bash
