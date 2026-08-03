@@ -901,10 +901,12 @@ def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
   result ← test "UnifiedAtom specs absent when empty" unsAbsent result
   return result
 
--- Build-time registration test for the security-protocol classification tags.
--- These declarations only elaborate if the attributes are registered (an
--- unregistered tag is an "unknown attribute" error). The `run_cmd` below then
--- confirms `hasTag` — the API the classifier will use — reads them back.
+-- Build-time registration test for the classification tag hooks retained in
+-- `ProbeLean.Attrs`. probe-lean does not interpret them; it emits them in the
+-- generic `attributes` array for a downstream classifier to read. These
+-- declarations only elaborate if the attributes are registered (an unregistered
+-- tag is an "unknown attribute" error). The `run_cmd` below confirms `hasTag`
+-- still reads them back.
 @[scheme_def] def testTaggedScheme : Nat := 0
 @[construction_def] def testTaggedConstruction : Nat := 0
 @[correctness_spec] theorem testTaggedCorrectness : testTaggedScheme = 0 := rfl
@@ -920,681 +922,77 @@ run_cmd do
   unless ok do
     throwError "classification attributes registered but hasTag did not read them back"
 
-def testClassificationJson (result : TestResult) : IO TestResult := do
+/-- The neutral per-atom codomain primitives that probe-lean emits and a
+downstream classifier consumes to reconstruct the codomain shape. -/
+def testCodomainFacts (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing SecurityProtocolCategory / ClassVia round-trips..."
-  let catRt := match Lean.FromJson.fromJson? (Lean.toJson SecurityProtocolCategory.construction) (α := SecurityProtocolCategory) with
-    | .ok .construction => true | _ => false
-  let ambRt := match Lean.FromJson.fromJson? (Lean.toJson SecurityProtocolCategory.ambiguous) (α := SecurityProtocolCategory) with
-    | .ok .ambiguous => true | _ => false
-  let viaRt := match Lean.FromJson.fromJson? (Lean.toJson ClassVia.naming) (α := ClassVia) with
-    | .ok .naming => true | _ => false
-  result ← test "SecurityProtocolCategory round-trips" catRt result
-  result ← test "SecurityProtocolCategory ambiguous round-trips" ambRt result
-  result ← test "ClassVia round-trips" viaRt result
-  result ← test "SecurityProtocolCategory scheme toJson" (Lean.toJson SecurityProtocolCategory.scheme == "scheme") result
-  result ← test "SecurityProtocolCategory ambiguous toJson" (Lean.toJson SecurityProtocolCategory.ambiguous == "ambiguous") result
-  result ← test "ClassVia attribute toJson" (Lean.toJson ClassVia.attribute == "attribute") result
+  IO.println "Testing codomainHeadOf / codomainIsPropOf / lastArgIsBool primitives..."
+  let bool := Lean.Expr.const `Bool []
+  let nat := Lean.Expr.const `Nat []
+  let propSort := Lean.Expr.sort Lean.Level.zero
+  let probCompBool := Lean.Expr.app (Lean.Expr.const `ProbComp []) bool
+  let ennreal := Lean.Expr.const `ENNReal []
+  -- codomainIsPropOf: only `Sort 0`, through binders
+  let forallProp := Lean.Expr.forallE `x nat propSort Lean.BinderInfo.default
+  result ← test "codomainIsPropOf Sort 0" (codomainIsPropOf propSort == true) result
+  result ← test "codomainIsPropOf ∀ x, Sort 0 (strips binders)" (codomainIsPropOf forallProp == true) result
+  result ← test "codomainIsPropOf ProbComp Bool is false" (codomainIsPropOf probCompBool == false) result
+  result ← test "codomainIsPropOf ENNReal is false" (codomainIsPropOf ennreal == false) result
+
+  -- codomainHeadOf: qualified name preserved, through binders, `Sort 0` → none
+  let qualified := Lean.Expr.const `SecureMessaging.CKA.Defs.CKAScheme []
+  let forallGame := Lean.Expr.forallE `x nat probCompBool Lean.BinderInfo.default
+  result ← test "codomainHeadOf preserves qualified name" (codomainHeadOf qualified == some `SecureMessaging.CKA.Defs.CKAScheme) result
+  result ← test "codomainHeadOf through binders is ProbComp" (codomainHeadOf forallGame == some `ProbComp) result
+  result ← test "codomainHeadOf Sort 0 is none" (codomainHeadOf propSort == none) result
+
+  -- lastArgIsBool operates on the stripped result (its caller pre-strips). The
+  -- `Bool` last-arg check alone overmatches — `List Bool` / `Except ε Bool` are
+  -- true here too; the head-constant gate that rejects them lives downstream.
+  let listBool := Lean.Expr.app (Lean.Expr.const `List []) bool
+  let exceptEBool := Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `Except []) (Lean.Expr.const `ε [])) bool
+  result ← test "lastArgIsBool ProbComp Bool" (lastArgIsBool probCompBool == true) result
+  result ← test "lastArgIsBool ∀ x, ProbComp Bool (after strip)" (lastArgIsBool (stripForalls forallGame) == true) result
+  result ← test "lastArgIsBool List Bool (overmatch, still true)" (lastArgIsBool listBool == true) result
+  result ← test "lastArgIsBool Except ε Bool (overmatch, still true)" (lastArgIsBool exceptEBool == true) result
+  result ← test "lastArgIsBool ENNReal is false" (lastArgIsBool ennreal == false) result
 
   IO.println ""
-  IO.println "Testing Classification link serialization (singular = string)..."
-  let cls1 : Classification := {
-    category := .correctness
-    «via» := .naming
-    scheme := #[`Foo.Scheme]
-    construction := #[`Foo.construction]
-  }
-  let cls1Json := Lean.toJson cls1
-  let schemeIsString := match cls1Json.getObjValAs? String "scheme" with
-    | .ok s => s == "probe:Foo.Scheme" | _ => false
-  let consIsString := match cls1Json.getObjValAs? String "construction" with
-    | .ok s => s == "probe:Foo.construction" | _ => false
-  result ← test "scheme link serialises as string when singular" schemeIsString result
-  result ← test "construction link serialises as string when singular" consIsString result
-  let cls1Rt := match Lean.FromJson.fromJson? cls1Json (α := Classification) with
-    | .ok c => c.category == .correctness && c.via == .naming
-        && c.scheme == #[`Foo.Scheme]
-        && c.construction == #[`Foo.construction]
-    | .error _ => false
-  result ← test "Classification with singular links round-trips" cls1Rt result
-
-  IO.println ""
-  IO.println "Testing Classification link serialization (ambiguous = array)..."
-  let cls2 : Classification := {
-    category := .security
-    «via» := .type
-    scheme := #[`Foo.SchemeA, `Foo.SchemeB]
-  }
-  let cls2Json := Lean.toJson cls2
-  let schemeIsArray := match cls2Json.getObjValAs? (Array String) "scheme" with
-    | .ok arr => arr.size == 2 && arr[0]! == "probe:Foo.SchemeA" | _ => false
-  let consAbsent := match cls2Json.getObjVal? "construction" with
-    | .ok _ => false | .error _ => true
-  result ← test "scheme link serialises as array when ambiguous" schemeIsArray result
-  result ← test "empty construction link omitted" consAbsent result
-  let cls2Rt := match Lean.FromJson.fromJson? cls2Json (α := Classification) with
-    | .ok c => c.scheme.size == 2 && c.construction.isEmpty
-    | .error _ => false
-  result ← test "Classification with array link round-trips" cls2Rt result
-  -- exact contents + deterministic (sorted) order of the ambiguous array
-  let cls2ArrOk := match cls2Json.getObjValAs? (Array String) "scheme" with
-    | .ok arr => arr == #["probe:Foo.SchemeA", "probe:Foo.SchemeB"] | _ => false
-  result ← test "ambiguous scheme array has exact sorted contents" cls2ArrOk result
-  -- unsorted + duplicate input normalises to sorted, deduped output
-  let clsDup : Classification := {
-    category := .security
-    «via» := .type
-    scheme := #[`Foo.SchemeB, `Foo.SchemeA, `Foo.SchemeB]
-  }
-  let clsDupOk := match (Lean.toJson clsDup).getObjValAs? (Array String) "scheme" with
-    | .ok arr => arr == #["probe:Foo.SchemeA", "probe:Foo.SchemeB"] | _ => false
-  result ← test "link names dedupe and stable-sort on serialisation" clsDupOk result
-
-  IO.println ""
-  IO.println "Testing Classification field ordering is pinned..."
-  -- construction must precede scheme in the serialised object (design doc order)
-  let orderJson := (Lean.toJson cls1).compress
-  let consIdx := (orderJson.splitOn "\"construction\"").head!.length
-  let schemeIdx := (orderJson.splitOn "\"scheme\"").head!.length
-  result ← test "construction key precedes scheme key" (consIdx < schemeIdx) result
-
-  IO.println ""
-  IO.println "Testing Classification rejects malformed links..."
-  let mkBad (schemeVal : Lean.Json) : Lean.Json :=
-    Lean.Json.mkObj [
-      ("category", Lean.toJson "scheme"),
-      ("via", Lean.toJson "type"),
-      ("scheme", schemeVal)
-    ]
-  let rejNumber := match Lean.FromJson.fromJson? (mkBad (Lean.toJson (42 : Nat))) (α := Classification) with
-    | .ok _ => false | .error _ => true
-  let rejMixed := match Lean.FromJson.fromJson? (mkBad (Lean.Json.arr #[Lean.toJson "probe:Foo.A", Lean.toJson (7 : Nat)])) (α := Classification) with
-    | .ok _ => false | .error _ => true
-  let rejNull := match Lean.FromJson.fromJson? (mkBad Lean.Json.null) (α := Classification) with
-    | .ok _ => false | .error _ => true
-  result ← test "rejects scheme link that is a number" rejNumber result
-  result ← test "rejects scheme link array with non-string element" rejMixed result
-  result ← test "rejects scheme link that is present-but-null" rejNull result
-  -- an omitted link key is the normal unresolved case → empty, no error
-  let okAbsent := match Lean.FromJson.fromJson?
-      (Lean.Json.mkObj [("category", Lean.toJson "scheme"), ("via", Lean.toJson "type")]) (α := Classification) with
-    | .ok c => c.scheme.isEmpty && c.construction.isEmpty | .error _ => false
-  result ← test "absent link key parses as empty" okAbsent result
-
-  IO.println ""
-  IO.println "Testing UnifiedAtom classification field..."
-  let atomCls : UnifiedAtom := {
-    name := "probe:Test.thm"
-    displayName := "thm"
+  IO.println "Testing UnifiedAtom codomain-* JSON emission + round-trip..."
+  let ua : UnifiedAtom := {
+    name := "probe:Test.game"
+    displayName := "game"
     dependencies := #[]
     codeModule := "Test"
     codePath := "Test.lean"
     codeText := none
-    kind := .theorem
-    verificationStatus := some .verified
-    classification := some cls1
+    kind := .def
+    verificationStatus := none
+    codomainHead := some "ProbComp"
+    codomainIsProp := false
+    codomainLastArgIsBool := true
+    typeDependenciesExternal := #["probe:ProbComp.distAdvantage"]
+    termDependenciesExternal := #[]
   }
-  let atomClsJson := Lean.toJson atomCls
-  let clsPresent := match atomClsJson.getObjVal? "classification" with
-    | .ok _ => true | .error _ => false
-  result ← test "classification present in atom JSON when set" clsPresent result
-  let atomClsRt := match Lean.FromJson.fromJson? atomClsJson (α := UnifiedAtom) with
-    | .ok a => match a.classification with
-      | some c => c.category == .correctness
-      | none => false
-    | .error _ => false
-  result ← test "atom classification round-trips" atomClsRt result
-  let atomNoCls : UnifiedAtom := { atomCls with classification := none }
-  let clsAbsent := match (Lean.toJson atomNoCls).getObjVal? "classification" with
-    | .ok _ => false | .error _ => true
-  result ← test "classification absent from atom JSON when none" clsAbsent result
-
-  IO.println ""
-  IO.println "Testing SourceInfo class field..."
-  let srcWithClass : SourceInfo := {
-    repo := "https://example.com/repo", commit := "abc", package := "Pkg"
-    packageVersion := "1.0", sourceClass := some "security-protocol"
-  }
-  let srcJson := Lean.toJson srcWithClass
-  let classPresent := match srcJson.getObjValAs? String "class" with
-    | .ok s => s == "security-protocol" | _ => false
-  result ← test "source.class present in JSON when set" classPresent result
-  let srcRt := match Lean.FromJson.fromJson? srcJson (α := SourceInfo) with
-    | .ok s => s.sourceClass == some "security-protocol"
-    | .error _ => false
-  result ← test "source.class round-trips" srcRt result
-  let srcNoClass : SourceInfo := { srcWithClass with sourceClass := none }
-  let classAbsent := match (Lean.toJson srcNoClass).getObjVal? "class" with
-    | .ok _ => false | .error _ => true
-  result ← test "source.class absent from JSON when none" classAbsent result
-  return result
-
-def testCodomainShape (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing classifyCodomain on hand-built Exprs..."
-  let bool := Lean.Expr.const `Bool []
-  let nat := Lean.Expr.const `Nat []
-  let gameHeads := defaultGameHeads
-  -- positive cases
-  let probCompBool := Lean.Expr.app (Lean.Expr.const `ProbComp []) bool
-  let propSort := Lean.Expr.sort Lean.Level.zero
-  let ennreal := Lean.Expr.const `ENNReal []
-  let ckaScheme := Lean.Expr.const `CKAScheme []
-  let forallGame := Lean.Expr.forallE `x nat probCompBool Lean.BinderInfo.default
-  -- multi-argument probabilistic computations (head + final-arg Bool)
-  let oracleCompBool := Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `OracleComp []) (Lean.Expr.const `spec [])) bool
-  let spmfBool := Lean.Expr.app (Lean.Expr.const `SPMF []) bool
-  result ← test "ProbComp Bool → game" (classifyCodomain gameHeads probCompBool == .game) result
-  result ← test "OracleComp spec Bool → game" (classifyCodomain gameHeads oracleCompBool == .game) result
-  result ← test "SPMF Bool → game" (classifyCodomain gameHeads spmfBool == .game) result
-  result ← test "Sort 0 → prop" (classifyCodomain gameHeads propSort == .prop) result
-  result ← test "ENNReal → advantage" (classifyCodomain gameHeads ennreal == .advantage) result
-  result ← test "CKAScheme → other" (classifyCodomain gameHeads ckaScheme == .other) result
-  result ← test "∀ x, ProbComp Bool → game (strips binders)" (classifyCodomain gameHeads forallGame == .game) result
-  -- negative cases: "final arg is Bool" must NOT alone make a game
-  let listBool := Lean.Expr.app (Lean.Expr.const `List []) bool
-  let arrayBool := Lean.Expr.app (Lean.Expr.const `Array []) bool
-  let exceptEBool := Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `Except []) (Lean.Expr.const `ε [])) bool
-  -- a theorem statement (@Eq α a b) has head `Eq`, not a game/advantage
-  let eqStmt := Lean.Expr.app (Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `Eq []) nat) (Lean.Expr.const `a [])) (Lean.Expr.const `b [])
-  result ← test "List Bool → not game (other)" (classifyCodomain gameHeads listBool == .other) result
-  result ← test "Array Bool → not game (other)" (classifyCodomain gameHeads arrayBool == .other) result
-  result ← test "Except ε Bool → not game (other)" (classifyCodomain gameHeads exceptEBool == .other) result
-  result ← test "@Eq α a b (theorem stmt) → other" (classifyCodomain gameHeads eqStmt == .other) result
-
-  IO.println ""
-  IO.println "Testing codomainHeadOf and lastArgIsBool..."
-  let qualifiedScheme := Lean.Expr.const `SecureMessaging.CKA.Defs.CKAScheme []
-  result ← test "head of CKAScheme" (codomainHeadOf ckaScheme == some `CKAScheme) result
-  result ← test "head preserves qualified name" (codomainHeadOf qualifiedScheme == some `SecureMessaging.CKA.Defs.CKAScheme) result
-  result ← test "head through binders is ProbComp" (codomainHeadOf forallGame == some `ProbComp) result
-  result ← test "head of Sort 0 is none" (codomainHeadOf propSort == none) result
-  result ← test "lastArgIsBool ProbComp Bool" (lastArgIsBool probCompBool == true) result
-  result ← test "lastArgIsBool ENNReal is false" (lastArgIsBool ennreal == false) result
-  result ← test "lastArgIsBool forallGame strips binders" (lastArgIsBool forallGame == true) result
-  return result
-
-def testDetectClass (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing security-protocol detection from module names..."
-  result ← test "bare VCVio module → detected" (moduleListIndicatesSecurityProtocol #[`VCVio]) result
-  result ← test "VCVio.* submodule → detected"
-    (moduleListIndicatesSecurityProtocol #[`Mathlib.Data, `VCVio.OracleComp.Basic, `MyProj]) result
-  result ← test "no VCVio → not detected"
-    (!moduleListIndicatesSecurityProtocol #[`Mathlib.Data, `MyProj.Defs]) result
-  result ← test "VCVio prefix-collision (VCVioExtra) → not detected"
-    (!moduleListIndicatesSecurityProtocol #[`VCVioExtra]) result
-  result ← test "empty module list → not detected"
-    (!moduleListIndicatesSecurityProtocol #[]) result
-
-  IO.println ""
-  IO.println "Testing manifest detection (direct VCVio dep only)..."
-  let directVCVio := "{\"packages\": [{\"name\": \"VCVio\", \"inherited\": false}, {\"name\": \"mathlib\", \"inherited\": true}]}"
-  let transitiveVCVio := "{\"packages\": [{\"name\": \"VCVio\", \"inherited\": true}, {\"name\": \"mathlib\", \"inherited\": false}]}"
-  let noVCVio := "{\"packages\": [{\"name\": \"mathlib\", \"inherited\": false}]}"
-  result ← test "direct (inherited:false) VCVio → detected" (manifestDeclaresVCVio directVCVio) result
-  result ← test "transitive (inherited:true) VCVio → NOT detected" (!manifestDeclaresVCVio transitiveVCVio) result
-  result ← test "no VCVio package → not detected" (!manifestDeclaresVCVio noVCVio) result
-  result ← test "unparseable manifest → not detected" (!manifestDeclaresVCVio "{not json") result
-  result ← test "VCVio only in a comment/url → not detected"
-    (!manifestDeclaresVCVio "{\"comment\": \"uses VCV-io\", \"packages\": []}") result
-  -- Realistic entry shape: a direct dep carries url/type/rev/inputRev fields too;
-  -- extra fields must not defeat the `name`+`inherited` match.
-  let realShape := "{\"version\": \"1.1.0\", \"packagesDir\": \".lake/packages\", \"packages\": [{\"type\": \"git\", \"name\": \"VCVio\", \"url\": \"https://github.com/dtumad/VCV-io.git\", \"rev\": \"1e984d2\", \"inputRev\": \"main\", \"inherited\": false, \"configFile\": \"lakefile.toml\"}, {\"name\": \"mathlib\", \"inherited\": true}]}"
-  result ← test "direct VCVio dep with realistic extra fields → detected"
-    (manifestDeclaresVCVio realShape) result
-  -- Fail-closed default: an entry with NO `inherited` field is treated as
-  -- transitive (⇒ not detected). Documents the chosen default; the import-graph
-  -- signal still backstops a genuine direct dep whose manifest omits the field.
-  let absentInherited := "{\"packages\": [{\"name\": \"VCVio\", \"url\": \"x\"}]}"
-  result ← test "VCVio entry with absent `inherited` → fail-closed not detected"
-    (!manifestDeclaresVCVio absentInherited) result
-  -- Malformed `packages` (object, not array) must not throw → not detected.
-  result ← test "malformed packages (not an array) → not detected"
-    (!manifestDeclaresVCVio "{\"packages\": {\"name\": \"VCVio\"}}") result
-  return result
-
--- Build-time drift-resolver check: a guaranteed-present core name resolves with
--- no warning; a bogus FQN produces exactly one warning. Uses this test module's
--- own environment (Lean core: `Nat`/`List` present).
-open Lean Elab Command in
-run_cmd do
-  let env ← getEnv
-  let present := Catalogue.resolveAnchors env #[`Nat, `List]
-  let bogus := Catalogue.resolveAnchors env #[`Probe.Definitely.Not.A.Real.Name]
-  unless present.isEmpty do
-    throwError "resolveAnchors flagged core names that exist: {present}"
-  unless bogus.size == 1 do
-    throwError "resolveAnchors should flag exactly one bogus name, got {bogus.size}"
-  -- No VCVio scheme types are loaded in this test env, so every anchor's guard
-  -- is absent → family-conditional drift must stay silent (no false alarms).
-  let drift := Catalogue.driftWarnings env
-  unless drift.isEmpty do
-    throwError "driftWarnings should be empty in a non-VCVio env, got: {drift}"
-
-def testDrift (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing classification catalogue is well-formed..."
-  let noDups (a : Array Lean.Name) : Bool := a.toList.eraseDups.length == a.size
-  result ← test "scheme types non-empty" (Catalogue.vcvioSchemeTypes.size > 0) result
-  result ← test "game heads non-empty" (Catalogue.gameHeads.size > 0) result
-  result ← test "correctness anchors non-empty" (Catalogue.correctnessAnchors.size > 0) result
-  result ← test "security anchors non-empty" (Catalogue.securityAnchors.size > 0) result
-  result ← test "scheme types deduped" (noDups Catalogue.vcvioSchemeTypes) result
-  result ← test "game heads deduped" (noDups Catalogue.gameHeads) result
-  result ← test "correctness anchors deduped" (noDups Catalogue.correctnessAnchors) result
-  result ← test "security anchors deduped" (noDups Catalogue.securityAnchors) result
-  result ← test "algebra guard deduped" (noDups Catalogue.mathlibAlgebraGuard) result
-  -- categories must be disjoint (no anchor miscategorised into two buckets)
-  result ← test "correctness ∩ security = ∅"
-    (Catalogue.correctnessAnchors.all fun n => !Catalogue.securityAnchors.contains n) result
-  let props := Catalogue.correctnessAnchors ++ Catalogue.securityAnchors
-  result ← test "scheme types ∩ property anchors = ∅"
-    (Catalogue.vcvioSchemeTypes.all fun n => !props.contains n) result
-  result ← test "no anonymous anchors" (Catalogue.allAnchors.all fun n => !n.isAnonymous) result
-  -- guardOf: scheme-namespaced anchors guard on their scheme type; top-level → none
-  result ← test "guardOf scheme-namespaced anchor"
-    (Catalogue.guardOf `KEMScheme.IND_CCA_Advantage == some `KEMScheme) result
-  result ← test "guardOf nested-namespaced anchor"
-    (Catalogue.guardOf `AsymmEncAlg.ExplicitCoins.OW_CPA_Game == some `AsymmEncAlg.ExplicitCoins) result
-  result ← test "guardOf top-level anchor is none" (Catalogue.guardOf `SecExp == none) result
-  return result
-
-/-- Build a synthetic `DeclInfo` for classifier tests. -/
-def mkDeclI (nm : String) (kind : DeclKind) (shape : CodomainShape := .other)
-    (head : Option String := none) (typeDeps : Array String := #[])
-    (termDeps : Array String := #[]) (attrs : Array String := #[]) : DeclInfo :=
-  { name := nm.toName
-    displayName := getDisplayName nm.toName
-    moduleName := `Test
-    kind := kind
-    dependencies := (typeDeps ++ termDeps).map (·.toName)
-    typeDependencies := typeDeps.map (·.toName)
-    termDependencies := termDeps.map (·.toName)
-    sourceInfo := some { linesStart := 1, linesEnd := 1 }
-    codomainHead := head.map (·.toName)
-    codomainShape := shape
-    classAttributes := attrs }
-
-/-- Run the classifier and look up one atom's classification by code-name. -/
-def clsOf (decls : Array DeclInfo) (nm : String) : Option Classification :=
-  let (res, _) := Classify.classify decls
-  (res.find? (·.1 == nm.toName)).map (·.2)
-
-def testClassifySchemes (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing scheme classification..."
-  let decls : Array DeclInfo := #[
-    mkDeclI "App.CKAScheme" .structure,                                   -- naming *Scheme
-    mkDeclI "App.AEAD" .structure (attrs := #["scheme_def"]),             -- attribute
-    mkDeclI "App.SymmEncAlg" .structure,                                  -- naming *Alg
-    mkDeclI "App.BoolAlg" .structure,                                     -- algebra guard → not scheme
-    mkDeclI "App.fooScheme" .def,                                         -- *Scheme but not a structure
-    mkDeclI "App.AlgebraicMAC" .structure ]                              -- no *Scheme/*Alg suffix
-  let cat (n : String) := (clsOf decls n).map (·.category)
-  result ← test "structure *Scheme → scheme (naming)" (cat "App.CKAScheme" == some .scheme) result
-  result ← test "@[scheme_def] → scheme (attribute)"
-    ((clsOf decls "App.AEAD").map (fun c => (c.category, c.via)) == some (.scheme, .attribute)) result
-  result ← test "structure *Alg → scheme" (cat "App.SymmEncAlg" == some .scheme) result
-  result ← test "BoolAlg guarded → not scheme" (cat "App.BoolAlg" == none) result
-  result ← test "non-structure *Scheme → not scheme" (cat "App.fooScheme" == none) result
-  result ← test "untagged AlgebraicMAC → not scheme (needs tag)" (cat "App.AlgebraicMAC" == none) result
-  return result
-
-def testClassifyConstructions (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing construction classification + scheme link..."
-  let decls : Array DeclInfo := #[
-    mkDeclI "App.CKAScheme" .structure,
-    mkDeclI "App.ddhCKA" .def (head := "App.CKAScheme"),                  -- returns project scheme
-    mkDeclI "App.myKEM" .def (head := "KEMScheme"),                       -- returns VCVio scheme
-    mkDeclI "App.tagged" .def (attrs := #["construction_def"]) ]
-  result ← test "def returning project scheme → construction (type)"
-    ((clsOf decls "App.ddhCKA").map (·.category) == some .construction) result
-  result ← test "construction → scheme link"
-    ((clsOf decls "App.ddhCKA").map (·.scheme) == some #[`App.CKAScheme]) result
-  result ← test "def returning VCVio scheme → construction, scheme link absent"
-    ((clsOf decls "App.myKEM").map (fun c => (c.category, c.scheme)) == some (.construction, #[])) result
-  result ← test "@[construction_def] → construction (attribute)"
-    ((clsOf decls "App.tagged").map (·.via) == some .attribute) result
-  return result
-
-def testClassifyPromotionWalk (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing property promotion + theorem walk..."
-  let scheme := mkDeclI "App.CKAScheme" .structure
-  let cons := mkDeclI "App.ddhCKA" .def (head := "App.CKAScheme")
-  let corrExp := mkDeclI "App.correctnessExp" .def .game none #[] #[]      -- naming → correctness, promoted
-  let thm := mkDeclI "App.correctness" .theorem .other none
-    #["App.correctnessExp", "App.ddhCKA"] #[]                             -- reaches promoted anchor
-  let decls := #[scheme, cons, corrExp, thm]
-  result ← test "project game *correct* → correctness (naming)"
-    ((clsOf decls "App.correctnessExp").map (·.category) == some .correctness) result
-  result ← test "theorem reaches promoted anchor → correctness"
-    ((clsOf decls "App.correctness").map (·.category) == some .correctness) result
-  result ← test "theorem inherits weakest via (naming)"
-    ((clsOf decls "App.correctness").map (·.via) == some .naming) result
-  -- order-independence: shuffle the input, expect identical verdicts
-  let shuffled := #[thm, corrExp, scheme, cons]
-  result ← test "promotion fixed point is order-independent"
-    ((clsOf shuffled "App.correctness").map (·.category)
-      == (clsOf decls "App.correctness").map (·.category)) result
-  return result
-
-def testClassifyWalkTieAndBound (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing equal-depth tie → ambiguous, and the depth bound..."
-  let corrExp := mkDeclI "App.correctnessExp" .def .game
-  let secExp := mkDeclI "App.securityExp" .def .game
-  let tieThm := mkDeclI "App.both" .theorem .other none
-    #["App.correctnessExp", "App.securityExp"] #[]
-  result ← test "equal-depth correctness/security tie → ambiguous"
-    ((clsOf #[corrExp, secExp, tieThm] "App.both").map (·.category) == some .ambiguous) result
-  -- depth bound: a 17-node pass-through chain puts the anchor at depth 18 (> 16)
-  let chain : Array DeclInfo := (List.range 17).toArray.map fun i =>
-    let next := if i < 16 then s!"Bound.c{i+1}" else "Bound.securityExp"
-    mkDeclI s!"Bound.c{i}" .def .other none #[next] #[]
-  let anchor := mkDeclI "Bound.securityExp" .def .game
-  let farThm := mkDeclI "Bound.thm" .theorem .other none #["Bound.c0"] #[]
-  let boundDecls := chain.push anchor |>.push farThm
-  result ← test "anchor beyond depth 16 → theorem unclassified"
-    ((clsOf boundDecls "Bound.thm").isNone) result
-  -- same anchor at depth 2 IS reached
-  let nearThm := mkDeclI "Near.thm" .theorem .other none #["App.securityExp"] #[]
-  result ← test "anchor within bound → classified"
-    ((clsOf #[secExp, nearThm] "Near.thm").map (·.category) == some .security) result
-  return result
-
-def testClassifyLinks (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing link resolution (fail-closed)..."
-  let scheme := mkDeclI "App.CKAScheme" .structure
-  let cons := mkDeclI "App.ddhCKA" .def (head := "App.CKAScheme")
-  let corrExp := mkDeclI "App.correctnessExp" .def .game
-  let thm := mkDeclI "App.correctness" .theorem .other none
-    #["App.correctnessExp", "App.ddhCKA"] #[]
-  let decls := #[scheme, cons, corrExp, thm]
-  result ← test "property → construction link (unique)"
-    ((clsOf decls "App.correctness").map (·.construction) == some #[`App.ddhCKA]) result
-  result ← test "property → scheme link (via its construction)"
-    ((clsOf decls "App.correctness").map (·.scheme) == some #[`App.CKAScheme]) result
-  -- orphan: a theorem reaching no anchor and naming nothing → absent (no links)
-  let orphan := mkDeclI "App.helperLemma" .theorem .other none #["App.someList"] #[]
-  result ← test "orphan theorem → unclassified" ((clsOf #[orphan] "App.helperLemma").isNone) result
-  -- scheme-level property: game names a scheme but no construction → scheme link only
-  let schemeLevel := mkDeclI "App.correctnessExp2" .def .game none #["App.CKAScheme"] #[]
-  let dl := #[scheme, schemeLevel]
-  result ← test "scheme-level property → scheme link, no construction"
-    ((clsOf dl "App.correctnessExp2").map (fun c => (c.construction, c.scheme))
-      == some (#[], #[`App.CKAScheme])) result
-  return result
-
-def testClassifyConflicts (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing conflicting tags → ambiguous..."
-  let bothTags := mkDeclI "App.weird" .theorem .other none #[] #[] #["correctness_spec", "security_spec"]
-  let (res, diags) := Classify.classify #[bothTags]
-  let cls := (res.find? (·.1 == `App.weird)).map (·.2)
-  result ← test "both *_spec tags → ambiguous" (cls.map (·.category) == some .ambiguous) result
-  result ← test "conflict emits a diagnostic" (diags.any (containsSubstring · "conflicting")) result
-  -- kind-incompatible tag is ignored + diagnosed, decl falls through
-  let misuse := mkDeclI "App.notAStruct" .theorem .other none #[] #[] #["scheme_def"]
-  let (_, diags2) := Classify.classify #[misuse]
-  result ← test "scheme_def on theorem diagnosed" (diags2.any (containsSubstring · "scheme_def")) result
-  return result
-
-/-- A pass-through chain `pre0 → pre1 → … → last` of non-property `.other`
-defs (so they are not promoted; they just relay the walk). -/
-def chainTo (pre : String) (n : Nat) (last : String) : Array DeclInfo :=
-  (List.range n).toArray.map fun i =>
-    let next := if i + 1 < n then s!"{pre}{i+1}" else last
-    mkDeclI s!"{pre}{i}" .def .other none #[next] #[]
-
-def testClassifyFixpointOrder (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing type-reach fixed point is order-independent..."
-  -- correctnessExp/securityExp: naming anchors. gx reaches corr, gy reaches sec,
-  -- gd reaches BOTH (through gx/gy bodies) → must be ambiguous regardless of the
-  -- order gx/gd/gy are promoted in (the per-pass snapshot guarantees this).
-  let corrGame := mkDeclI "App.correctnessExp" .def .game
-  let secGame := mkDeclI "App.securityExp" .def .game
-  let gx := mkDeclI "App.gx" .def .game none #[] #["App.correctnessExp"]
-  let gy := mkDeclI "App.gy" .def .game none #[] #["App.securityExp"]
-  let gd := mkDeclI "App.gd" .def .game none #[] #["App.gx", "App.gy"]
-  -- gd sits BETWEEN gx and gy in the fold order — the order that broke before.
-  let ord1 := #[corrGame, secGame, gx, gd, gy]
-  let ord2 := #[gd, gy, gx, secGame, corrGame]
-  result ← test "gx reaches correctness only" ((clsOf ord1 "App.gx").map (·.category) == some .correctness) result
-  result ← test "gy reaches security only" ((clsOf ord1 "App.gy").map (·.category) == some .security) result
-  result ← test "reach-both gd → ambiguous (fold order gx,gd,gy)"
-    ((clsOf ord1 "App.gd").map (·.category) == some .ambiguous) result
-  result ← test "reach-both gd → ambiguous (shuffled order)"
-    ((clsOf ord2 "App.gd").map (·.category) == some .ambiguous) result
-
-  -- Pins the staged classifier's FIRST-VERDICT-WINS contract: a verdict reached
-  -- in one pass is final, even if a *later*-promoted, strictly-nearer anchor would
-  -- have decided it differently. `dTie` ties corr@2 (via gMid→correctnessExp) and
-  -- sec@2 (via passSec→securityExp) in pass 1 — gMid is not yet an anchor — so it
-  -- locks `ambiguous`. gMid is promoted (correctness) the same pass; were dTie
-  -- re-walked it would now see corr@1 < sec@2 and flip to correctness, but it is
-  -- not reconsidered. This is deliberate (and unchanged by the fixpoint refactor);
-  -- the test guards against a silent semantics drift, not asserts the ideal.
-  let corrExp := mkDeclI "App.correctnessExp" .def .game
-  let secExp := mkDeclI "App.securityExp" .def .game
-  let gMid := mkDeclI "App.gMid" .def .game none #[] #["App.correctnessExp"]
-  let passSec := mkDeclI "App.passSec" .def .other none #["App.securityExp"] #[]
-  let dTie := mkDeclI "App.dTie" .def .game none #[] #["App.gMid", "App.passSec"]
-  let stick := #[corrExp, secExp, gMid, passSec, dTie]
-  result ← test "later-promoted nearer anchor does NOT revise an earlier verdict (dTie stays ambiguous)"
-    ((clsOf stick "App.dTie").map (·.category) == some .ambiguous) result
-  result ← test "the later-promoted anchor itself is correctness (gMid)"
-    ((clsOf stick "App.gMid").map (·.category) == some .correctness) result
-  return result
-
-def testClassifyAttrShapeAndInstance (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing attributes are shape-independent + instance constructions..."
-  -- a transformer-stacked game has shape `other`, yet @[security_spec] must win
-  let txGame := mkDeclI "App.txSec" .def .other none #[] #[] #["security_spec"]
-  let (res, diags) := Classify.classify #[txGame]
-  let txCls := (res.find? (·.1 == `App.txSec)).map (·.2)
-  result ← test "@[security_spec] on .other def → security (attribute)"
-    (txCls.map (fun c => (c.category, c.via)) == some (.security, .attribute)) result
-  result ← test "@[security_spec] on .other def NOT diagnosed as misuse"
-    (!diags.any (containsSubstring · "non-property")) result
-  -- instance returning a scheme is a construction
-  let scheme := mkDeclI "App.CKAScheme" .structure
-  let inst := mkDeclI "App.ckaInst" .instance .other (head := "App.CKAScheme")
-  result ← test "instance returning a scheme → construction"
-    ((clsOf #[scheme, inst] "App.ckaInst").map (·.category) == some .construction) result
-  return result
-
-def testClassifyViaWeakest (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing weakest-tier via at equal depth is order-independent..."
-  -- KEMScheme.CorrectExp is a catalogued (via:type) correctness anchor; the
-  -- project correctnessExp is via:naming. Reaching both at depth 1 → naming.
-  let projCorr := mkDeclI "App.correctnessExp" .def .game
-  let thm := mkDeclI "App.bothCorr" .theorem .other none
-    #["KEMScheme.CorrectExp", "App.correctnessExp"] #[]
-  result ← test "same-depth corr anchors (type+naming) → via naming"
-    ((clsOf #[projCorr, thm] "App.bothCorr").map (fun c => (c.category, c.via))
-      == some (.correctness, .naming)) result
-  return result
-
-def testClassifyWalkEdges (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing walk edges: shallower-wins, depth boundary, cycles..."
-  let corrA := mkDeclI "App.correctnessExp" .def .game
-  let secA := mkDeclI "App.securityExp" .def .game
-  -- shallower wins: corr at depth 1, sec at depth 2 (through a pass-through) → correctness
-  let passSec := mkDeclI "App.passSec" .def .other none #["App.securityExp"] #[]
-  let shThm := mkDeclI "App.shallow" .theorem .other none #["App.correctnessExp", "App.passSec"] #[]
-  result ← test "strictly-shallower category wins (corr@1 vs sec@2)"
-    ((clsOf #[corrA, secA, passSec, shThm] "App.shallow").map (·.category) == some .correctness) result
-  -- depth boundary: anchor at depth 16 is reached; at depth 17 it is not
-  let c16 := chainTo "R16.c" 15 "App.correctnessExp"      -- c0..c14 (15) → anchor @ depth 16
-  let thm16 := mkDeclI "R16.thm" .theorem .other none #["R16.c0"] #[]
-  result ← test "anchor at depth 16 → reached"
-    ((clsOf (#[corrA] ++ c16 |>.push thm16) "R16.thm").map (·.category) == some .correctness) result
-  let c17 := chainTo "R17.c" 16 "App.correctnessExp"      -- c0..c15 (16) → anchor @ depth 17
-  let thm17 := mkDeclI "R17.thm" .theorem .other none #["R17.c0"] #[]
-  result ← test "anchor at depth 17 → not reached" ((clsOf (#[corrA] ++ c17 |>.push thm17) "R17.thm").isNone) result
-  -- cycle: a self/mutually-referential dep must terminate (visited set)
-  let cyc := mkDeclI "App.cyc" .def .other none #["App.cyc", "App.correctnessExp"] #[]
-  let cycThm := mkDeclI "App.cycThm" .theorem .other none #["App.cyc"] #[]
-  result ← test "cyclic dep terminates and still reaches anchor"
-    ((clsOf #[corrA, cyc, cycThm] "App.cycThm").map (·.category) == some .correctness) result
-  return result
-
-def testClassifyLinkEdges (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing link edges: multi-construction arrays + ambiguous links..."
-  let s1 := mkDeclI "App.OneScheme" .structure
-  let s2 := mkDeclI "App.TwoScheme" .structure
-  let c1 := mkDeclI "App.c1" .def (head := "App.OneScheme")
-  let c2 := mkDeclI "App.c2" .def (head := "App.TwoScheme")
-  let corrA := mkDeclI "App.correctnessExp" .def .game
-  let multiThm := mkDeclI "App.multi" .theorem .other none
-    #["App.correctnessExp", "App.c1", "App.c2"] #[]
-  let decls := #[s1, s2, c1, c2, corrA, multiThm]
-  result ← test "two constructions → construction array (sorted)"
-    ((clsOf decls "App.multi").map (·.construction) == some #[`App.c1, `App.c2]) result
-  result ← test "two constructions → scheme union (sorted)"
-    ((clsOf decls "App.multi").map (·.scheme) == some #[`App.OneScheme, `App.TwoScheme]) result
-  -- ambiguous atom still carries its construction/scheme links
-  let secA := mkDeclI "App.securityExp" .def .game
-  let ambThm := mkDeclI "App.amb" .theorem .other none
-    #["App.correctnessExp", "App.securityExp", "App.c1"] #[]
-  let dl := #[s1, c1, corrA, secA, ambThm]
-  result ← test "ambiguous atom carries construction link"
-    ((clsOf dl "App.amb").map (fun c => (c.category, c.construction)) == some (.ambiguous, #[`App.c1])) result
-  result ← test "ambiguous atom carries scheme link"
-    ((clsOf dl "App.amb").map (·.scheme) == some #[`App.OneScheme]) result
-  return result
-
-def testUnifyClassification (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing unifyAtom attaches classification (commit-5a glue)..."
-  let atom : Atom := {
-    name := "probe:App.thm"
-    displayName := "thm"
-    dependencies := #[]
-    codeModule := "App"
-    codePath := "App.lean"
-    codeText := none
-    kind := .theorem
-  }
-  let cls : Classification := { category := .correctness, «via» := .naming, scheme := #[`App.CKAScheme] }
-  let ua := unifyAtom atom none (some cls)
-  result ← test "unifyAtom sets classification when present"
-    (ua.classification.map (·.category) == some .correctness) result
-  result ← test "unifyAtom classification link preserved"
-    (ua.classification.map (·.scheme) == some #[`App.CKAScheme]) result
-  let uaNone := unifyAtom atom none none
-  result ← test "unifyAtom classification absent by default" (uaNone.classification == none) result
-  -- the classifier keys by raw Name; Extract indexes by the probe-prefixed atom name
-  result ← test "probe-prefixed key matches atom name"
-    (addProbePrefix (`App.thm).toString == atom.name) result
-  return result
-
-def testBuildClassMap (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing buildClassMap keys by probe-prefixed name..."
-  let cls1 : Classification := { category := .scheme, «via» := .naming }
-  let cls2 : Classification := { category := .correctness, «via» := .naming, construction := #[`App.c] }
-  let m := buildClassMap #[(`App.CKAScheme, cls1), (`App.thm, cls2)]
-  result ← test "buildClassMap: scheme keyed by probe:name"
-    ((m["probe:App.CKAScheme"]?).map (·.category) == some .scheme) result
-  result ← test "buildClassMap: theorem keyed by probe:name"
-    ((m["probe:App.thm"]?).map (·.category) == some .correctness) result
-  result ← test "buildClassMap: unknown name → none" ((m["probe:App.nope"]?).isNone) result
-  -- the classifier only runs for the security-protocol class
-  result ← test "classifier runs for security-protocol" (isSecurityProtocolClass (some "security-protocol")) result
-  result ← test "classifier skips other class" (!isSecurityProtocolClass (some "other-class")) result
-  result ← test "classifier skips no class" (!isSecurityProtocolClass none) result
-  return result
-
-def testEnrichPreservesClassification (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing transitive enrichment preserves classification..."
-  let cls : Classification := { category := .security, «via» := .naming, scheme := #[`App.S] }
-  let atom : UnifiedAtom := {
-    name := "probe:App.thm"
-    displayName := "thm"
-    dependencies := #[]
-    codeModule := "App"
-    codePath := "App.lean"
-    codeText := none
-    kind := .theorem
-    verificationStatus := some .verified
-    classification := some cls
-  }
-  let (enriched, _, _, _) := enrichTransitiveVerification #[atom]
-  match enriched[0]? with
-  | some out =>
-    result ← test "verified atom upgraded to transitively-verified"
-      (out.verificationStatus == some .transitivelyVerified) result
-    result ← test "classification survives the enrichment record-update"
-      (out.classification.map (fun c => (c.category, c.scheme)) == some (.security, #[`App.S])) result
-  | none =>
-    IO.println "  ✗ enriched atom missing"
-    result := result.add false
-  return result
-
-def testClassifyMisuseIgnored (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing kind-incompatible tag is ignored (decl falls through)..."
-  -- @[scheme_def] on a theorem is ignored; the theorem still classifies by naming
-  let thm := mkDeclI "App.correctness" .theorem .other none #[] #[] #["scheme_def"]
-  let (res, diags) := Classify.classify #[thm]
-  let cls := (res.find? (·.1 == `App.correctness)).map (·.2)
-  result ← test "scheme_def on theorem ignored → classified by naming"
-    (cls.map (·.category) == some .correctness) result
-  result ← test "ignored scheme_def is diagnosed" (diags.any (containsSubstring · "scheme_def")) result
-  return result
-
-def testClassifyAttrAuthority (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing attribute authority + property-def tie via (final review fixes)..."
-  -- #1: a property def reaching both categories at equal depth via naming anchors
-  -- must be ambiguous with via=naming (the weakest tier), not hard-coded type.
-  let corrGame := mkDeclI "App.correctnessExp" .def .game
-  let secGame := mkDeclI "App.securityExp" .def .game
-  let gboth := mkDeclI "App.gboth" .def .game none #[] #["App.correctnessExp", "App.securityExp"]
-  result ← test "property-def reach tie → ambiguous via naming (weakest tier)"
-    ((clsOf #[corrGame, secGame, gboth] "App.gboth").map (fun c => (c.category, c.via))
-      == some (.ambiguous, .naming)) result
-  -- #2: a property tag must win over construction type-inference even when the
-  -- def returns a scheme (attributes are authoritative).
-  let scheme := mkDeclI "App.CKAScheme" .structure
-  let taggedSec := mkDeclI "App.weirdSecProp" .def .other (head := "App.CKAScheme") (attrs := #["security_spec"])
-  result ← test "@[security_spec] def returning a scheme → security, not construction"
-    ((clsOf #[scheme, taggedSec] "App.weirdSecProp").map (·.category) == some .security) result
-  let bothTags := mkDeclI "App.weirdBoth" .def .other (head := "App.CKAScheme")
-    (attrs := #["correctness_spec", "security_spec"])
-  result ← test "conflicting tags on scheme-returning def → ambiguous, not construction"
-    ((clsOf #[scheme, bothTags] "App.weirdBoth").map (·.category) == some .ambiguous) result
+  let j := Lean.toJson ua
+  result ← test "emits codomain-head" ((j.getObjValAs? String "codomain-head").toOption == some "ProbComp") result
+  result ← test "emits codomain-is-prop" ((j.getObjValAs? Bool "codomain-is-prop").toOption == some false) result
+  result ← test "emits codomain-last-arg-is-bool" ((j.getObjValAs? Bool "codomain-last-arg-is-bool").toOption == some true) result
+  result ← test "emits type-dependencies-external" ((j.getObjValAs? (Array String) "type-dependencies-external").toOption == some #["probe:ProbComp.distAdvantage"]) result
+  result ← test "omits empty term-dependencies-external" ((j.getObjVal? "term-dependencies-external").toOption == none) result
+  match Lean.FromJson.fromJson? j (α := UnifiedAtom) with
+  | .ok rt => do
+    result ← test "round-trip codomain-head" (rt.codomainHead == some "ProbComp") result
+    result ← test "round-trip codomain-is-prop" (rt.codomainIsProp == false) result
+    result ← test "round-trip codomain-last-arg-is-bool" (rt.codomainLastArgIsBool == true) result
+    result ← test "round-trip type-dependencies-external" (rt.typeDependenciesExternal == #["probe:ProbComp.distAdvantage"]) result
+    result ← test "round-trip term-dependencies-external empty" (rt.termDependenciesExternal == #[]) result
+  | .error e => do
+    result ← test s!"UnifiedAtom codomain round-trip failed: {e}" false result
+  -- codomain-head omitted when none
+  let uaNone : UnifiedAtom := { ua with codomainHead := none }
+  result ← test "codomain-head omitted when none" ((Lean.toJson uaNone).getObjValAs? String "codomain-head" |>.toOption |>.isNone) result
   return result
 
 def testViewHelpers (result : TestResult) : IO TestResult := do
@@ -3676,26 +3074,7 @@ def main : IO UInt32 := do
   result ← testSorryDetection result
   result ← testProofsOutputJson result
   result ← testUnifiedAtomJson result
-  result ← testClassificationJson result
-  result ← testCodomainShape result
-  result ← testDetectClass result
-  result ← testDrift result
-  result ← testClassifySchemes result
-  result ← testClassifyConstructions result
-  result ← testClassifyPromotionWalk result
-  result ← testClassifyWalkTieAndBound result
-  result ← testClassifyLinks result
-  result ← testClassifyConflicts result
-  result ← testClassifyFixpointOrder result
-  result ← testClassifyAttrShapeAndInstance result
-  result ← testClassifyViaWeakest result
-  result ← testClassifyWalkEdges result
-  result ← testClassifyLinkEdges result
-  result ← testClassifyMisuseIgnored result
-  result ← testClassifyAttrAuthority result
-  result ← testUnifyClassification result
-  result ← testBuildClassMap result
-  result ← testEnrichPreservesClassification result
+  result ← testCodomainFacts result
   result ← testViewHelpers result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result

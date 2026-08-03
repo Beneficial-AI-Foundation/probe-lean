@@ -24,7 +24,6 @@ structure ExtractConfig where
   fromFile : Option System.FilePath
   libraries : Option (Array String) := none
   skipEnrich : Bool := false
-  classOverride : Option String := none
   deriving Repr
 
 /-- Map probe-lean VerifyStatus to the web frontend's verification status -/
@@ -55,7 +54,6 @@ def isTrustedAtom (atom : Atom) : Bool :=
     `@[externally_verified]`, and non-theorem declarations from `*External.lean`
     files are overridden to `trusted` regardless of sorry detection. -/
 def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
-    (classification : Option Classification := none)
     : UnifiedAtom :=
   let baseStatus := proofEntry.map fun p => mapVerifyStatus p.status
   let reason := trustedReason atom
@@ -66,6 +64,8 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     dependencies := atom.dependencies
     typeDependencies := atom.typeDependencies
     termDependencies := atom.termDependencies
+    typeDependenciesExternal := atom.typeDependenciesExternal
+    termDependenciesExternal := atom.termDependenciesExternal
     codeModule := atom.codeModule
     codePath := atom.codePath
     codeText := atom.codeText
@@ -84,7 +84,9 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     primarySpec := atom.primarySpec
     verificationStatus := status
     trustedReason := reason
-    classification := classification
+    codomainHead := atom.codomainHead
+    codomainIsProp := atom.codomainIsProp
+    codomainLastArgIsBool := atom.codomainLastArgIsBool
   }
 
 /-- A lean-generated atom is *contaminated* — worth surfacing so users can trace
@@ -106,13 +108,6 @@ def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
 def unhideContaminatedGenerated (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
   atoms.map fun atom =>
     if isContaminatedGenerated atom then { atom with isHidden := false } else atom
-
-/-- Index per-declaration classifications by the emitted atom's `probe:`-prefixed
-    code-name, so the merge can attach each atom's classification in O(1). The
-    classifier keys by raw `Name`; atoms are keyed by `probeRef name` (the same
-    expression `declInfoToAtom` uses), so the two sides line up. -/
-def buildClassMap (classifications : Array (Name × Classification)) : Std.HashMap String Classification :=
-  classifications.foldl (fun m (n, c) => m.insert (probeRef n) c) {}
 
 /-- Check whether a module belongs to one of the given library roots.
     A module `A.B.C` belongs to library `A` if its name equals `A` or starts with `A.`. -/
@@ -281,13 +276,11 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let userConfig ← loadUserConfig config.projectPath
   let crate := loadRelevantCrate userConfig
 
-  let (atoms, projectClass, classifications) ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate nixMode config.classOverride with
+  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate nixMode with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1
     | .ok result => pure result
-
-  let classMap := buildClassMap classifications
 
   IO.println s!"Found {atoms.size} atoms"
 
@@ -330,7 +323,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
 
   let unifiedAtoms := atoms.mapIdx fun i atom =>
     let proof := proofEntries.bind fun ps => ps[i]?
-    unifyAtom atom proof classMap[atom.name]?
+    unifyAtom atom proof
 
   -- === Enrich: transitive verification via reverse-BFS ===
   let unifiedAtoms ← if config.skipEnrich then
@@ -355,8 +348,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   -- trace why downstream atoms aren't fully verified (see `isContaminatedGenerated`).
   let unifiedAtoms := unhideContaminatedGenerated unifiedAtoms
 
-  let baseSource ← collectSourceInfo config.projectPath
-  let source := { baseSource with sourceClass := projectClass }
+  let source ← collectSourceInfo config.projectPath
   let timestamp ← getCurrentTimestamp
 
   let output : UnifiedAtomsOutput := { atoms := unifiedAtoms }

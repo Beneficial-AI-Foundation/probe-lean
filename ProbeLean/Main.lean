@@ -33,9 +33,6 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
   let libraries := parsed.flag? "library" |>.map fun f =>
     (f.as! String).splitOn "," |>.map (fun s => s.trimAscii.toString) |>.toArray
   let skipEnrich := parsed.hasFlag "skip-enrich"
-  let classOverride := (parsed.flag? "class" |>.map (·.as! String)).bind fun s =>
-    let t := s.trimAscii.toString
-    if t.isEmpty then none else some t
 
   let config : ExtractConfig := {
     projectPath := projectPath
@@ -45,7 +42,6 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
     fromFile := fromFile
     libraries := libraries
     skipEnrich := skipEnrich
-    classOverride := classOverride
   }
 
   runExtractInProject config
@@ -62,7 +58,6 @@ def extractCmd : Cmd := `[Cli|
     "from-file" : String; "Use existing build output for sorry detection instead of running lake"
     l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
     "skip-enrich"; "Skip transitive verification enrichment"
-    "class" : String; "Override the detected project class (e.g. security-protocol)"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to analyze"

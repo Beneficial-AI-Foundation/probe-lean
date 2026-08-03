@@ -59,24 +59,17 @@ structure SourceInfo where
   language : String := "lean"
   package : String
   packageVersion : String
-  /-- Detected project class (e.g. `"security-protocol"`). Serialised to the
-      JSON key `class`; omitted when no class is detected. -/
-  sourceClass : Option String := none
   deriving Repr, BEq
 
 instance : Lean.ToJson SourceInfo where
   toJson info :=
-    let base := [
+    Lean.Json.mkObj [
       ("repo", Lean.toJson info.repo),
       ("commit", Lean.toJson info.commit),
       ("language", Lean.toJson info.language),
       ("package", Lean.toJson info.package),
       ("package-version", Lean.toJson info.packageVersion)
     ]
-    let withClass := match info.sourceClass with
-      | some c => base ++ [("class", Lean.toJson c)]
-      | none => base
-    Lean.Json.mkObj withClass
 
 instance : Lean.FromJson SourceInfo where
   fromJson? json := do
@@ -85,8 +78,7 @@ instance : Lean.FromJson SourceInfo where
     let language ← json.getObjValAs? String "language" <|> pure "lean"
     let package ← json.getObjValAs? String "package"
     let packageVersion ← json.getObjValAs? String "package-version"
-    let sourceClass ← json.getObjValAs? (Option String) "class" <|> pure none
-    return { repo, commit, language, package, packageVersion, sourceClass }
+    return { repo, commit, language, package, packageVersion }
 
 /-- Typed envelope wrapper for all Schema 3.0 outputs -/
 structure Envelope (α : Type) where
@@ -207,133 +199,6 @@ instance : Lean.FromJson DeclKind where
 instance : Inhabited DeclKind where
   default := .def
 
--- ============================================================
--- Security-protocol classification
--- (see docs/classification-security-protocol.md)
--- ============================================================
-
-/-- The security-protocol categories an atom can be classified into. The first
-four are the hierarchy leaves; `ambiguous` marks a declaration recognised as a
-crypto *property* whose correctness-vs-security axis could not be decided (an
-equal-depth reachability tie, or conflicting `@[…_spec]` tags). It still carries
-`scheme`/`construction` links, so it is placeable but flagged to resolve with a
-tag — distinct from an absent classification (not a property at all). -/
-inductive SecurityProtocolCategory where
-  | scheme
-  | construction
-  | correctness
-  | security
-  | ambiguous
-  deriving Repr, BEq
-
-instance : Lean.ToJson SecurityProtocolCategory where
-  toJson
-    | .scheme => "scheme"
-    | .construction => "construction"
-    | .correctness => "correctness"
-    | .security => "security"
-    | .ambiguous => "ambiguous"
-
-instance : Lean.FromJson SecurityProtocolCategory where
-  fromJson? json := do
-    let s ← json.getStr?
-    match s with
-    | "scheme" => return .scheme
-    | "construction" => return .construction
-    | "correctness" => return .correctness
-    | "security" => return .security
-    | "ambiguous" => return .ambiguous
-    | _ => throw s!"Unknown SecurityProtocolCategory: {s}"
-
-/-- How a classification was determined — the weakest signal in the chain. -/
-inductive ClassVia where
-  | attribute
-  | type
-  | naming
-  deriving Repr, BEq
-
-instance : Lean.ToJson ClassVia where
-  toJson
-    | .attribute => "attribute"
-    | .type => "type"
-    | .naming => "naming"
-
-instance : Lean.FromJson ClassVia where
-  fromJson? json := do
-    let s ← json.getStr?
-    match s with
-    | "attribute" => return .attribute
-    | "type" => return .type
-    | "naming" => return .naming
-    | _ => throw s!"Unknown ClassVia: {s}"
-
-/-- A classification annotation on an atom. `scheme`/`construction` are the
-explicit hierarchy links: empty means absent (unresolvable / orphan); a single
-name serialises as a `probe:`-prefixed string; multiple names (genuinely
-ambiguous) serialise as an array of such strings. Field order matches the
-serialised JSON (`construction` before `scheme`) per the design doc example. -/
-structure Classification where
-  category : SecurityProtocolCategory
-  «via» : ClassVia
-  construction : Array Lean.Name := #[]
-  scheme : Array Lean.Name := #[]
-  deriving Repr, BEq
-
-/-- Deduplicate and stably sort a link's names so serialised output is
-deterministic regardless of how the classifier produced them (P14). -/
-def normalizeClassLink (names : Array Lean.Name) : Array Lean.Name :=
-  let sorted := names.qsort (fun a b => a.toString < b.toString)
-  sorted.foldl (init := #[]) fun acc n =>
-    if acc.contains n then acc else acc.push n
-
-/-- Serialise a link field: omitted when empty, a `probe:`-prefixed string when
-singular, an array of such strings when ambiguous. Names are normalised first. -/
-def classLinkToJson (names : Array Lean.Name) : Option Lean.Json :=
-  match normalizeClassLink names with
-  | #[] => none
-  | #[n] => some (Lean.toJson (probeRef n))
-  | ns => some (Lean.toJson (ns.map probeRef))
-
-/-- Parse a link field that may be absent, a single string, or an array of
-strings. Absent → empty. A present value that is not a string or an array of
-strings is a hard error (fail loud on a malformed producer), per the
-`string | array<string>` contract. The `probe:` prefix is stripped. -/
-def classLinkFromJson (json : Lean.Json) (key : String) : Except String (Array Lean.Name) :=
-  match json.getObjVal? key with
-  | .error _ => .ok #[]  -- absent: a normal, unresolved link
-  | .ok v =>
-    match v.getStr? with
-    | .ok s => .ok #[(stripProbePrefix s).toName]
-    | .error _ =>
-      match v.getArr? with
-      | .ok arr => arr.foldlM (init := #[]) fun acc e =>
-          match e.getStr? with
-          | .ok s => .ok (acc.push (stripProbePrefix s).toName)
-          | .error _ => .error s!"classification link '{key}' array element is not a string"
-      | .error _ => .error s!"classification link '{key}' must be a string or array of strings"
-
-instance : Lean.ToJson Classification where
-  toJson c :=
-    let base := [
-      ("category", Lean.toJson c.category),
-      ("via", Lean.toJson c.via)
-    ]
-    let withConstruction := match classLinkToJson c.construction with
-      | some j => base ++ [("construction", j)]
-      | none => base
-    let withScheme := match classLinkToJson c.scheme with
-      | some j => withConstruction ++ [("scheme", j)]
-      | none => withConstruction
-    Lean.Json.mkObj withScheme
-
-instance : Lean.FromJson Classification where
-  fromJson? json := do
-    let category ← json.getObjValAs? SecurityProtocolCategory "category"
-    let «via» ← json.getObjValAs? ClassVia "via"
-    let construction ← classLinkFromJson json "construction"
-    let scheme ← classLinkFromJson json "scheme"
-    return { category, «via», construction, scheme }
-
 /-- An atom representing a declaration in the dependency graph -/
 structure Atom where
   name : String
@@ -341,6 +206,13 @@ structure Atom where
   dependencies : Array String
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
+  /-- Non-project (external) type dependencies — deps referenced by the result
+  type that are not project decls (e.g. Mathlib/core names). Emitted so a
+  downstream classifier can reconstruct the full reachability graph, which the
+  project-filtered `typeDependencies` omits. -/
+  typeDependenciesExternal : Array String := #[]
+  /-- Non-project (external) term dependencies — the body's external deps. -/
+  termDependenciesExternal : Array String := #[]
   codeModule : String
   codePath : String
   codeText : Option CodeTextInfo
@@ -357,6 +229,12 @@ structure Atom where
   specs : Array String := #[]
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
+  /-- Head constant of the result type, if any (neutral fact). -/
+  codomainHead : Option String := none
+  /-- Result type is `Sort 0` (a `Prop`). -/
+  codomainIsProp : Bool := false
+  /-- Final application arg of the result type is `Bool`. -/
+  codomainLastArgIsBool : Bool := false
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson Atom where
@@ -560,6 +438,13 @@ structure UnifiedAtom where
   dependencies : Array String
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
+  /-- Non-project (external) type dependencies — deps referenced by the result
+  type that are not project decls (e.g. Mathlib/core names). Emitted so a
+  downstream classifier can reconstruct the full reachability graph, which the
+  project-filtered `typeDependencies` omits. -/
+  typeDependenciesExternal : Array String := #[]
+  /-- Non-project (external) term dependencies — the body's external deps. -/
+  termDependenciesExternal : Array String := #[]
   codeModule : String
   codePath : String
   codeText : Option CodeTextInfo
@@ -578,7 +463,12 @@ structure UnifiedAtom where
   primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus
   trustedReason : Option String := none
-  classification : Option Classification := none
+  /-- Head constant of the result type, if any (neutral fact). -/
+  codomainHead : Option String := none
+  /-- Result type is `Sort 0` (a `Prop`). -/
+  codomainIsProp : Bool := false
+  /-- Final application arg of the result type is `Bool`. -/
+  codomainLastArgIsBool : Bool := false
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson UnifiedAtom where
@@ -601,8 +491,12 @@ instance : Lean.ToJson UnifiedAtom where
       ("is-in-package", Lean.toJson atom.isInPackage),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
-    let withAttrs := if atom.attributes.isEmpty then base
-      else base ++ [("attributes", Lean.toJson atom.attributes)]
+    let withExtType := if atom.typeDependenciesExternal.isEmpty then base
+      else base ++ [("type-dependencies-external", Lean.toJson atom.typeDependenciesExternal)]
+    let withExtTerm := if atom.termDependenciesExternal.isEmpty then withExtType
+      else withExtType ++ [("term-dependencies-external", Lean.toJson atom.termDependenciesExternal)]
+    let withAttrs := if atom.attributes.isEmpty then withExtTerm
+      else withExtTerm ++ [("attributes", Lean.toJson atom.attributes)]
     let withSpecs := if atom.specs.isEmpty then withAttrs
       else withAttrs ++ [("specs", Lean.toJson atom.specs)]
     let withPrimary := match atom.primarySpec with
@@ -614,10 +508,14 @@ instance : Lean.ToJson UnifiedAtom where
     let withTrustedReason := match atom.trustedReason with
       | some reason => withVerification ++ [("trusted-reason", Lean.toJson reason)]
       | none => withVerification
-    let withClassification := match atom.classification with
-      | some c => withTrustedReason ++ [("classification", Lean.toJson c)]
+    let withCodomainHead := match atom.codomainHead with
+      | some h => withTrustedReason ++ [("codomain-head", Lean.toJson h)]
       | none => withTrustedReason
-    Lean.Json.mkObj withClassification
+    let withCodomain := withCodomainHead ++ [
+      ("codomain-is-prop", Lean.toJson atom.codomainIsProp),
+      ("codomain-last-arg-is-bool", Lean.toJson atom.codomainLastArgIsBool)
+    ]
+    Lean.Json.mkObj withCodomain
 
 instance : Lean.FromJson UnifiedAtom where
   fromJson? json := do
@@ -626,6 +524,8 @@ instance : Lean.FromJson UnifiedAtom where
     let dependencies ← json.getObjValAs? (Array String) "dependencies"
     let typeDependencies ← json.getObjValAs? (Array String) "type-dependencies" <|> pure #[]
     let termDependencies ← json.getObjValAs? (Array String) "term-dependencies" <|> pure #[]
+    let typeDependenciesExternal ← json.getObjValAs? (Array String) "type-dependencies-external" <|> pure #[]
+    let termDependenciesExternal ← json.getObjValAs? (Array String) "term-dependencies-external" <|> pure #[]
     let codeModule ← json.getObjValAs? String "code-module"
     let codePath ← json.getObjValAs? String "code-path"
     let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
@@ -644,8 +544,10 @@ instance : Lean.FromJson UnifiedAtom where
     let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
     let trustedReason ← json.getObjValAs? (Option String) "trusted-reason" <|> pure none
-    let classification ← json.getObjValAs? (Option Classification) "classification" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, classification }
+    let codomainHead ← json.getObjValAs? (Option String) "codomain-head" <|> pure none
+    let codomainIsProp ← json.getObjValAs? Bool "codomain-is-prop" <|> pure false
+    let codomainLastArgIsBool ← json.getObjValAs? Bool "codomain-last-arg-is-bool" <|> pure false
+    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, codomainHead, codomainIsProp, codomainLastArgIsBool }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

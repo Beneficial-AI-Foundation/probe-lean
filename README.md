@@ -145,7 +145,6 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--skip-verify` | Skip sorry detection (graph structure only) |
 | `--from-file <FILE>` | Use existing build output for sorry detection |
 | `--skip-enrich` | Skip transitive verification enrichment (no `"transitively-verified"` status) |
-| `--class <NAME>` | Override the detected project class (e.g. `security-protocol`) |
 
 ### `check-axioms`
 
@@ -163,13 +162,17 @@ appear here (if one does, the emitted graph lost a contamination path).
 > (`O(declarations × closure size)`), so on very large projects (Mathlib-scale
 > closures) it can be slow. Use `-m`/`-l` to narrow the scope.
 
-### Security-protocol classification
+### Codomain facts & downstream classification
 
-For VCVio-based cryptographic projects, `extract` additionally classifies declarations into a
-`scheme → construction → {correctness, security}` hierarchy — emitting `source.class` and a per-atom
-`classification` object so a consumer can render an accordion. The class is auto-detected from a
-VCVio dependency; schemes not named `*Scheme`/`*Alg` should carry `@[scheme_def]` (from
-`ProbeLean.Attrs`). See **[docs/classification-security-protocol.md](docs/classification-security-protocol.md)**.
+Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
+facts about its result type, plus `type-dependencies-external` / `term-dependencies-external`
+(the non-project deps that the project-filtered `type-`/`term-dependencies` omit). These are
+domain-agnostic primitives: probe-lean does not classify declarations itself, but a downstream
+tool can reconstruct a declaration's codomain shape and the full dependency reachability graph
+from them. The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
+`@[correctness_spec]`, `@[security_spec]`) are registered in `ProbeLean.Attrs` so target
+projects can annotate declarations; probe-lean emits them verbatim in each atom's `attributes`
+array without interpreting them.
 
 For the full command reference with examples, see **[docs/USAGE.md](docs/USAGE.md)**. For the complete JSON schema specification, see **[docs/SCHEMA.md](docs/SCHEMA.md)**.
 
@@ -288,7 +291,6 @@ are imported into a **single Lean environment** before atomizing.
 
 - [docs/USAGE.md](docs/USAGE.md) — full command reference and real-project walkthroughs
 - [docs/SCHEMA.md](docs/SCHEMA.md) — envelope schema specification
-- [docs/classification-security-protocol.md](docs/classification-security-protocol.md) — VCVio security-protocol classification
 - [docs/lean-verification-landscape.md](docs/lean-verification-landscape.md) — how specs surface across Lean verification frameworks (Aeneas, Loom/Velvet, Std.Do.Triple, VCVio) and how probe-lean discovers them
 
 ## Testing

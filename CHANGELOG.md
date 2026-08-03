@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-03
+
+### Added
+
+- `check-axioms` command: audits a project and reports every declaration (of those
+  `extract` emits as atoms) whose transitive closure reaches the `sorryAx` axiom —
+  the kernel ground truth for "rests on a `sorry`", independent of the extract
+  dependency graph. Supports `-m`/`-l` scoping. New `ProbeLean/AxiomCheck.lean`.
+- Neutral per-atom codomain facts, emitted for every atom: `codomain-head`
+  (result-type head constant), `codomain-is-prop`, `codomain-last-arg-is-bool`.
+  A downstream tool reconstructs the codomain shape from these plus its own catalogue.
+- Neutral per-atom `type-dependencies-external` / `term-dependencies-external`
+  fields (non-project deps, absent when empty). The existing `type-dependencies` /
+  `term-dependencies` are project-filtered; these carry the external edges a
+  downstream classifier needs to reconstruct the full reachability graph.
+
+### Removed
+
+- **Security-protocol (VCVio) classification moved out of probe-lean** into the
+  standalone `probe-vcvio` tool. Removed from the `extract` output: the per-atom
+  `classification` object and the envelope `source.class` field. Removed from the
+  CLI: the `--class` flag. Removed internally: `ProbeLean/Classify/` (the anchor
+  catalogue + classifier), the `Classification`/`SecurityProtocolCategory`/`ClassVia`
+  types, and project-class/manifest detection. These fields were never part of a
+  released schema and had no consumers, so their removal is not a schema break (the
+  schema-version stays 3.0). probe-vcvio consumes probe-lean's envelope and
+  reproduces the same `classification` shape from the emitted `codomain-*` facts.
+
+### Changed
+
+- **Split `is-extraction-artifact` into `is-lean-generated` + `is-aeneas-generated`.**
+  The old field conflated two distinct origins: Lean-generated code
+  (derived instances, projections) and Aeneas-generated scaffolding (`_body`, `_loop`
+  suffixes). Each now has its own field with accurate naming. No interchange break:
+  no other probe consumes these fields (probe-aeneas computes its own
+  `is-extraction-artifact` from a name heuristic), so this is an additive payload
+  change, not an envelope-schema change.
+- **Conditional `is-hidden` for lean-generated atoms.** After transitive enrichment,
+  `is-hidden` is cleared on *contaminated* lean-generated atoms — those that are
+  locally verified but not transitively verified, or are themselves unverified/failed —
+  so consumers that read `extract` output directly (e.g. the web UI) can trace why
+  downstream atoms aren't dark green (fully verified). Clean (`transitively-verified`)
+  and `trusted` lean-generated atoms stay hidden. `viewify` molecules omit all generated
+  atoms regardless of `is-hidden`.
+- Schema-version stays 3.0: the envelope structure is unchanged. The
+  `is-extraction-artifact` → `is-lean-generated`/`is-aeneas-generated` rename and the
+  updated `is-hidden` semantics affect only probe-lean's own payload, which is absorbed
+  by consumers' passthrough `extensions`, so no shared version bump is warranted.
+- The config key `extraction-artifact-suffixes` in `.verilib/probes/config.json` now
+  feeds the `is-aeneas-generated` field (backward compatible, no config migration).
+- `extract` auto-flags Lean-generated code — `deriving`-generated instance clusters and
+  structure/class projections — as `is-hidden` + `is-lean-generated`, so it is omitted
+  from the presented graph (`viewify` drops all generated atoms; `extract` consumers honor
+  `is-hidden`). These atoms remain in the dependency graph, so transitive-verification
+  stays sound.
+- `markAtomFlags` now ORs the `is-hidden` / `is-aeneas-generated` flags with any
+  already set, so config-based flagging adds to (rather than overwrites) the automatic
+  detection above.
+- The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
+  `@[correctness_spec]`, `@[security_spec]`) remain **registered** in
+  `ProbeLean.Attrs` (so target projects need no migration) but are no longer
+  interpreted by probe-lean; probe-vcvio reads them from the emitted `attributes` array.
+
+### Fixed
+
+- **Support Lean patch releases when installing and releasing.** `lean4-cli` tags
+  `major.minor` lines and RCs but not every patch, so probe-lean previously failed
+  to build for a patch-release toolchain (e.g. `v4.32.2`): the source build pinned
+  `lean4-cli` to the exact Lean version (`revision not found`) and no pre-built
+  binary was published. Both paths now resolve `lean4-cli` to the highest
+  compatible tag in the target's `major.minor` line (stable targets pair only with
+  stable tags), matching what was previously done by hand. Newly supported:
+  patch releases such as `v4.28.1`, `v4.29.1`, `v4.32.1`, `v4.32.2`. (#79)
+
 ## [0.10.2] - 2026-08-03
 
 ### Fixed
@@ -30,39 +104,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   compatible tag in the target's `major.minor` line (stable targets pair only with
   stable tags), matching what was previously done by hand. Newly supported:
   patch releases such as `v4.28.1`, `v4.29.1`, `v4.32.1`, `v4.32.2`. (#79)
-
-### Added
-
-- `check-axioms` command: audits a project and reports every declaration (of those
-  `extract` emits as atoms) whose transitive closure reaches the `sorryAx` axiom —
-  the kernel ground truth for "rests on a `sorry`", independent of the extract
-  dependency graph. Supports `-m`/`-l` scoping. New `ProbeLean/AxiomCheck.lean`.
-
-### Changed
-
-- **Split `is-extraction-artifact` into `is-lean-generated` + `is-aeneas-generated`**
-  (breaking). The old field conflated two distinct origins: Lean-generated code
-  (derived instances, projections) and Aeneas-generated scaffolding (`_body`, `_loop`
-  suffixes). Each now has its own field with accurate naming.
-- **Conditional `is-hidden` for lean-generated atoms.** After transitive enrichment,
-  `is-hidden` is cleared on *contaminated* lean-generated atoms — those that are
-  locally verified but not transitively verified, or are themselves unverified/failed —
-  so consumers that read `extract` output directly (e.g. the web UI) can trace why
-  downstream atoms aren't dark green (fully verified). Clean (`transitively-verified`)
-  and `trusted` lean-generated atoms stay hidden. `viewify` molecules omit all generated
-  atoms regardless of `is-hidden`.
-- Bumped schema-version to 4.0 (breaking): `is-extraction-artifact` replaced by
-  `is-lean-generated` + `is-aeneas-generated`, `is-hidden` semantics updated.
-- The config key `extraction-artifact-suffixes` in `.verilib/probes/config.json` now
-  feeds the `is-aeneas-generated` field (backward compatible, no config migration).
-- `extract` auto-flags Lean-generated code — `deriving`-generated instance clusters and
-  structure/class projections — as `is-hidden` + `is-lean-generated`, so it is omitted
-  from the presented graph (`viewify` drops all generated atoms; `extract` consumers honor
-  `is-hidden`). These atoms remain in the dependency graph, so transitive-verification
-  stays sound.
-- `markAtomFlags` now ORs the `is-hidden` / `is-aeneas-generated` flags with any
-  already set, so config-based flagging adds to (rather than overwrites) the automatic
-  detection above.
 
 ## [0.9.6] - 2026-07-17
 
