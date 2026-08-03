@@ -99,33 +99,41 @@ jobs:
       - name: Rewrite toolchain to target Lean version
         run: |
           echo "leanprover/lean4:${{ matrix.lean-version }}" > lean-toolchain
-          # Rewrite the rev of ONLY the lean4-cli dependency — not every
-          # rev = "v..." — so a future second pinned [[require]] is left alone.
-          awk -v ver="${{ matrix.lean-version }}" '
-            /^[[:space:]]*\[\[/ { incli = 0 }
-            /git = ".*lean4-cli"/ { incli = 1 }
-            incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
-            { print }
-          ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
-          # build precondition needs it, and the Cli rev is re-resolved below.
+          # build precondition needs it; the Cli rev is resolved and rewritten in
+          # the build step below.
           rm -rf .lake
 
       # lean-action installs the toolchain from lean-toolchain but does NOT build
-      # (build: false); we build ourselves below so we can re-resolve Cli first.
+      # (build: false); we resolve Cli and build ourselves below.
       - uses: leanprover/lean-action@v1
         with:
           build: false
           test: false
 
-      # A build failure here is expected for some Lean versions (breaking upstream
-      # changes, or lean4-cli not yet tagged). Tolerate it per-version so one bad
-      # version cannot fail the whole release; the steps below run only on success,
-      # and the `verify` job fails the run if *nothing* built.
-      - name: Re-resolve Cli and build
+      # A failure here is expected for some Lean versions (breaking upstream
+      # changes, or lean4-cli not yet tagged for the minor line). Tolerate it
+      # per-version so one bad version cannot fail the whole release; the steps
+      # below run only on success, and the `verify` job fails the run if *nothing*
+      # built.
+      - name: Resolve Cli, pin it, and build
         id: build
         continue-on-error: true
         run: |
+          # lean4-cli tags major.minor lines/RCs, not every patch, so resolve the
+          # compatible tag (e.g. Lean v4.32.2 -> lean4-cli v4.32.0) instead of
+          # pinning the exact Lean version. Canonical resolver shared with
+          # tools/lean-versions.sh.
+          cli_rev=$(tools/resolve-cli-rev.sh "${{ matrix.lean-version }}")
+          echo "Using lean4-cli $cli_rev for Lean ${{ matrix.lean-version }}"
+          # Rewrite the rev of ONLY the lean4-cli dependency — not every
+          # rev = "v..." — so a future second pinned [[require]] is left alone.
+          awk -v ver="$cli_rev" '
+            /^[[:space:]]*\[\[/ { incli = 0 }
+            /git = ".*lean4-cli"/ { incli = 1 }
+            incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
+            { print }
+          ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
           # The committed lake-manifest.json pins Cli to an unrelated rev; without
           # this, `lake build` would materialize that stale rev and build the WRONG
           # lean4-cli. `lake update Cli` regenerates the manifest for the rewritten

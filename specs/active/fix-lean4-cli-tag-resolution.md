@@ -12,9 +12,11 @@ on a Lean patch release:
 - `install.sh --from-project` correctly detects the version and falls back to a
   source build, but the build rewrites the `Cli` rev to the exact Lean version
   (e.g. `v4.32.2`) and `lake update Cli` fails with `revision not found`.
-- No prebuilt binary is published either, because `tools/lean-versions.sh` drops
-  any Lean version lacking an *exact* lean4-cli tag, so the release workflow and
-  `lean-watch.yml` never build it.
+- No prebuilt binary is published either: `tools/lean-versions.sh` drops any Lean
+  version lacking an *exact* lean4-cli tag, so the release workflow and
+  `lean-watch.yml` never *select* it — and even if selected, both workflows' build
+  steps rewrite the `Cli` rev to the exact Lean version too, so the build would
+  fail identically.
 
 This change decouples the lean4-cli pin from the exact Lean version: resolve to
 the highest **stable** lean4-cli tag in the same `major.minor` line that is `<=`
@@ -86,35 +88,45 @@ this modifies), issue #38. Tracked by #79.
 ## API / Interface Design
 
 ```sh
-# tools/bash/install.sh (self-contained — runs via `curl | bash`, cannot source
-# tools/lean-versions.sh, so the resolver is duplicated here and kept in sync).
-# Guard the top-level main body behind `[ -n "${INSTALL_SH_LIB:-}" ] && return 0`
-# so tests can `source` the script to get the functions without running main.
-
-fetch_cli_tags()            # lists lean4-cli tags; honors $LEAN_CLI_TAGS_FILE for tests
-resolve_cli_rev <version>   # validates input; prints resolved tag; empty + non-zero
-                            #   exit if no compatible tag; distinct non-zero exit on
-                            #   malformed input or fetch failure
-
-# build_from_source: call resolve_cli_rev BEFORE mutating the tree; install a trap
-# that restores lean-toolchain/lakefile.toml/lake-manifest.json on any exit; then
-# rewrite the lakefile awk with the resolved `cli_rev` instead of `ver="$version"`.
+# tools/resolve-cli-rev.sh <version>   (NEW — canonical resolver)
+#   Fetches lean4-cli tags ($LEAN_CLI_TAGS_FILE if set, else git ls-remote),
+#   validates the version, prints the resolved tag. Exit: 0 printed; 1 no
+#   compatible tag; 2 malformed version; 3 could not fetch tags. Used by
+#   tools/lean-versions.sh and by the release.yml / lean-watch.yml build steps.
 
 # tools/lean-versions.sh
-resolve_cli_tag <version>   # same awk resolver, reads lean4-cli tags on stdin;
-                            #   exits non-zero on malformed tag/parse error
-# Filter step (lines ~219-224): replace exact `grep -qxF "$v"` with a call that
-# distinguishes three outcomes:
-#   - resolver prints a tag           -> keep v
-#   - resolver runs, prints nothing   -> drop v
-#   - resolver/fetch errors (exit!=0,1) -> abort the whole script (do not drop)
+#   Drop its inline resolver; delegate to resolve-cli-rev.sh. Fetch cli tags once
+#   (loud on failure), write them to a temp file, and call the resolver per
+#   candidate with LEAN_CLI_TAGS_FILE pointed at that file. Three outcomes:
+#     - resolver prints a tag (exit 0)      -> keep v
+#     - resolver prints nothing (exit 1)    -> drop v
+#     - resolver errors (exit 2/3)          -> abort the whole script (never a drop)
+
+# .github/workflows/release.yml and lean-watch.yml
+#   In the (continue-on-error) build step, replace the exact-version awk pin with
+#   `cli_rev=$(tools/resolve-cli-rev.sh <matrix.lean-version>)` before the awk
+#   rewrite + `lake update Cli`. A resolve failure is tolerated per-version and
+#   reported, same as a build failure.
+
+# tools/bash/install.sh (self-contained — runs via `curl | bash`, cannot call the
+# script, so it carries an INLINE copy of the same awk algorithm).
+#   Guard the main body behind `[ -n "${INSTALL_SH_LIB:-}" ] && return 0` so tests
+#   source the real functions. resolve_cli_rev <version>: validates input; prints
+#   resolved tag; exit 0/1/2/3 as above. build_from_source calls it BEFORE mutating
+#   the tree and installs a trap that restores lean-toolchain/lakefile.toml/
+#   lake-manifest.json on any exit.
 ```
 
-Resolution ordering reuses the 5-digit fixed-width `key()` from
-`tools/lean-versions.sh` (`maj|min|pat|1-isrc|rc`), so a stable tag outranks its
-own RCs and comparisons are exact rather than lexical. The stable/RC constraint
-is applied by filtering RC tags out of the candidate set when the target is
-stable.
+There are exactly **two** copies of the resolver awk: the canonical
+`tools/resolve-cli-rev.sh` and the inline copy in `install.sh` (unavoidable — the
+installer must run standalone via `curl | bash`). A differential test in
+`tests/test_install_helpers.sh` feeds both the same tags + targets and asserts
+identical stdout and exit code, guarding against drift.
+
+Resolution ordering uses a 5-digit fixed-width `key()` (`maj|min|pat|1-isrc|rc`),
+so a stable tag outranks its own RCs and comparisons are exact rather than
+lexical. The stable/RC constraint drops RC tags from the candidate set when the
+target is stable.
 
 ## Behavior
 
@@ -203,15 +215,21 @@ reporting Lean `v4.32.2`.
 
 ## Implementation sequencing
 
-Two commits on one branch, one draft PR closing the tracking issue:
+One branch, one draft PR closing the tracking issue:
 1. `install.sh`: `INSTALL_SH_LIB` source guard + `fetch_cli_tags`
    (`LEAN_CLI_TAGS_FILE`) + `resolve_cli_rev` (validation + stable/RC constraint)
    + pre-mutation ordering + `trap` restore + `build_from_source` rewrite, with
    `test_install_helpers.sh` sourcing the real functions. (Self-contained
    correctness fix.)
-2. `tools/lean-versions.sh`: `resolve_cli_tag` + relaxed filter with loud-error
-   preservation, `usage()` documenting `LEAN_CLI_TAGS_FILE`, and
-   `tests/lean-versions/run.sh` updates.
+2. `tools/lean-versions.sh`: relaxed filter with loud-error preservation,
+   `usage()` documenting `LEAN_CLI_TAGS_FILE`, and `tests/lean-versions/run.sh`
+   updates.
+3. **Release path:** extract the canonical `tools/resolve-cli-rev.sh`; wire both
+   `release.yml` and `lean-watch.yml` build steps to it (replacing their exact-
+   version `Cli` pin — the same bug, previously overlooked); delegate
+   `lean-versions.sh`'s filter to the script; add the resolver differential test.
+   Without this, relaxing the policy (2) would make the watcher *attempt* and
+   *fail* the newly-selected versions, churning the tracking issue.
 
 ---
 Status: ready

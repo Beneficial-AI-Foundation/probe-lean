@@ -181,14 +181,16 @@ unset LEAN_CLI_TAGS_FILE
 rm -f "$CLI_TAGS"
 
 echo ""
-echo "=== resolve_cli_rev (install.sh) and resolve_cli_tag (lean-versions.sh) agree ==="
+echo "=== resolve_cli_rev (install.sh) agrees with tools/resolve-cli-rev.sh ==="
 
-# The two scripts carry an identical awk resolver kept consistent only by a
-# "keep in sync" comment (install.sh must be standalone for `curl | bash`, so it
-# cannot source lean-versions.sh). This differential test is the guard against
-# drift: feed both the same tag list and target set, assert stdout AND exit code
-# match. Cases stress the ordering the awk owns — multi-digit patch, RC ordering,
-# stable-target-with-only-RCs, untagged minor, and malformed input.
+# The inline resolver in install.sh and the canonical tools/resolve-cli-rev.sh
+# carry an identical awk algorithm kept consistent only by a "keep in sync"
+# comment (install.sh must be standalone for `curl | bash`, so it cannot call the
+# script). This differential test is the guard against drift: feed both the same
+# tag list and target set, assert stdout AND exit code match. Cases stress the
+# ordering the awk owns — multi-digit patch, RC ordering, stable-target-with-only-
+# RCs, untagged minor, and malformed input.
+RESOLVER="$HERE/../tools/resolve-cli-rev.sh"
 DIFF_TAGS=$(mktemp)
 cat > "$DIFF_TAGS" <<'EOF'
 v4.28.0
@@ -206,34 +208,24 @@ export LEAN_CLI_TAGS_FILE="$DIFF_TAGS"
 diff_targets=(v4.28.0 v4.28.1 v4.31.0 v4.31.9 v4.32.0 v4.32.2 v4.32.10 \
               v4.32.0-rc2 v4.32.0-rc10 v4.33.0 v4.33.0-rc1 v4.34.0 v4.32 badinput)
 
-# Capture install.sh's resolve_cli_rev results FIRST — sourcing lean-versions.sh
-# below shadows install.sh's fetch_cli_tags, so resolve_cli_rev must be exercised
-# while install.sh's own helper is still in effect.
-declare -a REV_OUT REV_RC
+diff_fail=0
+declare -a REV_OUT
 i=0
 for t in "${diff_targets[@]}"; do
-    rc=0; out=$(resolve_cli_rev "$t" 2>/dev/null) || rc=$?
-    REV_OUT[$i]="$out"; REV_RC[$i]="$rc"; i=$((i + 1))
-done
-
-# Absolute spot-checks on the ordering the awk owns (agreement alone could be
-# jointly wrong): both use install.sh's resolver, still active here.
-assert_eq "multi-digit patch picks highest stable <= target" "v4.32.9" "${REV_OUT[6]}"   # v4.32.10
-assert_eq "rc10 > rc2 ordering" "v4.32.0-rc10" "${REV_OUT[8]}"                            # v4.32.0-rc10
-
-# Now bring in lean-versions.sh's resolve_cli_tag (reads tags on stdin, so it is
-# unaffected by the fetch_cli_tags shadowing) and compare.
-# shellcheck disable=SC1091
-LEAN_VERSIONS_LIB=1 source "$HERE/../tools/lean-versions.sh"
-diff_fail=0; i=0
-for t in "${diff_targets[@]}"; do
-    rc=0; out=$(printf '%s\n' "$(cat "$DIFF_TAGS")" | resolve_cli_tag "$t" 2>/dev/null) || rc=$?
-    if [ "$out" != "${REV_OUT[$i]}" ] || [ "$rc" != "${REV_RC[$i]}" ]; then
-        echo "  FAIL: resolvers disagree on $t (install='${REV_OUT[$i]}'/${REV_RC[$i]}, lean-versions='$out'/$rc)"
+    ra=0; A=$(resolve_cli_rev "$t" 2>/dev/null) || ra=$?         # install.sh inline
+    rb=0; B=$("$RESOLVER" "$t" 2>/dev/null) || rb=$?             # canonical script
+    REV_OUT[$i]="$A"
+    if [ "$A" != "$B" ] || [ "$ra" != "$rb" ]; then
+        echo "  FAIL: resolvers disagree on $t (install='$A'/$ra, script='$B'/$rb)"
         diff_fail=$((diff_fail + 1))
     fi
     i=$((i + 1))
 done
+
+# Absolute spot-checks on the ordering the awk owns (agreement alone could be
+# jointly wrong).
+assert_eq "multi-digit patch picks highest stable <= target" "v4.32.9" "${REV_OUT[6]}"   # v4.32.10
+assert_eq "rc10 > rc2 ordering" "v4.32.0-rc10" "${REV_OUT[8]}"                            # v4.32.0-rc10
 if [ "$diff_fail" -eq 0 ]; then
     echo "  PASS: resolvers agree on all ${#diff_targets[@]} targets (stdout + exit)"
     PASS=$((PASS + 1))
