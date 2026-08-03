@@ -289,7 +289,6 @@ are imported into a **single Lean environment** before atomizing.
 
 - [docs/USAGE.md](docs/USAGE.md) — full command reference and real-project walkthroughs
 - [docs/SCHEMA.md](docs/SCHEMA.md) — envelope schema specification
-- [docs/classification-security-protocol.md](docs/classification-security-protocol.md) — VCVio security-protocol classification
 - [docs/lean-verification-landscape.md](docs/lean-verification-landscape.md) — how specs surface across Lean verification frameworks (Aeneas, Loom/Velvet, Std.Do.Triple, VCVio) and how probe-lean discovers them
 
 ## Testing
