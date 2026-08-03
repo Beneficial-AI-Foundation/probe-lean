@@ -309,7 +309,7 @@ build_from_source() {
         if [ "$rc" -ne 0 ]; then
             case "$rc" in
                 1) echo "Error: leanprover/lean4-cli has no tag compatible with Lean $version" >&2
-                   echo "       (no stable tag in the ${version%.*}.x line). Cannot build from source." >&2 ;;
+                   echo "       (no compatible tag in the ${version%.*}.x line). Cannot build from source." >&2 ;;
                 2) : ;;  # resolve_cli_rev already reported the malformed input
                 *) echo "Error: could not determine a lean4-cli tag for Lean $version." >&2 ;;
             esac

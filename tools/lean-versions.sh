@@ -222,6 +222,10 @@ resolve_cli_tag() {
     printf '%s\n' "$best"
 }
 
+# When sourced as a library (e.g. by tests), stop here: expose the functions
+# above (notably resolve_cli_tag) without fetching releases or emitting output.
+[ -n "${LEAN_VERSIONS_LIB:-}" ] && return 0
+
 if ! releases_json="$(fetch_releases)"; then
     echo "Error: could not retrieve Lean releases." >&2
     exit 1
