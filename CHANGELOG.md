@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Support Lean patch releases when installing and releasing.** `lean4-cli` tags
+  `major.minor` lines and RCs but not every patch, so probe-lean previously failed
+  to build for a patch-release toolchain (e.g. `v4.32.2`): the source build pinned
+  `lean4-cli` to the exact Lean version (`revision not found`) and no pre-built
+  binary was published. Both paths now resolve `lean4-cli` to the highest
+  compatible tag in the target's `major.minor` line (stable targets pair only with
+  stable tags), matching what was previously done by hand. Newly supported:
+  patch releases such as `v4.28.1`, `v4.29.1`, `v4.32.1`, `v4.32.2`. (#79)
+
 ### Added
 
 - `check-axioms` command: audits a project and reports every declaration (of those
