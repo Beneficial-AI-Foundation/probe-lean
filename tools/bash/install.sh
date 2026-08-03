@@ -231,6 +231,61 @@ find_probe_lean_source() {
     echo "$src_dir"
 }
 
+# List the tags leanprover/lean4-cli has published (one git call — no auth or
+# pagination). Tests inject a fixed list via LEAN_CLI_TAGS_FILE (the same env var
+# tools/lean-versions.sh uses).
+fetch_cli_tags() {
+    if [ -n "${LEAN_CLI_TAGS_FILE:-}" ]; then
+        cat "$LEAN_CLI_TAGS_FILE"
+        return
+    fi
+    git ls-remote --tags https://github.com/leanprover/lean4-cli 2>/dev/null \
+        | sed 's#.*refs/tags/##; s/\^{}$//' | sort -u
+}
+
+# Resolve the lean4-cli tag to build against for a Lean version. lean4-cli tags
+# major.minor lines and RCs, not every patch, so an exact match often does not
+# exist (Lean v4.32.2 -> lean4-cli v4.32.0). Pick the highest tag in the SAME
+# major.minor line that is <= target; a STABLE target pairs only with a STABLE
+# tag (never a prerelease Cli). Prints the tag on success. Exit status:
+#   0  tag printed
+#   1  no compatible tag (minor line untagged, or stable target with only RCs)
+#   2  malformed target version
+#   3  could not fetch lean4-cli tags
+# Mirrors resolve_cli_tag in tools/lean-versions.sh — keep the awk in sync.
+resolve_cli_rev() {
+    local target=$1 tags best
+    if ! printf '%s' "$target" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$'; then
+        echo "Error: malformed Lean version '$target' (expected vMAJOR.MINOR.PATCH[-rcN])" >&2
+        return 2
+    fi
+    tags=$(fetch_cli_tags) || { echo "Error: could not fetch lean4-cli tags" >&2; return 3; }
+    [ -n "$tags" ] || { echo "Error: no lean4-cli tags found" >&2; return 3; }
+    best=$(printf '%s\n' "$tags" | awk -v target="$target" '
+        function parse(tag,   t, rc, n, a) {
+            delete P
+            if (match(tag, /^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$/) == 0) return 0
+            t = substr(tag, 2); rc = -1
+            if (t ~ /-rc[0-9]+$/) { rc = t; sub(/^.*-rc/, "", rc); rc += 0; sub(/-rc[0-9]+$/, "", t) }
+            n = split(t, a, "."); if (n != 3) return 0
+            P["maj"]=a[1]+0; P["min"]=a[2]+0; P["pat"]=a[3]+0
+            P["isrc"]=(rc>=0)?1:0; P["rc"]=(rc>=0)?rc:0
+            return 1
+        }
+        # 5-digit fixed-width key (maj|min|pat|1-isrc|rc): stable outranks its own
+        # RCs, comparison is exact not lexical. Matches tools/lean-versions.sh.
+        function key() { return sprintf("%05d%05d%05d%d%05d", P["maj"],P["min"],P["pat"],1-P["isrc"],P["rc"]) }
+        BEGIN { parse(target); tmaj=P["maj"]; tmin=P["min"]; tstable=(P["isrc"]==0); tkey=key() }
+        { if (parse($0)==0) next
+          if (P["maj"]!=tmaj || P["min"]!=tmin) next        # same major.minor only
+          if (tstable && P["isrc"]==1) next                 # stable target: no RC Cli
+          k=key(); if (k<=tkey && k>bestk) { bestk=k; best=$0 } }
+        END { if (best!="") print best }
+    ')
+    [ -n "$best" ] || return 1
+    printf '%s\n' "$best"
+}
+
 build_from_source() {
     local version=$1
     local source_dir
@@ -247,14 +302,37 @@ build_from_source() {
     else
         echo "Switching from $current_version to $version..."
 
-        local original_toolchain original_lakefile original_manifest
-        original_toolchain=$(cat lean-toolchain)
-        original_lakefile=$(cat lakefile.toml)
-        original_manifest=$(cat lake-manifest.json 2>/dev/null || true)
+        # Resolve the lean4-cli tag BEFORE touching the tree, so a malformed
+        # version or a fetch/resolve failure aborts with the checkout untouched.
+        local cli_rev="" rc=0
+        cli_rev=$(resolve_cli_rev "$version") || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            case "$rc" in
+                1) echo "Error: leanprover/lean4-cli has no tag compatible with Lean $version" >&2
+                   echo "       (no stable tag in the ${version%.*}.x line). Cannot build from source." >&2 ;;
+                2) : ;;  # resolve_cli_rev already reported the malformed input
+                *) echo "Error: could not determine a lean4-cli tag for Lean $version." >&2 ;;
+            esac
+            exit 1
+        fi
+        [ "$cli_rev" != "$version" ] && echo "Using lean4-cli $cli_rev for Lean $version"
+
+        # Back up the mutated files and restore them on ANY exit (success, build
+        # failure, or crash) so the shared source checkout is never left dirty.
+        # Paths are baked into the trap now, so it survives past this function.
+        local backup_dir
+        backup_dir=$(mktemp -d)
+        cp lean-toolchain "$backup_dir/lean-toolchain"
+        cp lakefile.toml "$backup_dir/lakefile.toml"
+        [ -f lake-manifest.json ] && cp lake-manifest.json "$backup_dir/lake-manifest.json"
+        trap "cp '$backup_dir/lean-toolchain' '$source_dir/lean-toolchain'; \
+              cp '$backup_dir/lakefile.toml' '$source_dir/lakefile.toml'; \
+              [ -f '$backup_dir/lake-manifest.json' ] && cp '$backup_dir/lake-manifest.json' '$source_dir/lake-manifest.json'; \
+              rm -rf '$backup_dir'" EXIT
 
         echo "leanprover/lean4:$version" > lean-toolchain
         # Rewrite the rev of ONLY the lean4-cli dependency (portable awk; no sed -i).
-        awk -v ver="$version" '
+        awk -v ver="$cli_rev" '
           /^[[:space:]]*\[\[/ { incli = 0 }
           /git = ".*lean4-cli"/ { incli = 1 }
           incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
@@ -269,14 +347,6 @@ build_from_source() {
         # --keep-toolchain leaves the toolchain lean/elan selected untouched.
         local build_ok=true
         lake --keep-toolchain update Cli && lake build || build_ok=false
-
-        echo "$original_toolchain" > lean-toolchain
-        echo "$original_lakefile" > lakefile.toml
-        # Restore the manifest too, so an in-repo install leaves the tree clean.
-        if [ -n "$original_manifest" ]; then
-            printf '%s\n' "$original_manifest" > lake-manifest.json
-        fi
-        echo "Restored lean-toolchain, lakefile.toml, and lake-manifest.json"
 
         if [ "$build_ok" = false ]; then
             echo "Build failed" >&2
@@ -308,6 +378,10 @@ check_elan() {
         echo "Install elan: curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | bash" >&2
     fi
 }
+
+# When sourced as a library (e.g. by tests), stop here: expose the helper
+# functions above without parsing arguments or running the installer.
+[ -n "${INSTALL_SH_LIB:-}" ] && return 0
 
 # ---------------------------------------------------------------------------
 # Argument parsing
