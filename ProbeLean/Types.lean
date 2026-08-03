@@ -206,6 +206,13 @@ structure Atom where
   dependencies : Array String
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
+  /-- Non-project (external) type dependencies — deps referenced by the result
+  type that are not project decls (e.g. Mathlib/VCVio names). Emitted so a
+  downstream classifier can reconstruct the full reachability graph, which the
+  project-filtered `typeDependencies` omits. -/
+  typeDependenciesExternal : Array String := #[]
+  /-- Non-project (external) term dependencies — the body's external deps. -/
+  termDependenciesExternal : Array String := #[]
   codeModule : String
   codePath : String
   codeText : Option CodeTextInfo
@@ -431,6 +438,13 @@ structure UnifiedAtom where
   dependencies : Array String
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
+  /-- Non-project (external) type dependencies — deps referenced by the result
+  type that are not project decls (e.g. Mathlib/VCVio names). Emitted so a
+  downstream classifier can reconstruct the full reachability graph, which the
+  project-filtered `typeDependencies` omits. -/
+  typeDependenciesExternal : Array String := #[]
+  /-- Non-project (external) term dependencies — the body's external deps. -/
+  termDependenciesExternal : Array String := #[]
   codeModule : String
   codePath : String
   codeText : Option CodeTextInfo
@@ -477,8 +491,12 @@ instance : Lean.ToJson UnifiedAtom where
       ("is-in-package", Lean.toJson atom.isInPackage),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
-    let withAttrs := if atom.attributes.isEmpty then base
-      else base ++ [("attributes", Lean.toJson atom.attributes)]
+    let withExtType := if atom.typeDependenciesExternal.isEmpty then base
+      else base ++ [("type-dependencies-external", Lean.toJson atom.typeDependenciesExternal)]
+    let withExtTerm := if atom.termDependenciesExternal.isEmpty then withExtType
+      else withExtType ++ [("term-dependencies-external", Lean.toJson atom.termDependenciesExternal)]
+    let withAttrs := if atom.attributes.isEmpty then withExtTerm
+      else withExtTerm ++ [("attributes", Lean.toJson atom.attributes)]
     let withSpecs := if atom.specs.isEmpty then withAttrs
       else withAttrs ++ [("specs", Lean.toJson atom.specs)]
     let withPrimary := match atom.primarySpec with
@@ -506,6 +524,8 @@ instance : Lean.FromJson UnifiedAtom where
     let dependencies ← json.getObjValAs? (Array String) "dependencies"
     let typeDependencies ← json.getObjValAs? (Array String) "type-dependencies" <|> pure #[]
     let termDependencies ← json.getObjValAs? (Array String) "term-dependencies" <|> pure #[]
+    let typeDependenciesExternal ← json.getObjValAs? (Array String) "type-dependencies-external" <|> pure #[]
+    let termDependenciesExternal ← json.getObjValAs? (Array String) "term-dependencies-external" <|> pure #[]
     let codeModule ← json.getObjValAs? String "code-module"
     let codePath ← json.getObjValAs? String "code-path"
     let codeText ← json.getObjValAs? (Option CodeTextInfo) "code-text"
@@ -527,7 +547,7 @@ instance : Lean.FromJson UnifiedAtom where
     let codomainHead ← json.getObjValAs? (Option String) "codomain-head" <|> pure none
     let codomainIsProp ← json.getObjValAs? Bool "codomain-is-prop" <|> pure false
     let codomainLastArgIsBool ← json.getObjValAs? Bool "codomain-last-arg-is-bool" <|> pure false
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, codomainHead, codomainIsProp, codomainLastArgIsBool }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, codomainHead, codomainIsProp, codomainLastArgIsBool }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

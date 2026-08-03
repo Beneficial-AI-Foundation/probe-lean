@@ -971,16 +971,22 @@ def testCodomainFacts (result : TestResult) : IO TestResult := do
     codomainHead := some "ProbComp"
     codomainIsProp := false
     codomainLastArgIsBool := true
+    typeDependenciesExternal := #["probe:ProbComp.distAdvantage"]
+    termDependenciesExternal := #[]
   }
   let j := Lean.toJson ua
   result ← test "emits codomain-head" ((j.getObjValAs? String "codomain-head").toOption == some "ProbComp") result
   result ← test "emits codomain-is-prop" ((j.getObjValAs? Bool "codomain-is-prop").toOption == some false) result
   result ← test "emits codomain-last-arg-is-bool" ((j.getObjValAs? Bool "codomain-last-arg-is-bool").toOption == some true) result
+  result ← test "emits type-dependencies-external" ((j.getObjValAs? (Array String) "type-dependencies-external").toOption == some #["probe:ProbComp.distAdvantage"]) result
+  result ← test "omits empty term-dependencies-external" ((j.getObjVal? "term-dependencies-external").toOption == none) result
   match Lean.FromJson.fromJson? j (α := UnifiedAtom) with
   | .ok rt => do
     result ← test "round-trip codomain-head" (rt.codomainHead == some "ProbComp") result
     result ← test "round-trip codomain-is-prop" (rt.codomainIsProp == false) result
     result ← test "round-trip codomain-last-arg-is-bool" (rt.codomainLastArgIsBool == true) result
+    result ← test "round-trip type-dependencies-external" (rt.typeDependenciesExternal == #["probe:ProbComp.distAdvantage"]) result
+    result ← test "round-trip term-dependencies-external empty" (rt.termDependenciesExternal == #[]) result
   | .error e => do
     result ← test s!"UnifiedAtom codomain round-trip failed: {e}" false result
   -- codomain-head omitted when none

@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Neutral per-atom codomain facts, emitted for every atom: `codomain-head`
   (result-type head constant), `codomain-is-prop`, `codomain-last-arg-is-bool`.
   A downstream tool reconstructs the codomain shape from these plus its own catalogue.
+- Neutral per-atom `type-dependencies-external` / `term-dependencies-external`
+  fields (non-project deps, absent when empty). The existing `type-dependencies` /
+  `term-dependencies` are project-filtered; these carry the external edges a
+  downstream classifier needs to reconstruct the full reachability graph.
 
 ### Removed
 

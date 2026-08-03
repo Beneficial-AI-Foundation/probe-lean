@@ -165,10 +165,12 @@ appear here (if one does, the emitted graph lost a contamination path).
 ### Codomain facts & downstream classification
 
 Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
-facts about its result type. Security-protocol (VCVio) classification is **not** part of probe-lean;
-it lives in the standalone [`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio)
-tool, which consumes probe-lean's envelope and reconstructs the codomain shape from these
-primitives. The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
+facts about its result type, plus `type-dependencies-external` / `term-dependencies-external`
+(the non-project deps that the project-filtered `type-`/`term-dependencies` omit). Security-protocol
+(VCVio) classification is **not** part of probe-lean; it lives in the standalone
+[`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio) tool, which consumes
+probe-lean's envelope and reconstructs the codomain shape and the full dependency reachability
+graph from these primitives. The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
 `@[correctness_spec]`, `@[security_spec]`) remain registered in `ProbeLean.Attrs` for target
 projects to annotate declarations; probe-vcvio reads them from the emitted `attributes` array.
 
