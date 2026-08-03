@@ -926,7 +926,7 @@ downstream classifier (probe-vcvio) consumes to reconstruct the codomain shape. 
 def testCodomainFacts (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing codomainIsPropOf / lastArgIsBool primitives..."
+  IO.println "Testing codomainHeadOf / codomainIsPropOf / lastArgIsBool primitives..."
   let bool := Lean.Expr.const `Bool []
   let nat := Lean.Expr.const `Nat []
   let propSort := Lean.Expr.sort Lean.Level.zero
@@ -938,6 +938,24 @@ def testCodomainFacts (result : TestResult) : IO TestResult := do
   result ← test "codomainIsPropOf ∀ x, Sort 0 (strips binders)" (codomainIsPropOf forallProp == true) result
   result ← test "codomainIsPropOf ProbComp Bool is false" (codomainIsPropOf probCompBool == false) result
   result ← test "codomainIsPropOf ENNReal is false" (codomainIsPropOf ennreal == false) result
+
+  -- codomainHeadOf: qualified name preserved, through binders, `Sort 0` → none
+  let qualified := Lean.Expr.const `SecureMessaging.CKA.Defs.CKAScheme []
+  let forallGame := Lean.Expr.forallE `x nat probCompBool Lean.BinderInfo.default
+  result ← test "codomainHeadOf preserves qualified name" (codomainHeadOf qualified == some `SecureMessaging.CKA.Defs.CKAScheme) result
+  result ← test "codomainHeadOf through binders is ProbComp" (codomainHeadOf forallGame == some `ProbComp) result
+  result ← test "codomainHeadOf Sort 0 is none" (codomainHeadOf propSort == none) result
+
+  -- lastArgIsBool operates on the stripped result (its caller pre-strips). The
+  -- `Bool` last-arg check alone overmatches — `List Bool` / `Except ε Bool` are
+  -- true here too; the head-constant gate that rejects them lives downstream.
+  let listBool := Lean.Expr.app (Lean.Expr.const `List []) bool
+  let exceptEBool := Lean.Expr.app (Lean.Expr.app (Lean.Expr.const `Except []) (Lean.Expr.const `ε [])) bool
+  result ← test "lastArgIsBool ProbComp Bool" (lastArgIsBool probCompBool == true) result
+  result ← test "lastArgIsBool ∀ x, ProbComp Bool (after strip)" (lastArgIsBool (stripForalls forallGame) == true) result
+  result ← test "lastArgIsBool List Bool (overmatch, still true)" (lastArgIsBool listBool == true) result
+  result ← test "lastArgIsBool Except ε Bool (overmatch, still true)" (lastArgIsBool exceptEBool == true) result
+  result ← test "lastArgIsBool ENNReal is false" (lastArgIsBool ennreal == false) result
 
   IO.println ""
   IO.println "Testing UnifiedAtom codomain-* JSON emission + round-trip..."
