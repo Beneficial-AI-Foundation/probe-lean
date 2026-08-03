@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-08-03
+
+### Fixed
+
+- **Revert extract envelope schema-version to 3.0.** v0.10.1 emitted `4.0` for a
+  payload-only change (the `is-extraction-artifact` split and updated `is-hidden`
+  semantics), but the shared probe crate gates envelopes on a schema-version starting
+  with `3.`, so `4.0` output was rejected by consumers at load time (`probe-aeneas
+  extract` failed). The field rename and `is-hidden` behavior are kept; only the
+  envelope version marker returns to `3.0`. (#81)
+
+## [0.10.1] - 2026-08-03
+
 ### Fixed
 
 - **Support Lean patch releases when installing and releasing.** `lean4-cli` tags

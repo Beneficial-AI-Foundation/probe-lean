@@ -1,6 +1,6 @@
 /-
   Types for probe-lean output.
-  Defines atoms, specs, proofs, stubs, and Schema 4.0 envelope types
+  Defines atoms, specs, proofs, stubs, and Schema 3.0 envelope types
   with JSON serialization matching the probe interchange spec.
 -/
 import Lean.Data.Json
@@ -20,16 +20,16 @@ namespace Constants
   def mapsDir : String := "maps"
   def toolName : String := "probe-lean"
   def toolVersion : String := ProbeLean.version
-  def schemaVersion : String := "4.0"
+  def schemaVersion : String := "3.0"
   def schemaExtract : String := "probe-lean/extract"
   def schemaView : String := "probe-lean/viewify"
 end Constants
 
 -- ============================================================
--- Schema 4.0 envelope types
+-- Schema 3.0 envelope types
 -- ============================================================
 
-/-- Tool metadata for the Schema 4.0 envelope -/
+/-- Tool metadata for the Schema 3.0 envelope -/
 structure ToolInfo where
   name : String := Constants.toolName
   version : String := Constants.toolVersion
@@ -50,7 +50,7 @@ instance : Lean.FromJson ToolInfo where
     let command ← json.getObjValAs? String "command"
     return { name, version, command }
 
-/-- Source metadata for the Schema 4.0 envelope.
+/-- Source metadata for the Schema 3.0 envelope.
     `repo` and `commit` are non-optional String (empty when unavailable)
     to conform to the probe repo JSON Schema which declares them required. -/
 structure SourceInfo where
@@ -88,7 +88,7 @@ instance : Lean.FromJson SourceInfo where
     let sourceClass ← json.getObjValAs? (Option String) "class" <|> pure none
     return { repo, commit, language, package, packageVersion, sourceClass }
 
-/-- Typed envelope wrapper for all Schema 4.0 outputs -/
+/-- Typed envelope wrapper for all Schema 3.0 outputs -/
 structure Envelope (α : Type) where
   schema : String
   schemaVersion : String := Constants.schemaVersion

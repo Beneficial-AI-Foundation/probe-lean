@@ -291,12 +291,12 @@ probe-lean extract ./my-project -m MyProject.Core
 
 For the complete JSON schema specification, see [SCHEMA.md](SCHEMA.md).
 
-The `extract` command produces a JSON file wrapped in a Schema 4.0 metadata envelope:
+The `extract` command produces a JSON file wrapped in a Schema 3.0 metadata envelope:
 
 ```json
 {
   "schema": "probe-lean/extract",
-  "schema-version": "4.0",
+  "schema-version": "3.0",
   "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/org/project",
