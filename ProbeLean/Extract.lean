@@ -64,6 +64,8 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     dependencies := atom.dependencies
     typeDependencies := atom.typeDependencies
     termDependencies := atom.termDependencies
+    typeDependenciesExternal := atom.typeDependenciesExternal
+    termDependenciesExternal := atom.termDependenciesExternal
     codeModule := atom.codeModule
     codePath := atom.codePath
     codeText := atom.codeText

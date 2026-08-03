@@ -288,8 +288,10 @@ Each value contains all atom fields plus verification status and specs:
 | `kind` | string | Declaration kind |
 | `language` | string | Always `"lean"` |
 | `dependencies` | array | `probe:`-prefixed names this declaration depends on (union of type + term) |
-| `type-dependencies` | array | `probe:`-prefixed names referenced in the declaration's type signature |
-| `term-dependencies` | array | `probe:`-prefixed names referenced in the declaration's body/proof |
+| `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature |
+| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof |
+| `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/VCVio/core) referenced in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. |
+| `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced in the body/proof. Absent when empty. |
 | `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file |
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |

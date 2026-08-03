@@ -423,6 +423,15 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
   let projTypeDeps := info.typeDependencies.filter isProjectDep
   let projTermDeps := info.termDependencies.filter isProjectDep
 
+  -- External (non-project) deps: referenced but outside the project (Mathlib,
+  -- VCVio, core). Emitted alongside the project-filtered deps so a downstream
+  -- classifier can reconstruct the full reachability graph (it needs edges to
+  -- external anchors that `projTypeDeps`/`projTermDeps` drop).
+  let isExternalDep (dep : Name) : Bool :=
+    !isInternalName dep && !isProjectDecl env projectModules dep
+  let extTypeDeps := info.typeDependencies.filter isExternalDep
+  let extTermDeps := info.termDependencies.filter isExternalDep
+
   let rustSource ← getDeclRustSource env info.name
   let isRelevant := if crate.isEmpty then true else isRelevantSource rustSource crate
   let isPrimarySpec := primarySpecAttr.hasTag env info.name
@@ -450,6 +459,8 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     dependencies := projDeps.map probeRef
     typeDependencies := projTypeDeps.map probeRef
     termDependencies := projTermDeps.map probeRef
+    typeDependenciesExternal := extTypeDeps.map probeRef
+    termDependenciesExternal := extTermDeps.map probeRef
     codeModule := info.moduleName.toString
     codePath := sourcePathStr
     codeText := if sourcePathStr.isEmpty then none else info.sourceInfo
