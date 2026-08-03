@@ -37,7 +37,10 @@ if [ -n "${LEAN_CLI_TAGS_FILE:-}" ]; then
     fi
     tags=$(cat "$LEAN_CLI_TAGS_FILE")
 else
-    tags=$(git ls-remote --tags "$CLI_REPO_URL" 2>/dev/null | sed 's#.*refs/tags/##; s/\^{}$//' | sort -u) || true
+    if ! tags=$(git ls-remote --tags "$CLI_REPO_URL" 2>/dev/null | sed 's#.*refs/tags/##; s/\^{}$//' | sort -u); then
+        echo "Error: could not fetch lean4-cli tags from $CLI_REPO_URL" >&2
+        exit 3
+    fi
 fi
 [ -n "$tags" ] || { echo "Error: no lean4-cli tags found" >&2; exit 3; }
 
@@ -52,9 +55,11 @@ best=$(printf '%s\n' "$tags" | awk -v target="$target" '
         P["isrc"]=(rc>=0)?1:0; P["rc"]=(rc>=0)?rc:0
         return 1
     }
-    # 5-digit fixed-width key (maj|min|pat|1-isrc|rc): stable outranks its own
-    # RCs, comparison is exact not lexical. Matches tools/bash/install.sh.
-    function key() { return sprintf("%05d%05d%05d%d%05d", P["maj"],P["min"],P["pat"],1-P["isrc"],P["rc"]) }
+    # Leading "v" + fixed-width digits (maj|min|pat|1-isrc|rc) so comparisons are
+    # exact STRING compares: an all-digit key is 21 chars > double precision and
+    # could be lossily numeric-coerced on some awks. Stable outranks its own RCs.
+    # Matches tools/bash/install.sh.
+    function key() { return "v" sprintf("%05d%05d%05d%d%05d", P["maj"],P["min"],P["pat"],1-P["isrc"],P["rc"]) }
     BEGIN { parse(target); tmaj=P["maj"]; tmin=P["min"]; tstable=(P["isrc"]==0); tkey=key() }
     { if (parse($0)==0) next
       if (P["maj"]!=tmaj || P["min"]!=tmin) next        # same major.minor only

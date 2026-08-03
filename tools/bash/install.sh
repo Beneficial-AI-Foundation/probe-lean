@@ -236,6 +236,7 @@ find_probe_lean_source() {
 # tools/lean-versions.sh uses).
 fetch_cli_tags() {
     if [ -n "${LEAN_CLI_TAGS_FILE:-}" ]; then
+        [ -f "$LEAN_CLI_TAGS_FILE" ] || { echo "Error: Cli tags file not found: $LEAN_CLI_TAGS_FILE" >&2; return 1; }
         cat "$LEAN_CLI_TAGS_FILE"
         return
     fi
@@ -252,7 +253,9 @@ fetch_cli_tags() {
 #   1  no compatible tag (minor line untagged, or stable target with only RCs)
 #   2  malformed target version
 #   3  could not fetch lean4-cli tags
-# Mirrors resolve_cli_tag in tools/lean-versions.sh — keep the awk in sync.
+# Inline copy of the canonical resolver in tools/resolve-cli-rev.sh (install.sh
+# must stay standalone for `curl | bash`) — keep the awk in sync; the differential
+# test in tests/test_install_helpers.sh guards against drift.
 resolve_cli_rev() {
     local target=$1 tags best
     if ! printf '%s' "$target" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$'; then
@@ -272,9 +275,11 @@ resolve_cli_rev() {
             P["isrc"]=(rc>=0)?1:0; P["rc"]=(rc>=0)?rc:0
             return 1
         }
-        # 5-digit fixed-width key (maj|min|pat|1-isrc|rc): stable outranks its own
-        # RCs, comparison is exact not lexical. Matches tools/lean-versions.sh.
-        function key() { return sprintf("%05d%05d%05d%d%05d", P["maj"],P["min"],P["pat"],1-P["isrc"],P["rc"]) }
+        # Leading "v" + fixed-width digits (maj|min|pat|1-isrc|rc) so comparisons
+        # are exact STRING compares: an all-digit key is 21 chars > double
+        # precision and could be lossily numeric-coerced on some awks. Stable
+        # outranks its own RCs. Matches tools/resolve-cli-rev.sh.
+        function key() { return "v" sprintf("%05d%05d%05d%d%05d", P["maj"],P["min"],P["pat"],1-P["isrc"],P["rc"]) }
         BEGIN { parse(target); tmaj=P["maj"]; tmin=P["min"]; tstable=(P["isrc"]==0); tkey=key() }
         { if (parse($0)==0) next
           if (P["maj"]!=tmaj || P["min"]!=tmin) next        # same major.minor only
