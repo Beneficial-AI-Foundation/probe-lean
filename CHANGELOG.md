@@ -32,15 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   catalogue + classifier), the `Classification`/`SecurityProtocolCategory`/`ClassVia`
   types, and project-class/manifest detection. These fields were never part of a
   released schema and had no consumers, so their removal is not a schema break (the
-  schema-version stays 4.0). probe-vcvio consumes probe-lean's envelope and
+  schema-version stays 3.0). probe-vcvio consumes probe-lean's envelope and
   reproduces the same `classification` shape from the emitted `codomain-*` facts.
 
 ### Changed
 
-- **Split `is-extraction-artifact` into `is-lean-generated` + `is-aeneas-generated`**
-  (breaking). The old field conflated two distinct origins: Lean-generated code
+- **Split `is-extraction-artifact` into `is-lean-generated` + `is-aeneas-generated`.**
+  The old field conflated two distinct origins: Lean-generated code
   (derived instances, projections) and Aeneas-generated scaffolding (`_body`, `_loop`
-  suffixes). Each now has its own field with accurate naming.
+  suffixes). Each now has its own field with accurate naming. No interchange break:
+  no other probe consumes these fields (probe-aeneas computes its own
+  `is-extraction-artifact` from a name heuristic), so this is an additive payload
+  change, not an envelope-schema change.
 - **Conditional `is-hidden` for lean-generated atoms.** After transitive enrichment,
   `is-hidden` is cleared on *contaminated* lean-generated atoms — those that are
   locally verified but not transitively verified, or are themselves unverified/failed —
@@ -48,8 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   downstream atoms aren't dark green (fully verified). Clean (`transitively-verified`)
   and `trusted` lean-generated atoms stay hidden. `viewify` molecules omit all generated
   atoms regardless of `is-hidden`.
-- Bumped schema-version to 4.0 (breaking): `is-extraction-artifact` replaced by
-  `is-lean-generated` + `is-aeneas-generated`, `is-hidden` semantics updated.
+- Schema-version stays 3.0: the envelope structure is unchanged. The
+  `is-extraction-artifact` → `is-lean-generated`/`is-aeneas-generated` rename and the
+  updated `is-hidden` semantics affect only probe-lean's own payload, which is absorbed
+  by consumers' passthrough `extensions`, so no shared version bump is warranted.
 - The config key `extraction-artifact-suffixes` in `.verilib/probes/config.json` now
   feeds the `is-aeneas-generated` field (backward compatible, no config migration).
 - `extract` auto-flags Lean-generated code — `deriving`-generated instance clusters and
