@@ -207,7 +207,7 @@ structure Atom where
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
   /-- Non-project (external) type dependencies — deps referenced by the result
-  type that are not project decls (e.g. Mathlib/VCVio names). Emitted so a
+  type that are not project decls (e.g. Mathlib/core names). Emitted so a
   downstream classifier can reconstruct the full reachability graph, which the
   project-filtered `typeDependencies` omits. -/
   typeDependenciesExternal : Array String := #[]
@@ -439,7 +439,7 @@ structure UnifiedAtom where
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
   /-- Non-project (external) type dependencies — deps referenced by the result
-  type that are not project decls (e.g. Mathlib/VCVio names). Emitted so a
+  type that are not project decls (e.g. Mathlib/core names). Emitted so a
   downstream classifier can reconstruct the full reachability graph, which the
   project-filtered `typeDependencies` omits. -/
   typeDependenciesExternal : Array String := #[]

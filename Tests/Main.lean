@@ -902,10 +902,11 @@ def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
   return result
 
 -- Build-time registration test for the classification tag hooks retained in
--- `ProbeLean.Attrs` (their classifier now lives in probe-vcvio, which reads them
--- back off the emitted `attributes` array). These declarations only elaborate if
--- the attributes are registered (an unregistered tag is an "unknown attribute"
--- error). The `run_cmd` below confirms `hasTag` still reads them back.
+-- `ProbeLean.Attrs`. probe-lean does not interpret them; it emits them in the
+-- generic `attributes` array for a downstream classifier to read. These
+-- declarations only elaborate if the attributes are registered (an unregistered
+-- tag is an "unknown attribute" error). The `run_cmd` below confirms `hasTag`
+-- still reads them back.
 @[scheme_def] def testTaggedScheme : Nat := 0
 @[construction_def] def testTaggedConstruction : Nat := 0
 @[correctness_spec] theorem testTaggedCorrectness : testTaggedScheme = 0 := rfl
@@ -922,7 +923,7 @@ run_cmd do
     throwError "classification attributes registered but hasTag did not read them back"
 
 /-- The neutral per-atom codomain primitives that probe-lean emits and a
-downstream classifier (probe-vcvio) consumes to reconstruct the codomain shape. -/
+downstream classifier consumes to reconstruct the codomain shape. -/
 def testCodomainFacts (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""

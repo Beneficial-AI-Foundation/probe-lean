@@ -80,10 +80,9 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
 
 Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
-facts about its result type (see [SCHEMA.md](SCHEMA.md)). Security-protocol (VCVio) classification
-is no longer part of probe-lean — it lives in the standalone
-[`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio) tool, which consumes this
-envelope.
+facts about its result type (see [SCHEMA.md](SCHEMA.md)). These are domain-agnostic primitives;
+probe-lean does not classify declarations itself, but a downstream tool can reconstruct a
+declaration's codomain shape from them plus its own catalogue.
 
 `extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters and
 structure/class projections — as `is-hidden` + `is-lean-generated`, so `viewify` and the web UI

@@ -29,11 +29,10 @@ initialize externallyVerifiedAttr : TagAttribute ←
 -- Security-protocol classification tag hooks.
 --
 -- These four tags are *registered* here so target projects that
--- `import ProbeLean.Attrs` can annotate declarations with them, but probe-lean
--- itself no longer interprets them: the security-protocol classifier lives in
--- the standalone `probe-vcvio` tool, which reads the tags back off the generic
--- `attributes` array that `probe-lean extract` emits. Kept here (rather than in
--- a separate shim) so existing target projects need no migration.
+-- `import ProbeLean.Attrs` can annotate declarations with them. probe-lean does
+-- not interpret them itself — it emits them verbatim in each atom's generic
+-- `attributes` array for a downstream classifier to read. Kept here (rather than
+-- in a separate shim) so existing target projects need no migration.
 -- ============================================================
 
 /-- `@[scheme_def]` marks a declaration as a cryptographic *scheme* — the

@@ -195,8 +195,8 @@ def isRelevantSource (source : Option String) (crate : String) : Bool :=
 -- ============================================================
 -- Neutral codomain facts (pure, .olean-derived)
 -- Computed here, once, during the environment walk, so an external classifier
--- (e.g. probe-vcvio) can reconstruct a declaration's codomain shape from these
--- primitives plus its own catalogue without re-walking the environment.
+-- can reconstruct a declaration's codomain shape from these primitives plus its
+-- own catalogue without re-walking the environment.
 -- ============================================================
 
 /-- Strip leading `∀`/`→` binders, returning the result type. The body may
@@ -424,7 +424,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
   let projTermDeps := info.termDependencies.filter isProjectDep
 
   -- External (non-project) deps: referenced but outside the project (Mathlib,
-  -- VCVio, core). Emitted alongside the project-filtered deps so a downstream
+  -- core). Emitted alongside the project-filtered deps so a downstream
   -- classifier can reconstruct the full reachability graph (it needs edges to
   -- external anchors that `projTypeDeps`/`projTermDeps` drop).
   let isExternalDep (dep : Name) : Bool :=

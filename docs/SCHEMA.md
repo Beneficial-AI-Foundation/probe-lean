@@ -290,7 +290,7 @@ Each value contains all atom fields plus verification status and specs:
 | `dependencies` | array | `probe:`-prefixed names this declaration depends on (union of type + term) |
 | `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature |
 | `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof |
-| `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/VCVio/core) referenced in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. |
+| `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/core) referenced in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. |
 | `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced in the body/proof. Absent when empty. |
 | `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file |
@@ -311,11 +311,10 @@ Each value contains all atom fields plus verification status and specs:
 | `codomain-is-prop` | boolean | The result type is `Sort 0` (a `Prop`). |
 | `codomain-last-arg-is-bool` | boolean | The final application argument of the result type is the constant `Bool`. |
 
-The `codomain-*` fields are neutral, domain-agnostic primitives emitted for every atom. They
-replace the earlier `classification` object: security-protocol classification now lives in the
-standalone [`probe-vcvio`](https://github.com/Beneficial-AI-Foundation/probe-vcvio) tool, which
-consumes this envelope and reconstructs the codomain shape from these primitives plus its own
-catalogue. probe-lean no longer emits `classification` or `source.class`.
+The `codomain-*` fields are neutral, domain-agnostic primitives emitted for every atom. probe-lean
+does not classify declarations itself: a downstream tool reconstructs the codomain shape from these
+primitives plus its own catalogue. The envelope carries no `classification` object and no
+`source.class` field.
 
 ### `probe-lean/viewify` (molecules)
 
