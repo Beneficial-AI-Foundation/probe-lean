@@ -12,9 +12,9 @@ SCRIPT="$HERE/../../tools/lean-versions.sh"
 FIXTURE="$HERE/fixtures/releases.json"
 
 # Inject the lean4-cli tag list for every invocation so tests stay offline. The
-# fixture tags every emitted version EXCEPT v4.31.1 (an untagged patch, dropped)
-# and includes v4.30.1 (a tagged patch, kept) — proving the filter is by-tag, not
-# by-patch.
+# fixture tags minors 4.28-4.31 (incl. patch v4.30.1) and only RCs for 4.32, but
+# nothing for 4.33/4.34 — so v4.31.1 (patch on a tagged minor) is KEPT via its
+# minor's tag, while v4.33.0/v4.34.0 (untagged minors) are dropped.
 export LEAN_CLI_TAGS_FILE="$HERE/fixtures/cli-tags.txt"
 
 PASS=0
@@ -46,20 +46,21 @@ assert_fails() {
 echo "Testing version policy..."
 
 # Default floor (v4.28.0-rc1): stable lines collapse to their stable; the only line
-# without a stable (4.32.0) yields its latest RC (rc10 > rc2). v4.30.1 is a patch
-# that lean4-cli tagged (kept); v4.31.1 is a patch it did NOT tag (dropped).
+# without a stable (4.32.0) yields its latest RC (rc10 > rc2). v4.30.1 and v4.31.1
+# are patches kept via their tagged minors; v4.33.0/v4.34.0 have untagged minors
+# and are dropped.
 assert_eq "default policy" \
-    $'v4.28.0\nv4.29.0\nv4.30.0\nv4.30.1\nv4.31.0\nv4.32.0-rc10' \
+    $'v4.28.0\nv4.29.0\nv4.30.0\nv4.30.1\nv4.31.0\nv4.31.1\nv4.32.0-rc10' \
     "$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
 
 # JSON mode is a valid array in the same order.
 assert_eq "json mode" \
-    '["v4.28.0","v4.29.0","v4.30.0","v4.30.1","v4.31.0","v4.32.0-rc10"]' \
+    '["v4.28.0","v4.29.0","v4.30.0","v4.30.1","v4.31.0","v4.31.1","v4.32.0-rc10"]' \
     "$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT" --json | jq -c .)"
 
 # Raising the floor to v4.30.0 drops 4.28/4.29.
 assert_eq "floor=v4.30.0" \
-    $'v4.30.0\nv4.30.1\nv4.31.0\nv4.32.0-rc10' \
+    $'v4.30.0\nv4.30.1\nv4.31.0\nv4.31.1\nv4.32.0-rc10' \
     "$(LEAN_VERSION_FLOOR=v4.30.0 LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
 
 # A floor that is itself an RC is honored (v4.32.0-rc10 >= v4.32.0-rc2).
@@ -74,12 +75,18 @@ assert_eq "empty plain output has no lines" "" \
 assert_eq "empty json output is []" "[]" \
     "$(LEAN_VERSION_FLOOR=v999.0.0 LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT" --json | jq -c .)"
 
-# lean4-cli tag filter: an untagged version is dropped, a tagged patch is kept.
+# lean4-cli compatibility filter: a patch on a tagged minor is KEPT (resolves to
+# the minor's tag); a version whose whole major.minor line is untagged is dropped.
 default_out="$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
 if printf '%s\n' "$default_out" | grep -qx "v4.31.1"; then
-    echo "  FAIL: untagged patch v4.31.1 should be dropped"; FAIL=$((FAIL + 1))
+    echo "  PASS: patch on a tagged minor (v4.31.1) is kept"; PASS=$((PASS + 1))
 else
-    echo "  PASS: untagged patch v4.31.1 is dropped"; PASS=$((PASS + 1))
+    echo "  FAIL: v4.31.1 should be kept (minor 4.31 is tagged)"; FAIL=$((FAIL + 1))
+fi
+if printf '%s\n' "$default_out" | grep -qx "v4.33.0"; then
+    echo "  FAIL: v4.33.0 should be dropped (minor 4.33 is untagged)"; FAIL=$((FAIL + 1))
+else
+    echo "  PASS: untagged minor (v4.33.0) is dropped"; PASS=$((PASS + 1))
 fi
 if printf '%s\n' "$default_out" | grep -qx "v4.30.1"; then
     echo "  PASS: tagged patch v4.30.1 is kept"; PASS=$((PASS + 1))
