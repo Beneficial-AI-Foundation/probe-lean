@@ -41,6 +41,8 @@ Options:
 Environment:
   LEAN_VERSION_FLOOR     Minimum version to consider (default: $FLOOR)
   LEAN_RELEASES_FILE     Same as --releases-file
+  LEAN_CLI_TAGS_FILE     Read leanprover/lean4-cli tags from PATH instead of git
+                         (one tag per line; used by tests)
   GH_TOKEN / GITHUB_TOKEN  Auth for the GitHub API (avoids rate limits)
 EOF
 }
@@ -203,11 +205,14 @@ if ! selected="$(printf '%s' "$releases_json" | extract | apply_policy | sort -u
     exit 1
 fi
 
-# probe-lean pins the Cli dependency to the Lean version tag, so it can only build a
-# Lean version that leanprover/lean4-cli has also tagged. Drop any version without a
-# matching Cli tag (e.g. patch releases lean4-cli never tags): building it would fail
-# and churn the watcher's tracking issue. This also waits out the window where a Lean
-# release is out but lean4-cli hasn't tagged it yet, instead of failing in the interim.
+# probe-lean's source build pins the Cli dependency to a lean4-cli tag in the
+# target's major.minor line (see tools/resolve-cli-rev.sh, the canonical resolver
+# also used by the build workflows). Keep a Lean version only when such a
+# compatible tag exists: a patch release on an already-tagged minor resolves to
+# that minor's tag (e.g. v4.32.2 -> v4.32.0), but a version whose whole
+# major.minor line is untagged is dropped. That still waits out the window where a
+# fresh Lean minor is out but lean4-cli hasn't tagged it yet. A tag-fetch or
+# resolver error is fatal — never a silent drop.
 if ! cli_tags="$(fetch_cli_tags)"; then
     echo "Error: could not retrieve leanprover/lean4-cli tags." >&2
     exit 1
@@ -216,11 +221,21 @@ if [ -z "$cli_tags" ]; then
     echo "Error: no leanprover/lean4-cli tags found (unexpected)." >&2
     exit 1
 fi
+# Reuse the single fetch above: hand the tags to the resolver via a temp file
+# rather than re-invoking git ls-remote per version.
+resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-cli-rev.sh"
+cli_tags_file="$(mktemp)"
+trap 'rm -f "$cli_tags_file"' EXIT
+printf '%s\n' "$cli_tags" > "$cli_tags_file"
 selected="$(printf '%s\n' "$selected" | while IFS= read -r v; do
     [ -n "$v" ] || continue
-    if printf '%s\n' "$cli_tags" | grep -qxF "$v"; then
-        printf '%s\n' "$v"
-    fi
+    rc=0
+    LEAN_CLI_TAGS_FILE="$cli_tags_file" "$resolver" "$v" >/dev/null || rc=$?
+    case "$rc" in
+        0) printf '%s\n' "$v" ;;   # a compatible lean4-cli tag exists -> keep
+        1) : ;;                     # no compatible tag -> drop this version
+        *) echo "Error: could not resolve a lean4-cli tag for $v" >&2; exit 1 ;;
+    esac
 done)"
 
 if [ "$JSON" = true ]; then
