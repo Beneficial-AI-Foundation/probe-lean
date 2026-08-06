@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-06
+
+### Fixed
+
+- **Attribute-macro companion theorems no longer defeat primary-spec detection.**
+  Aeneas's `@[step]` elaborates a tagged `theorem X` into an extra machine-generated
+  `X.mvcgen_spec` whose declaration range points back at `X`'s own syntax. probe-lean
+  treated the companion as a first-class spec: it appeared next to the real spec in
+  every dependency's `specs` list and (via the source-scan attribute fallback) carried
+  the parent's `@[step]`, so the known-attribute and sole-spec signals — which require
+  exactly one candidate — both failed, and fully proved functions ended up with no
+  `primary-spec` (downstream, probe-aeneas then colors their Rust implementations
+  "unverified"). `extract` now detects such companions — name shape
+  `<parent>.mvcgen_spec` with a parent that is a project theorem or external
+  (axiom-parented wrappers stay visible: axioms are never collected into `specs`,
+  so the wrapper is the axiom's only spec proxy) — flags them `is-lean-generated` +
+  `is-hidden` like
+  `deriving` clusters, and excludes lean-generated theorems from `specs` lists and
+  the heuristic primary-spec signals. The explicit `@[primary_spec]` tag still
+  honors generated theorems (the escape hatch). Companions stay in the dependency
+  graph, so transitive verification is unchanged. New
+  `generatedCompanionTheoremNames` in `ProbeLean/Analysis.lean`.
+
 ## [0.11.0] - 2026-08-03
 
 ### Added

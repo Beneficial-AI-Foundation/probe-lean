@@ -107,7 +107,15 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
     1. `@[primary_spec]` attribute (always wins)
     2. Known verification-framework attributes (`primarySpecAttributes`)
     3. `_spec` suffix naming convention
-    4. Sole-spec inference (exactly one spec) -/
+    4. Sole-spec inference (exactly one spec)
+
+    Lean-generated theorems (attribute-macro companions like `X.mvcgen_spec`)
+    are not user specs: they enter neither the `specs` lists nor the heuristic
+    primary-spec candidate pool (signals 2-4). Without this, a generated
+    companion sits next to its parent spec on every dependency and defeats
+    signals 2 and 4, which require exactly one candidate. The explicit
+    `@[primary_spec]` tag (signal 1) still honors generated theorems — it is
+    the user's escape hatch. -/
 def computeSpecs (atoms : Array Atom) : Array Atom :=
   let kindMap : Lean.RBMap String DeclKind compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.kind
@@ -115,7 +123,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.attributes
   let specsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a =>
-      if a.kind == DeclKind.theorem then
+      if a.kind == DeclKind.theorem && !a.isLeanGenerated then
         a.dependencies.foldl (init := m) fun m dep =>
           match kindMap.find? dep with
           | some k =>
@@ -125,7 +133,9 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
               m.insert dep (cur.push a.name)
           | none => m
       else m
-  -- Signal 0: @[primary_spec] attribute (always wins)
+  -- Signal 0: @[primary_spec] attribute (always wins). Deliberately NOT
+  -- filtered by isLeanGenerated: the explicit tag is the user's escape hatch,
+  -- including for a false positive of the generated-companion detection.
   let attrPrimarySpecMap : Lean.RBMap String String compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem && a.isPrimarySpec then
@@ -291,20 +301,24 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
 
   IO.println s!"Found {decls.size} declarations"
 
-  -- Auto-detected `deriving`-generated instance clusters (names only). Flagged
-  -- below alongside projections; see the marking loop for why.
+  -- Auto-detected `deriving`-generated instance clusters and attribute-macro
+  -- companion theorems (names only). Flagged below alongside projections; see
+  -- the marking loop for why.
   let derivedNames := derivedInstanceClusterNames decls
+  let companionNames := generatedCompanionTheoremNames decls
 
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath moduleNames crate fileCache decl
-    -- Lean-generated code (deriving clusters + structure/class projections) is flagged
-    -- hidden + lean-generated so viewify and the web UI omit it from the presented
-    -- graph. It is kept in the atom set (not dropped), so `enrichTransitiveVerification`
-    -- still traverses it and contamination still flows through it — hiding is sound
-    -- precisely because the atom stays in the graph, unlike dropping.
-    let isGenerated := derivedNames.contains decl.name || decl.kind == .projection
+    -- Lean-generated code (deriving clusters, structure/class projections, and
+    -- attribute-macro companion theorems) is flagged hidden + lean-generated so
+    -- viewify and the web UI omit it from the presented graph. It is kept in the
+    -- atom set (not dropped), so `enrichTransitiveVerification` still traverses it
+    -- and contamination still flows through it — hiding is sound precisely because
+    -- the atom stays in the graph, unlike dropping.
+    let isGenerated := derivedNames.contains decl.name || decl.kind == .projection ||
+      companionNames.contains decl.name
     let atom := if isGenerated then { atom with isHidden := true, isLeanGenerated := true } else atom
     atoms := atoms.push atom
 

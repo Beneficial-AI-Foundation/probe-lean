@@ -310,6 +310,59 @@ def derivedInstanceClusterNames (decls : Array DeclInfo) : Std.HashSet Name := I
       result := result.insert d.name
   return result
 
+/-- Names of attribute-macro-generated companion theorems.
+
+Some verification-framework attributes elaborate a tagged theorem into an
+extra machine-generated theorem alongside it. The known case is Aeneas's
+`@[step]`: for `theorem X`, it adds an mvcgen-shaped wrapper `X.mvcgen_spec`
+whose declaration range is registered from the *tagging syntax* — the
+inline `@[step]` line, or the `attribute [step] …` command, which can lie
+outside `X`'s own range or even tag an external theorem. Via the source-scan
+attribute fallback the companion also shows the parent's attributes. Left
+untreated, it lands in every dependency's `specs` list next to the real spec
+and defeats primary-spec detection (two tagged candidates where the signals
+require exactly one).
+
+A theorem named `<parent>.mvcgen_spec` qualifies unless `parent` is a
+project declaration that is not a theorem. In particular:
+- `parent` is a project theorem → companion (the parent is the real spec and
+  is collected into `specs` itself);
+- `parent` is absent → companion (`attribute [step]` on an external theorem
+  generates the wrapper inside the tagging project module);
+- `parent` is a project **axiom** → NOT a companion for our purposes: axioms
+  are never collected into `specs` lists, so the wrapper is the specified
+  def's only spec-shaped edge — the axiom's proxy. Excluding it would orphan
+  every axiom-specified def.
+
+The name shape is the whole signal; two corroborations considered and
+rejected: (a) source ranges — the `attribute [step]` command form places the
+companion's range outside the parent's, so containment checks reject exactly
+the declarations this detection targets; (b) a dependency edge to the parent
+— the wrapper references its parent only in the *proof term*, and theorem
+proof bodies are not visible in the imported environment (theorem
+term-dependencies come out empty), so the edge cannot be observed. A
+hand-written theorem that happens to use the name shape is therefore flagged
+(accepted false positive: the suffix is Aeneas generator convention, hiding
+is mild, and an explicit `@[primary_spec]` tag restores it as primary
+spec).
+
+Like derived instances, companions are marked `isLeanGenerated` + hidden,
+**not dropped** — they stay in the dependency graph so transitive-verification
+contamination still flows through them. `computeSpecs` excludes
+lean-generated theorems from spec bookkeeping. -/
+def generatedCompanionTheoremNames (decls : Array DeclInfo) : Std.HashSet Name := Id.run do
+  let mut kindByName : Std.HashMap Name DeclKind := {}
+  for d in decls do
+    kindByName := kindByName.insert d.name d.kind
+  let mut result : Std.HashSet Name := {}
+  for d in decls do
+    if d.kind == .theorem then
+      if let .str parent "mvcgen_spec" := d.name then
+        match kindByName.get? parent with
+        | some .theorem | none => result := result.insert d.name
+        | some _ => pure ()
+  return result
+
 /-- Get all project declarations from an environment. -/
 def getProjectDecls (env : Environment) (projectModules : Array Name) : Array DeclInfo := Id.run do
   let mut decls : Array DeclInfo := #[]

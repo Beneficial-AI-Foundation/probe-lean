@@ -84,9 +84,16 @@ facts about its result type (see [SCHEMA.md](SCHEMA.md)). These are domain-agnos
 probe-lean does not classify declarations itself, but a downstream tool can reconstruct a
 declaration's codomain shape from them plus its own catalogue.
 
-`extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters and
-structure/class projections — as `is-hidden` + `is-lean-generated`, so `viewify` and the web UI
-omit it. These atoms stay in the dependency graph, so transitive-verification remains sound.
+`extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters,
+structure/class projections, and attribute-macro companion theorems (e.g. the `X.mvcgen_spec`
+that Aeneas's `@[step]` adds next to a tagged `theorem X`) — as `is-hidden` +
+`is-lean-generated`, so `viewify` and the web UI omit it. These atoms stay in the dependency
+graph, so transitive-verification remains sound. Lean-generated theorems are additionally
+excluded from `specs` lists and the heuristic primary-spec signals: a machine-generated
+companion is not a user spec, and counting it would make the real spec ambiguous. Two
+deliberate exceptions: the companion of a tagged **axiom** stays visible (axioms are never
+collected into `specs`, so the companion is the axiom's only spec proxy), and an explicit
+`@[primary_spec]` tag still wins even on a generated theorem (the escape hatch).
 After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms —
 locally verified but not `transitively-verified`, or `unverified`/`failed` — so they remain
 visible for tracing. Clean (`transitively-verified`) and `trusted` generated atoms stay hidden.

@@ -114,6 +114,47 @@ def testDerivedInstanceClusterNames (result : TestResult) : IO TestResult := do
   result ← test "type itself not selected" (!got.contains `Foo) result
   return result
 
+def testGeneratedCompanionTheoremNames (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing generatedCompanionTheoremNames..."
+  let mk (name : Lean.Name) (kind : DeclKind) (s e : Nat) (deps : Array Lean.Name := #[]) : DeclInfo :=
+    { name, displayName := getDisplayName name, moduleName := `Test, kind,
+      dependencies := deps, typeDependencies := #[], termDependencies := deps,
+      sourceInfo := some { linesStart := s, linesEnd := e } }
+  let decls : Array DeclInfo := #[
+    mk `X.spec .theorem 372 405,
+    -- inline @[step] companion: applies its parent → selected
+    mk `X.spec.mvcgen_spec .theorem 376 376 (deps := #[`X.spec]),
+    mk `far.spec .theorem 40 45,
+    -- `attribute [step]` command form: range outside the parent → still selected
+    mk `far.spec.mvcgen_spec .theorem 60 60 (deps := #[`far.spec]),
+    -- `attribute [step]` on an external theorem: parent not a project decl → selected
+    mk `Aeneas.Std.U32.add_bv_spec.mvcgen_spec .theorem 78 78 (deps := #[`Aeneas.Std.U32.add_bv_spec]),
+    mk `ax.spec .axiom 100 110,
+    -- axiom parent: the axiom's spec proxy → not selected
+    mk `ax.spec.mvcgen_spec .theorem 100 100 (deps := #[`ax.spec]),
+    mk `d .def 20 30,
+    -- parent is a def → not selected
+    mk `d.mvcgen_spec .theorem 25 25 (deps := #[`d]),
+    -- name shape without a dependency on the parent → still selected: theorem
+    -- proof bodies are invisible in the imported env, so the reference cannot
+    -- be observed (accepted false positive; @[primary_spec] is the escape hatch)
+    mk `noRef.spec .theorem 120 130,
+    mk `noRef.spec.mvcgen_spec .theorem 140 145,
+    -- non-theorem name-shape match → not selected
+    mk `notATheorem.mvcgen_spec .def 90 90 ]
+  let got := generatedCompanionTheoremNames decls
+  result ← test "inline companion selected" (got.contains `X.spec.mvcgen_spec) result
+  result ← test "attribute-command companion selected" (got.contains `far.spec.mvcgen_spec) result
+  result ← test "external-parent companion selected" (got.contains `Aeneas.Std.U32.add_bv_spec.mvcgen_spec) result
+  result ← test "axiom-parent companion not selected" (!got.contains `ax.spec.mvcgen_spec) result
+  result ← test "def-parent companion not selected" (!got.contains `d.mvcgen_spec) result
+  result ← test "shape match without observable parent dep still selected" (got.contains `noRef.spec.mvcgen_spec) result
+  result ← test "non-theorem shape match not selected" (!got.contains `notATheorem.mvcgen_spec) result
+  result ← test "parent itself not selected" (!got.contains `X.spec) result
+  return result
+
 def testAnalysisHelpers (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -473,6 +514,55 @@ def testComputeSpecs (result : TestResult) : IO TestResult := do
   let thmWithMeta := metaResult.find? fun a => a.name == "probe:Test.add_assign_spec"
   result ← test "theorem-to-theorem dep not added as spec" (match thmWithMeta with
     | some a => a.specs.isEmpty
+    | none => false) result
+  return result
+
+def testComputeSpecsGeneratedExclusion (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing computeSpecs excludes lean-generated theorems..."
+  let defAtom : Atom := {
+    name := "probe:Test.copy"
+    displayName := "copy"
+    dependencies := #[]
+    codeModule := "Test"
+    codePath := "Code/Test.lean"
+    codeText := some { linesStart := 5, linesEnd := 9 }
+    kind := .def
+  }
+  let specThm : Atom := {
+    name := "probe:Test.copy.spec"
+    displayName := "copy.spec"
+    dependencies := #["probe:Test.copy"]
+    codeModule := "Test"
+    codePath := "Properties/Test.lean"
+    codeText := some { linesStart := 20, linesEnd := 40 }
+    kind := .theorem
+    attributes := #["step"]
+  }
+  let companion : Atom := { specThm with
+    name := "probe:Test.copy.spec.mvcgen_spec"
+    displayName := "copy.spec.mvcgen_spec"
+    codeText := some { linesStart := 21, linesEnd := 21 }
+    isLeanGenerated := true
+    isHidden := true
+  }
+  let specsResult := computeSpecs #[defAtom, specThm, companion]
+  let defRes := specsResult.find? fun a => a.name == "probe:Test.copy"
+  result ← test "generated companion absent from specs" (match defRes with
+    | some a => a.specs.size == 1 && a.specs[0]! == "probe:Test.copy.spec"
+    | none => false) result
+  result ← test "primary spec resolves to the real spec" (match defRes with
+    | some a => a.primarySpec == some "probe:Test.copy.spec"
+    | none => false) result
+
+  IO.println ""
+  IO.println "Testing explicit @[primary_spec] escape hatch on a generated theorem..."
+  let taggedCompanion : Atom := { companion with isPrimarySpec := true }
+  let taggedResult := computeSpecs #[defAtom, specThm, taggedCompanion]
+  let defTagged := taggedResult.find? fun a => a.name == "probe:Test.copy"
+  result ← test "explicit tag still wins over heuristics" (match defTagged with
+    | some a => a.primarySpec == some "probe:Test.copy.spec.mvcgen_spec"
     | none => false) result
   return result
 
@@ -3068,6 +3158,7 @@ def main : IO UInt32 := do
   result ← testTypeJsonSerialization result
   result ← testAtomizeHelpers result
   result ← testComputeSpecs result
+  result ← testComputeSpecsGeneratedExclusion result
   result ← testAtomsOutputJson result
   result ← testAtomSpecsJson result
   result ← testAtomLanguageField result
@@ -3116,6 +3207,7 @@ def main : IO UInt32 := do
   result ← testCoversRange result
   result ← testAxiomReachability result
   result ← testDerivedInstanceClusterNames result
+  result ← testGeneratedCompanionTheoremNames result
   result ← testDropRegression result
   result ← testGeneratedFieldRoundTrip result
   result ← testConditionalHiding result
