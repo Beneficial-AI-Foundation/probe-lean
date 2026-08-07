@@ -35,9 +35,13 @@ structure DependencyInfo where
   typeDeps : Array Name
   termDeps : Array Name
 
+-- NOTE (0.12.0): `info.value?` was the wrong accessor. Lean 4.30 made it gate
+-- theorem proofs behind `allowOpaque := true`, which silently emptied every
+-- theorem's `termDeps` on releases built against 4.30+. The implementation uses
+-- `valueOf`, which pattern-matches `ConstantInfo` directly. See CHANGELOG 0.12.0.
 def getDependencies (info : ConstantInfo) : DependencyInfo :=
   let type := info.type
-  let value := info.value?
+  let value := valueOf info
   let typeConsts := type.getUsedConstants
   let valueConsts := match value with
     | some v => v.getUsedConstants
@@ -107,7 +111,7 @@ Note: A constant may appear in both `type-dependencies` and `term-dependencies` 
 
 ### Edge Cases
 
-- **Declaration with no value** (axioms, opaque): `term-dependencies` is empty; `type-dependencies` contains all dependencies. `dependencies` equals `type-dependencies`.
+- **Declaration with no value** (axioms): `term-dependencies` is empty; `type-dependencies` contains all dependencies. `dependencies` equals `type-dependencies`. (As of 0.12.0 `opaque` declarations *do* contribute their body, matching `AxiomCheck.constChildren` and `Lean.collectAxioms`.)
 - **Constant appears in both type and value**: Present in both `type-dependencies` and `term-dependencies`. Present once in `dependencies` (deduplicated).
 - **Constructors/recursors**: Skipped as before — no change.
 - **Instance declarations**: Type dependencies include the class being instantiated; term dependencies include methods/definitions used in the implementation body.
@@ -115,7 +119,7 @@ Note: A constant may appear in both `type-dependencies` and `term-dependencies` 
 
 ### Downstream Impact
 
-- **`computeSpecs`**: Uses `dependencies` (the union), so no change needed. Could optionally be refined later to only consider term dependencies of theorems, but that is out of scope.
+- **`computeSpecs`**: ~~Uses `dependencies` (the union), so no change needed.~~ Superseded in 0.12.0: it now uses `typeDependencies`. Reading the union was only tolerable while theorem `termDeps` were empty; once proof edges are populated, every constant a proof invokes would become something the theorem "specifies".
 - **`viewify`**: Passes through atom fields. Will automatically include the new fields if Atom serialization includes them.
 - **Schema version**: This is an additive change (new optional fields). No schema version bump required, but the schema docs should be updated.
 
@@ -123,15 +127,26 @@ Note: A constant may appear in both `type-dependencies` and `term-dependencies` 
 
 - Finer-grained categorization within type or term dependencies (e.g., distinguishing implicit vs explicit arguments, typeclass vs direct usage)
 - Transitive dependency analysis (only direct references, same as today)
-- Changing the existing `dependencies` field semantics
-- Changing `computeSpecs` logic to use only term dependencies
+- Changing the existing `dependencies` **shape** (still the deduplicated union of
+  type + term)
+  - NOTE (0.12.0): this was originally worded "changing `dependencies` semantics",
+    but the 0.12.0 `valueOf` fix does change what the union *contains* — it restores
+    theorem proof-term edges (empty on Lean ≥ 4.30 releases due to the `value?` bug)
+    and, on all Lean versions, adds `opaque` bodies. For consumers this is a
+    reachability/size change to `dependencies`, not a purely additive one. See
+    CHANGELOG 0.12.0.
+- Changing `computeSpecs` logic (done separately in 0.12.0, which switched it to
+  type dependencies, with a union fallback for explicitly `@[primary_spec]`-tagged
+  theorems whose statement names no specifiable constant)
 - Differentiating between dependencies from different parts of the type (e.g., hypotheses vs conclusion)
 
 ## Acceptance Criteria
 
 - [ ] `getDependencies` returns a `DependencyInfo` with separate `typeDeps` and `termDeps`
 - [ ] JSON output includes `type-dependencies` and `term-dependencies` fields for every atom
-- [ ] `dependencies` field remains identical to current output (union of both, deduplicated)
+- [ ] `dependencies` field keeps the same shape: the deduplicated union of both.
+      (Its *contents* change in 0.12.0 — see the Non-Goals note — because `valueOf`
+      restores theorem/opaque body edges the old `value?` accessor dropped.)
 - [ ] For an axiom (no value), `term-dependencies` is `[]`
 - [ ] For a theorem like `horner_natCast`, type deps include `p` (from `ZMod p` in signature) and term deps include proof-body references
 - [ ] A constant appearing in both type and value appears in both arrays

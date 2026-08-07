@@ -65,12 +65,16 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
     "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec": {
       "display-name": "prove_spec",
       "dependencies": [
-        "probe:ArkLib.SumCheck.Protocol.Prover.prove"
+        "probe:ArkLib.SumCheck.Protocol.Prover.prove",
+        "probe:ArkLib.SumCheck.Protocol.Prover.roundPoly_degree_le"
       ],
       "type-dependencies": [
         "probe:ArkLib.SumCheck.Protocol.Prover.prove"
       ],
-      "term-dependencies": [],
+      "term-dependencies": [
+        "probe:ArkLib.SumCheck.Protocol.Prover.prove",
+        "probe:ArkLib.SumCheck.Protocol.Prover.roundPoly_degree_le"
+      ],
       "code-module": "ArkLib.SumCheck.Protocol",
       "code-path": "ArkLib/SumCheck/Protocol.lean",
       "code-text": { "lines-start": 70, "lines-end": 85 },
@@ -289,7 +293,7 @@ Each value contains all atom fields plus verification status and specs:
 | `language` | string | Always `"lean"` |
 | `dependencies` | array | `probe:`-prefixed names this declaration depends on (union of type + term) |
 | `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature |
-| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof |
+| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof. For a theorem this is the proof term, so it is normally non-empty and typically much larger than `type-dependencies`. |
 | `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/core) referenced in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. |
 | `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced in the body/proof. Absent when empty. |
 | `code-module` | string | Module name containing the declaration |
@@ -303,7 +307,7 @@ Each value contains all atom fields plus verification status and specs:
 | `is-ignored` | bool | From config's ignored list |
 | `attributes` | array or absent | Lean tag attributes on this declaration. Absent when empty. |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
-| `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom, excluding generated theorems — `is-lean-generated` or `is-aeneas-generated` — unless explicitly tagged `@[primary_spec]` (machine-generated companions are not user specs). Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
+| `specs` | array or absent | Code-names of theorem atoms whose **`type-dependencies`** include this atom — that is, theorems whose *statement* mentions it. A constant a theorem only invokes in its proof is not something the theorem specifies, so it is excluded — except a theorem explicitly tagged `@[primary_spec]` whose statement mentions no specifiable constant, which falls back to its proof-term dependencies so the tag still attaches. Also excludes generated theorems — `is-lean-generated` or `is-aeneas-generated` — unless explicitly tagged `@[primary_spec]` (machine-generated companions are not user specs). Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. |
 | `verification-status` | string or absent | `"transitively-verified"`, `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. A declaration is `"verified"` if its own body does not contain `sorry`; it is upgraded to `"transitively-verified"` if, additionally, all its transitive dependencies are verified or trusted (computed via reverse-BFS contamination, skippable with `--skip-enrich`). Declarations that are locally sorry-free but have at least one unverified or failed transitive dependency remain `"verified"`. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
 | `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"externally_verified"` (declaration tagged `@[externally_verified]` — proof discharged outside Lean), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |

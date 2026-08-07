@@ -102,12 +102,27 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
   primarySpecAttributes.any fun a => attrs.contains a
 
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
-    list of every non-theorem dependency. Also propagate `primarySpec` using
-    a multi-signal precedence chain:
+    list of every non-theorem **type** dependency. Also propagate `primarySpec`
+    using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins)
     2. Known verification-framework attributes (`primarySpecAttributes`)
     3. `_spec` suffix naming convention
     4. Sole-spec inference (exactly one spec)
+
+    Only `typeDependencies` are walked, not the union `dependencies`: a theorem
+    specifies what its *statement* is about. A constant a proof merely happens to
+    invoke — a helper lemma, a definition it unfolds — is not something the
+    theorem specifies, and admitting those edges would put a spurious spec on
+    most definitions in the project and defeat primary-spec detection, whose
+    known-attribute and sole-spec signals both require exactly one candidate.
+
+    Fallback for explicit tags: a theorem carrying `@[primary_spec]` whose
+    *statement* names no specifiable constant (an abstract statement whose
+    specified function enters only via the proof term) falls back to the union
+    `dependencies`, so the user's explicit override can still attach. Untagged
+    abstract theorems attach to nothing, as before. The `specs` map and the
+    `@[primary_spec]` map share one target set (`specTargets`), so `primary-spec`
+    never points outside `specs`.
 
     Generated theorems (attribute-macro companions like `X.mvcgen_spec`,
     whatever their origin flag) are not user specs: they enter neither the
@@ -124,17 +139,26 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.attributes
   let isGeneratedTheorem : Atom → Bool := fun a =>
     (a.isLeanGenerated || a.isAeneasGenerated) && !a.isPrimarySpec
+  -- A non-theorem constant a spec can attach to (theorems and unknown names are
+  -- never spec targets).
+  let isSpecifiable : String → Bool := fun dep =>
+    match kindMap.find? dep with
+    | some k => k != DeclKind.theorem
+    | none   => false
+  -- The constants a theorem is a spec *of*: normally those named in its statement
+  -- (`typeDependencies`). Fallback: an explicitly `@[primary_spec]`-tagged theorem
+  -- whose statement names no specifiable constant walks the union `dependencies`
+  -- so the tag can still attach. Order preserved (inputs are name-sorted, P14).
+  let specTargets : Atom → Array String := fun a =>
+    let typeTargets := a.typeDependencies.filter isSpecifiable
+    if !typeTargets.isEmpty || !a.isPrimarySpec then typeTargets
+    else a.dependencies.filter isSpecifiable
   let specsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem && !isGeneratedTheorem a then
-        a.dependencies.foldl (init := m) fun m dep =>
-          match kindMap.find? dep with
-          | some k =>
-            if k == DeclKind.theorem then m
-            else
-              let cur := (m.find? dep).getD #[]
-              m.insert dep (cur.push a.name)
-          | none => m
+        (specTargets a).foldl (init := m) fun m dep =>
+          let cur := (m.find? dep).getD #[]
+          m.insert dep (cur.push a.name)
       else m
   -- Signal 0: @[primary_spec] attribute (always wins). Deliberately NOT
   -- filtered by isLeanGenerated: the explicit tag is the user's escape hatch,
@@ -142,12 +166,8 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
   let attrPrimarySpecMap : Lean.RBMap String String compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem && a.isPrimarySpec then
-        a.dependencies.foldl (init := m) fun m dep =>
-          match kindMap.find? dep with
-          | some k =>
-            if k == DeclKind.theorem then m
-            else m.insert dep a.name
-          | none => m
+        (specTargets a).foldl (init := m) fun m dep =>
+          m.insert dep a.name
       else m
   -- Signals 1-3: known-attribute > _spec suffix > sole-spec
   let primarySpecMap :=
@@ -297,10 +317,12 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
     | .error msg => return .error msg
     | .ok env => pure env
   let moduleNames := modules.map (·.name)
+  -- Built once and shared by declaration discovery and per-atom dep partitioning.
+  let projFilter := mkProjectFilter env moduleNames
 
   IO.println "Extracting declarations..."
 
-  let decls := getProjectDecls env moduleNames
+  let decls := getProjectDecls env moduleNames projFilter
 
   IO.println s!"Found {decls.size} declarations"
 
@@ -318,7 +340,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
-    let atom ← declInfoToAtom env projectPath moduleNames crate fileCache decl
+    let atom ← declInfoToAtom env projectPath projFilter crate fileCache decl
     -- Generated code is flagged hidden + generated so viewify and the web UI
     -- omit it from the presented graph, split by origin: deriving clusters and
     -- structure/class projections are core-Lean output (`is-lean-generated`),
