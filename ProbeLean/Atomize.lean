@@ -107,15 +107,26 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
     1. `@[primary_spec]` attribute (always wins)
     2. Known verification-framework attributes (`primarySpecAttributes`)
     3. `_spec` suffix naming convention
-    4. Sole-spec inference (exactly one spec) -/
+    4. Sole-spec inference (exactly one spec)
+
+    Generated theorems (attribute-macro companions like `X.mvcgen_spec`,
+    whatever their origin flag) are not user specs: they enter neither the
+    `specs` lists nor the heuristic primary-spec candidate pool (signals 2-4).
+    Without this, a generated companion sits next to its parent spec on every
+    dependency and defeats signals 2 and 4, which require exactly one
+    candidate. The explicit `@[primary_spec]` tag is the user's escape hatch:
+    it wins signal 1 as usual, and a tagged generated theorem also re-enters
+    the `specs` lists, so `primary-spec` never points outside `specs`. -/
 def computeSpecs (atoms : Array Atom) : Array Atom :=
   let kindMap : Lean.RBMap String DeclKind compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.kind
   let attrsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.attributes
+  let isGeneratedTheorem : Atom → Bool := fun a =>
+    (a.isLeanGenerated || a.isAeneasGenerated) && !a.isPrimarySpec
   let specsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a =>
-      if a.kind == DeclKind.theorem then
+      if a.kind == DeclKind.theorem && !isGeneratedTheorem a then
         a.dependencies.foldl (init := m) fun m dep =>
           match kindMap.find? dep with
           | some k =>
@@ -125,7 +136,9 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
               m.insert dep (cur.push a.name)
           | none => m
       else m
-  -- Signal 0: @[primary_spec] attribute (always wins)
+  -- Signal 0: @[primary_spec] attribute (always wins). Deliberately NOT
+  -- filtered by isLeanGenerated: the explicit tag is the user's escape hatch,
+  -- including for a false positive of the generated-companion detection.
   let attrPrimarySpecMap : Lean.RBMap String String compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem && a.isPrimarySpec then
@@ -291,21 +304,35 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
 
   IO.println s!"Found {decls.size} declarations"
 
-  -- Auto-detected `deriving`-generated instance clusters (names only). Flagged
-  -- below alongside projections; see the marking loop for why.
+  -- Auto-detected `deriving`-generated instance clusters and attribute-macro
+  -- companion theorems (names only). Flagged below alongside projections; see
+  -- the marking loop for why.
   let derivedNames := derivedInstanceClusterNames decls
+  -- Companion parents can live outside the emitted declarations (`attribute
+  -- [step]` on an external theorem/axiom, or a module-filtered parent); resolve
+  -- their kind from the full environment so an external axiom's proxy is not
+  -- misflagged.
+  let companionNames := generatedCompanionTheoremNames decls
+    (externalParentKind := fun n => (env.find? n).map (getDeclKind env n))
 
   let fileCache : FileCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath moduleNames crate fileCache decl
-    -- Lean-generated code (deriving clusters + structure/class projections) is flagged
-    -- hidden + lean-generated so viewify and the web UI omit it from the presented
-    -- graph. It is kept in the atom set (not dropped), so `enrichTransitiveVerification`
-    -- still traverses it and contamination still flows through it — hiding is sound
-    -- precisely because the atom stays in the graph, unlike dropping.
-    let isGenerated := derivedNames.contains decl.name || decl.kind == .projection
-    let atom := if isGenerated then { atom with isHidden := true, isLeanGenerated := true } else atom
+    -- Generated code is flagged hidden + generated so viewify and the web UI
+    -- omit it from the presented graph, split by origin: deriving clusters and
+    -- structure/class projections are core-Lean output (`is-lean-generated`),
+    -- while `@[step]`'s mvcgen companion theorems exist only because of Aeneas
+    -- (`is-aeneas-generated`). Either way the atom is kept in the atom set (not
+    -- dropped), so `enrichTransitiveVerification` still traverses it and
+    -- contamination still flows through it — hiding is sound precisely because
+    -- the atom stays in the graph, unlike dropping.
+    let isLeanGen := derivedNames.contains decl.name || decl.kind == .projection
+    let isAeneasGen := companionNames.contains decl.name
+    let atom :=
+      if isLeanGen then { atom with isHidden := true, isLeanGenerated := true }
+      else if isAeneasGen then { atom with isHidden := true, isAeneasGenerated := true }
+      else atom
     atoms := atoms.push atom
 
   return .ok atoms

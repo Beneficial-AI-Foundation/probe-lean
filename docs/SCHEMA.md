@@ -129,7 +129,7 @@ probe-lean exposes two commands:
   or aeneas-generated — dropped regardless of `is-hidden` — is relevant, code-path ends with
   `Funs.lean`), and outputs molecules to `.verilib/views/`. Consumers that instead read the
   `extract` output directly (e.g. the web UI) honor `is-hidden` and so surface contaminated
-  lean-generated atoms once enrichment clears their `is-hidden` (see below).
+  generated atoms once enrichment clears their `is-hidden` (see below).
 
 ## Package Versioning for Lean
 
@@ -249,9 +249,9 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
 | `is-in-package` | bool | Whether the declaration belongs to the current package (not an imported dependency) |
 | `is-relevant` | bool | Whether the declaration is relevant for analysis (see computation rules below) |
-| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for *contaminated* lean-generated atoms — locally verified but not `transitively-verified`, or `unverified`/`failed` — so consumers that read `extract` output directly (e.g. the web UI) surface them for tracing; `transitively-verified` and `trusted` generated atoms stay hidden. `viewify` omits all generated atoms regardless of this flag. |
-| `is-lean-generated` | bool | Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
-| `is-aeneas-generated` | bool | Name ends with suffix from `extraction-artifact-suffixes` config (Aeneas scaffolding) |
+| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for *contaminated* generated atoms (lean- or aeneas-generated) — locally verified but not `transitively-verified`, or `unverified`/`failed` — so consumers that read `extract` output directly (e.g. the web UI) surface them for tracing; `transitively-verified` and `trusted` generated atoms stay hidden. `viewify` omits all generated atoms regardless of this flag. |
+| `is-lean-generated` | bool | Core-Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
+| `is-aeneas-generated` | bool | Declarations that exist only because of Aeneas: name ends with a suffix from the `extraction-artifact-suffixes` config (source scaffolding), or an attribute-machinery companion theorem (e.g. the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`) |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
 | `attributes` | array of strings | Lean tag attributes detected on this declaration (absent when empty) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
@@ -262,9 +262,9 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 |-------|--------|---------|
 | `is-in-package` | **AUTO** | Always `true` for atoms emitted by probe-lean, since only declarations from the project's own modules are extracted. Provided as a generic signal for downstream tools. |
 | `is-relevant` | **AUTO / CONFIG** | Defaults to `true` for all in-package declarations. When `relevant-crate` is set in `.verilib/probes/config.json`, declarations with `rust-source` are filtered to only those whose source matches the configured crate. |
-| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for lean-generated atoms. After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`); `transitively-verified` and `trusted` generated atoms stay hidden. Clearing surfaces them only to consumers reading `extract` output directly (e.g. the web UI); `viewify` omits all generated atoms regardless. |
+| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for *auto-detected* generated atoms (deriving clusters, projections, `@[step]` companions; config-suffix-matched scaffolding is flagged generated but not auto-hidden). After transitive enrichment (skipped under `--skip-enrich`), `is-hidden` is cleared on *contaminated* generated atoms — lean- or aeneas-generated, locally verified but not `transitively-verified`, or `unverified`/`failed`; `transitively-verified` and `trusted` generated atoms stay hidden. Clearing surfaces them only to consumers reading `extract` output directly (e.g. the web UI); `viewify` omits all generated atoms regardless. |
 | `is-lean-generated` | **AUTO** | Auto-detected for `deriving`-generated instance clusters and structure/class projections. |
-| `is-aeneas-generated` | **CONFIG** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json`. probe-lean checks if the declaration name ends with any configured suffix. |
+| `is-aeneas-generated` | **CONFIG + AUTO** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json` (declaration name ends with a configured suffix), and auto-detected for `@[step]`'s attribute-machinery companion theorems (`X.mvcgen_spec`). |
 | `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |
 | `attributes` | **AUTO** | Lean attributes detected on the declaration. Populated from two sources: (1) handle-based detection for attributes registered via `ProbeLean.Attrs` (`primary_spec`, `externally_verified`), and (2) source-level scanning of `@[...]` annotations in `.lean` files. Source scanning acts as a general fallback that works for any attribute, including those registered independently by the target project. probe-lean uses known verification-framework attributes (`progress`, `pspec`, `step`) as a signal for primary-spec detection; all other attributes are raw fact data for consumers. |
 | `rust-source` | **AUTO** | Extracted from Aeneas-generated docstrings (`Source: 'path'` pattern). `null` for declarations without Aeneas docstrings. |
@@ -297,13 +297,13 @@ Each value contains all atom fields plus verification status and specs:
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
 | `is-in-package` | bool | Declaration belongs to the current package |
 | `is-relevant` | bool | Declaration is relevant for analysis |
-| `is-hidden` | bool | Hidden from UI; cleared for contaminated lean-generated atoms after enrichment |
-| `is-lean-generated` | bool | Lean-generated code (deriving clusters, projections) |
-| `is-aeneas-generated` | bool | Aeneas-generated scaffolding (suffix-matched) |
+| `is-hidden` | bool | Hidden from UI; cleared for contaminated generated atoms after enrichment |
+| `is-lean-generated` | bool | Core-Lean-generated code (deriving clusters, projections) |
+| `is-aeneas-generated` | bool | Aeneas-only declarations (suffix-matched scaffolding, attribute-machinery companion theorems) |
 | `is-ignored` | bool | From config's ignored list |
 | `attributes` | array or absent | Lean tag attributes on this declaration. Absent when empty. |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
-| `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom. Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
+| `specs` | array or absent | Code-names of theorem atoms whose dependencies include this atom, excluding generated theorems — `is-lean-generated` or `is-aeneas-generated` — unless explicitly tagged `@[primary_spec]` (machine-generated companions are not user specs). Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
 | `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. |
 | `verification-status` | string or absent | `"transitively-verified"`, `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. A declaration is `"verified"` if its own body does not contain `sorry`; it is upgraded to `"transitively-verified"` if, additionally, all its transitive dependencies are verified or trusted (computed via reverse-BFS contamination, skippable with `--skip-enrich`). Declarations that are locally sorry-free but have at least one unverified or failed transitive dependency remain `"verified"`. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
 | `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"externally_verified"` (declaration tagged `@[externally_verified]` — proof discharged outside Lean), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |

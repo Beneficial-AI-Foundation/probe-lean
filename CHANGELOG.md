@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-06
+
+### Fixed
+
+- **Attribute-macro companion theorems no longer defeat primary-spec detection.**
+  Aeneas's `@[step]` elaborates a tagged `theorem X` into an extra machine-generated
+  `X.mvcgen_spec` whose declaration range points back at `X`'s own syntax. probe-lean
+  treated the companion as a first-class spec: it appeared next to the real spec in
+  every dependency's `specs` list and (via the source-scan attribute fallback) carried
+  the parent's `@[step]`, so the known-attribute and sole-spec signals — which require
+  exactly one candidate — both failed, and fully proved functions ended up with no
+  `primary-spec` (downstream, probe-aeneas then colors their Rust implementations
+  "unverified"). `extract` now detects such companions — name shape
+  `<parent>.mvcgen_spec` with a parent that is a project theorem or external
+  (axiom-parented wrappers stay visible: axioms are never collected into `specs`,
+  so the wrapper is the axiom's only spec proxy) — flags them `is-aeneas-generated`
+  (they exist only because of Aeneas's attribute machinery) + `is-hidden`, and
+  excludes generated theorems (`is-lean-generated` or `is-aeneas-generated`) from
+  `specs` lists and the heuristic primary-spec signals. The explicit
+  `@[primary_spec]` tag remains the escape hatch: it wins primary-spec selection
+  even on a generated theorem and re-admits that theorem into `specs`, so
+  `primary-spec` never points outside `specs`. Companions stay in the dependency
+  graph, so transitive verification is unchanged. New
+  `generatedCompanionTheoremNames` in `ProbeLean/Analysis.lean`.
+
+### Changed
+
+- The post-enrichment "unhide contaminated generated atoms" pass now covers
+  `is-aeneas-generated` atoms as well as `is-lean-generated` ones, so a hidden
+  companion (or config-flagged Aeneas scaffolding) that is not transitively
+  verified is surfaced for tracing instead of staying hidden. The pass is now
+  skipped under `--skip-enrich`, where contamination is not computable (every
+  proved atom still reads `verified`) and all clean generated atoms would have
+  been unhidden.
+
 ## [0.11.0] - 2026-08-03
 
 ### Added
