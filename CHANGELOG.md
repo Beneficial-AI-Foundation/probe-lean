@@ -22,13 +22,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   "unverified"). `extract` now detects such companions — name shape
   `<parent>.mvcgen_spec` with a parent that is a project theorem or external
   (axiom-parented wrappers stay visible: axioms are never collected into `specs`,
-  so the wrapper is the axiom's only spec proxy) — flags them `is-lean-generated` +
-  `is-hidden` like
-  `deriving` clusters, and excludes lean-generated theorems from `specs` lists and
-  the heuristic primary-spec signals. The explicit `@[primary_spec]` tag still
-  honors generated theorems (the escape hatch). Companions stay in the dependency
+  so the wrapper is the axiom's only spec proxy) — flags them `is-aeneas-generated`
+  (they exist only because of Aeneas's attribute machinery) + `is-hidden`, and
+  excludes generated theorems (`is-lean-generated` or `is-aeneas-generated`) from
+  `specs` lists and the heuristic primary-spec signals. The explicit
+  `@[primary_spec]` tag remains the escape hatch: it wins primary-spec selection
+  even on a generated theorem and re-admits that theorem into `specs`, so
+  `primary-spec` never points outside `specs`. Companions stay in the dependency
   graph, so transitive verification is unchanged. New
   `generatedCompanionTheoremNames` in `ProbeLean/Analysis.lean`.
+
+### Changed
+
+- The post-enrichment "unhide contaminated generated atoms" pass now covers
+  `is-aeneas-generated` atoms as well as `is-lean-generated` ones, so a hidden
+  companion (or config-flagged Aeneas scaffolding) that is not transitively
+  verified is surfaced for tracing instead of staying hidden. The pass is now
+  skipped under `--skip-enrich`, where contamination is not computable (every
+  proved atom still reads `verified`) and all clean generated atoms would have
+  been unhidden.
 
 ## [0.11.0] - 2026-08-03
 

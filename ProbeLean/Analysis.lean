@@ -323,16 +323,19 @@ untreated, it lands in every dependency's `specs` list next to the real spec
 and defeats primary-spec detection (two tagged candidates where the signals
 require exactly one).
 
-A theorem named `<parent>.mvcgen_spec` qualifies unless `parent` is a
-project declaration that is not a theorem. In particular:
-- `parent` is a project theorem → companion (the parent is the real spec and
-  is collected into `specs` itself);
-- `parent` is absent → companion (`attribute [step]` on an external theorem
-  generates the wrapper inside the tagging project module);
-- `parent` is a project **axiom** → NOT a companion for our purposes: axioms
-  are never collected into `specs` lists, so the wrapper is the specified
-  def's only spec-shaped edge — the axiom's proxy. Excluding it would orphan
-  every axiom-specified def.
+A theorem named `<parent>.mvcgen_spec` qualifies unless `parent` is known to
+be something other than a theorem. The parent's kind is resolved from the
+emitted declarations first, then from `externalParentKind` (backed by the
+full environment at the call site), so module filtering or an external
+parent cannot misclassify. In particular:
+- `parent` is a theorem (project or external) → companion (a theorem parent
+  is the real spec: project theorems are collected into `specs` themselves);
+- `parent` is unresolvable → companion (the name shape is Aeneas generator
+  convention);
+- `parent` is an **axiom** (project or external) → NOT a companion for our
+  purposes: axioms are never collected into `specs` lists, so the wrapper is
+  the specified def's only spec-shaped edge — the axiom's proxy. Excluding
+  it would orphan every axiom-specified def.
 
 The name shape is the whole signal; two corroborations considered and
 rejected: (a) source ranges — the `attribute [step]` command form places the
@@ -346,11 +349,16 @@ hand-written theorem that happens to use the name shape is therefore flagged
 is mild, and an explicit `@[primary_spec]` tag restores it as primary
 spec).
 
-Like derived instances, companions are marked `isLeanGenerated` + hidden,
-**not dropped** — they stay in the dependency graph so transitive-verification
-contamination still flows through them. `computeSpecs` excludes
-lean-generated theorems from spec bookkeeping. -/
-def generatedCompanionTheoremNames (decls : Array DeclInfo) : Std.HashSet Name := Id.run do
+Companions are marked `isAeneasGenerated` + hidden — they exist only because
+of Aeneas's attribute machinery, unlike `deriving` clusters and projections,
+which are core-Lean output and carry `isLeanGenerated`. Either way they are
+**not dropped**: they stay in the dependency graph so transitive-verification
+contamination still flows through them. `computeSpecs` excludes generated
+theorems (both flags) from spec bookkeeping unless explicitly tagged
+`@[primary_spec]`. -/
+def generatedCompanionTheoremNames (decls : Array DeclInfo)
+    (externalParentKind : Name → Option DeclKind := fun _ => none) :
+    Std.HashSet Name := Id.run do
   let mut kindByName : Std.HashMap Name DeclKind := {}
   for d in decls do
     kindByName := kindByName.insert d.name d.kind
@@ -358,7 +366,7 @@ def generatedCompanionTheoremNames (decls : Array DeclInfo) : Std.HashSet Name :
   for d in decls do
     if d.kind == .theorem then
       if let .str parent "mvcgen_spec" := d.name then
-        match kindByName.get? parent with
+        match kindByName.get? parent <|> externalParentKind parent with
         | some .theorem | none => result := result.insert d.name
         | some _ => pure ()
   return result

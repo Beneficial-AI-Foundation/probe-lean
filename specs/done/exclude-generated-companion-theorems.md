@@ -14,8 +14,10 @@ function, every primary-spec signal fails — the known-attribute signal require
 exactly one match and sole-spec inference requires exactly one spec — so fully
 proved functions end up with no `primary-spec`, and downstream probe-aeneas
 colors their Rust implementations "unverified". This feature detects such
-companions, flags them `is-lean-generated` + `is-hidden` (like `deriving`
-clusters and projections), and excludes lean-generated theorems from `specs`
+companions, flags them `is-aeneas-generated` (they exist only because of
+Aeneas's attribute machinery, unlike `deriving` clusters and projections,
+which are core-Lean output and carry `is-lean-generated`) + `is-hidden`, and
+excludes generated theorems (either flag) from `specs`
 and primary-spec computation.
 
 Motivating case: SymCRust-lean, where 200 translated Rust functions carry
@@ -54,18 +56,22 @@ green on VeriLib (probe-lean#84).
   theorem's range, so a range-containment check produces false negatives for
   exactly the declarations this feature targets.
 - [ ] The marking loop in `runAnalysisViaLakeEnv` flags detected companions
-      `isHidden := true, isLeanGenerated := true`, exactly like derived
-      instance clusters and projections. They are **not dropped**: they stay
+      `isHidden := true, isAeneasGenerated := true` (derived instance
+      clusters and projections keep `isLeanGenerated`). They are **not
+      dropped**: they stay
       in the atom set and dependency graph so transitive-verification
       contamination still flows through them.
-- [ ] `computeSpecs` skips theorems with `isLeanGenerated` when building the
+- [ ] `computeSpecs` skips generated theorems (`isLeanGenerated` or
+      `isAeneasGenerated`) when building the
       `specs` reverse map, removing them from the heuristic primary-spec
       signals (known-attribute, `_spec` suffix, sole-spec) — a
       machine-generated theorem is never inferred to be a user spec. The
       explicit `@[primary_spec]` tag (signal 0) deliberately still honors
-      generated theorems: it is the user's escape hatch, including for a
-      false positive of this detection.
-- [ ] Docs updated: the `is-lean-generated` wording in `docs/USAGE.md` /
+      generated theorems, and a tagged generated theorem also re-enters the
+      `specs` lists (filter: exclude when generated *and not* tagged), so
+      `primary-spec` never points outside `specs`. It is the user's escape
+      hatch, including for a false positive of this detection.
+- [ ] Docs updated: the `is-lean-generated` / `is-aeneas-generated` wording in `docs/USAGE.md` /
       `docs/SCHEMA.md` / `README.md` extends from "deriving clusters and
       projections" to include attribute-generated companion theorems;
       `CHANGELOG.md` gets an Unreleased entry.
@@ -82,7 +88,7 @@ No new CLI flags, config keys, or schema fields. New internal helper:
 def generatedCompanionTheoremNames (decls : Array DeclInfo) : Std.HashSet Name
 ```
 
-`computeSpecs` behavior change is internal: lean-generated theorems no longer
+`computeSpecs` behavior change is internal: generated theorems no longer
 appear in `specs` arrays or as `primary-spec` values in the JSON output.
 
 ## Behavior
@@ -136,8 +142,8 @@ fires) and `X.primary-spec = X.spec`.
 ## Non-Goals
 
 - Does NOT attempt generic detection of macro-generated theorems — only the
-  `.mvcgen_spec` name shape with the corroborating parent-dependency check.
-  Other frameworks' companions can be added when observed.
+  `.mvcgen_spec` name shape with the parent-kind check. Other frameworks'
+  companions can be added when observed.
 - Does NOT change the source-scan attribute fallback. Companions may still
   show the parent's attributes in their `attributes` array; harmless once
   they are excluded from spec bookkeeping and hidden.
@@ -160,15 +166,15 @@ fires) and `X.primary-spec = X.spec`.
       detected; name-shape match without an observable parent dependency
       still detected (proof bodies are invisible; accepted false positive).
 - [ ] Unit tests for `computeSpecs`: a def with a real `@[step]` spec plus a
-      lean-generated `@[step]` companion gets `specs = [real spec]` and
-      `primary-spec = real spec`; a lean-generated theorem is never emitted
+      generated `@[step]` companion gets `specs = [real spec]` and
+      `primary-spec = real spec`; a generated theorem is never emitted
       as a `specs` entry; an explicit `@[primary_spec]` on a generated
       theorem still wins signal 0.
 - [ ] Existing tests pass unchanged.
 - [ ] Validation on SymCRust-lean (Lean v4.31.0 build): `Symcrust.Code` defs
       with `{X.spec, X.spec.mvcgen_spec}` pairs get `primary-spec = X.spec`;
       the count of Code defs with a `primary-spec` rises from 11 to the
-      hundreds; `.mvcgen_spec` atoms are `is-lean-generated` + `is-hidden`
+      hundreds; `.mvcgen_spec` atoms are `is-aeneas-generated` + `is-hidden`
       and absent from all `specs` arrays.
 
 ---

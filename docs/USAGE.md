@@ -84,17 +84,19 @@ facts about its result type (see [SCHEMA.md](SCHEMA.md)). These are domain-agnos
 probe-lean does not classify declarations itself, but a downstream tool can reconstruct a
 declaration's codomain shape from them plus its own catalogue.
 
-`extract` also auto-flags Lean-generated code — `deriving`-generated instance clusters,
-structure/class projections, and attribute-macro companion theorems (e.g. the `X.mvcgen_spec`
-that Aeneas's `@[step]` adds next to a tagged `theorem X`) — as `is-hidden` +
-`is-lean-generated`, so `viewify` and the web UI omit it. These atoms stay in the dependency
-graph, so transitive-verification remains sound. Lean-generated theorems are additionally
+`extract` also auto-flags generated code as `is-hidden` plus an origin flag, so `viewify` and
+the web UI omit it: `deriving`-generated instance clusters and structure/class projections are
+core-Lean output (`is-lean-generated`), while attribute-machinery companion theorems (the
+`X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`) exist only because
+of Aeneas (`is-aeneas-generated`). These atoms stay in the dependency graph, so
+transitive-verification remains sound. Generated theorems (either flag) are additionally
 excluded from `specs` lists and the heuristic primary-spec signals: a machine-generated
 companion is not a user spec, and counting it would make the real spec ambiguous. Two
 deliberate exceptions: the companion of a tagged **axiom** stays visible (axioms are never
 collected into `specs`, so the companion is the axiom's only spec proxy), and an explicit
-`@[primary_spec]` tag still wins even on a generated theorem (the escape hatch).
-After transitive enrichment, `is-hidden` is cleared on *contaminated* lean-generated atoms —
+`@[primary_spec]` tag still wins even on a generated theorem — and re-admits it into `specs` —
+as the escape hatch.
+After transitive enrichment, `is-hidden` is cleared on *contaminated* generated atoms —
 locally verified but not `transitively-verified`, or `unverified`/`failed` — so they remain
 visible for tracing. Clean (`transitively-verified`) and `trusted` generated atoms stay hidden.
 
@@ -346,7 +348,7 @@ For the full atom field reference and verification-status mapping, see [SCHEMA.m
 Atom filtering flags are populated from the project's `.verilib/probes/config.json`:
 
 - `is-hidden`: `true` if the atom name (without `probe:` prefix) appears in `is-hidden`
-- `is-aeneas-generated`: `true` if the atom name ends with any suffix in `extraction-artifact-suffixes`
+- `is-aeneas-generated`: `true` if the atom name ends with any suffix in `extraction-artifact-suffixes`; also auto-set (with `is-hidden`) for `@[step]`'s attribute-machinery companion theorems (`X.mvcgen_spec`)
 - `is-ignored`: `true` if the atom name appears in `is-ignored`
 
 The `is-relevant` field is computed from `relevant-crate` and the `rust-source` field:

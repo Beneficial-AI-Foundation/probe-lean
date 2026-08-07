@@ -89,19 +89,21 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     codomainLastArgIsBool := atom.codomainLastArgIsBool
   }
 
-/-- A lean-generated atom is *contaminated* — worth surfacing so users can trace
-    why a downstream atom isn't fully verified — when, after full enrichment, it is
-    locally verified but not transitively verified (`.verified`), or is itself
-    `.unverified`/`.failed`. `.transitivelyVerified` and `.trusted` generated atoms
-    are clean and stay hidden. (Assumes enrichment ran; `--skip-enrich` is a
-    debugging path and not accounted for here.) -/
+/-- A generated atom (lean- or aeneas-generated) is *contaminated* — worth
+    surfacing so users can trace why a downstream atom isn't fully verified —
+    when, after full enrichment, it is locally verified but not transitively
+    verified (`.verified`), or is itself `.unverified`/`.failed`.
+    `.transitivelyVerified` and `.trusted` generated atoms are clean and stay
+    hidden. Only meaningful after enrichment — the caller skips the unhide
+    pass under `--skip-enrich`, where every proved atom still reads
+    `.verified` and would be misread as contaminated. -/
 def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
-  atom.isLeanGenerated &&
+  (atom.isLeanGenerated || atom.isAeneasGenerated) &&
     match atom.verificationStatus with
     | some .verified | some .unverified | some .failed => true
     | _ => false
 
-/-- Clear `is-hidden` on contaminated lean-generated atoms so consumers that read
+/-- Clear `is-hidden` on contaminated generated atoms so consumers that read
     `extract` output directly (e.g. the web UI) surface them for tracing; clean
     (transitively-verified/trusted) generated atoms stay hidden. Note: `viewify`
     (`filterAtomsForView`) drops all generated atoms regardless of `is-hidden`. -/
@@ -344,9 +346,13 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
     IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
     pure enriched
 
-  -- Contaminated lean-generated atoms have their isHidden cleared so the user can
-  -- trace why downstream atoms aren't fully verified (see `isContaminatedGenerated`).
-  let unifiedAtoms := unhideContaminatedGenerated unifiedAtoms
+  -- Contaminated generated atoms (lean- or aeneas-generated) have their isHidden
+  -- cleared so the user can trace why downstream atoms aren't fully verified (see
+  -- `isContaminatedGenerated`). Contamination is only meaningful after enrichment:
+  -- without it every proved atom still reads `.verified`, so the pass would
+  -- misread all clean generated atoms as contaminated and unhide them.
+  let unifiedAtoms :=
+    if config.skipEnrich then unifiedAtoms else unhideContaminatedGenerated unifiedAtoms
 
   let source ← collectSourceInfo config.projectPath
   let timestamp ← getCurrentTimestamp
