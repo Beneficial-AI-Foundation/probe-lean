@@ -3223,6 +3223,14 @@ def testValueOfAndProofDeps (result : TestResult) : IO TestResult := do
   result ← test "theorem term dependencies are not empty" (!deps.termDeps.isEmpty) result
   let axDeps := getDependencies ax
   result ← test "axiom has no term dependencies" axDeps.termDeps.isEmpty result
+  -- Call-site guard that fires on EVERY Lean version: default `value?` has
+  -- always dropped `opaque` bodies, so if `getDependencies` ever reverts to
+  -- it, this assertion fails even on toolchains where theorem proofs still
+  -- come back (the theorem assertions above only fail on Lean ≥ 4.30).
+  let opaqDeps := getDependencies opaq
+  result ← test "opaque term dependencies are not empty" (!opaqDeps.termDeps.isEmpty) result
+  result ← test "opaque body constant is a term dependency"
+    (opaqDeps.termDeps.contains `Test.helperLemma) result
   return result
 
 /-- `computeSpecs` must read `typeDependencies`, not the union: a theorem specifies
