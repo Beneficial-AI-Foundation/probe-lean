@@ -271,7 +271,14 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
   IO.println s!"Importing {imports.size} modules..."
 
   try
-    return .ok (← importModules imports {} 0)
+    -- The import level is pinned: `.private` loads all olean data, theorem
+    -- proofs included. The exported level can present module-system theorems
+    -- without their proofs, which the pipeline downstream would read as empty
+    -- term-dependencies and status propagation would silently trust — the
+    -- same failure shape as the `ConstantInfo.value?` default that emptied
+    -- theorem proof edges. `.private` is the current upstream default; it is
+    -- spelled out so a future default change cannot regress soundness.
+    return .ok (← importModules imports {} 0 (level := OLeanLevel.private))
   catch e =>
     let msg := toString e
     if containsSubstring msg "already contains" then

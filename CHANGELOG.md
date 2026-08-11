@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   explicitly tagged `@[primary_spec]` whose statement names no specifiable constant
   falls back to the union, so the user's override still attaches (an untagged abstract
   theorem attaches to nothing).
+- **The environment import level is pinned.** `importModules` relied on the
+  defaulted `level`, whose current value (`.private`) loads all olean data, theorem
+  proofs included; the exported level can present module-system theorems without
+  proofs, which downstream status propagation would silently trust. That is the
+  same defaulted-upstream-flag failure shape as `value?`, so the level is now
+  spelled out at the call site.
 
 ### Changed
 
