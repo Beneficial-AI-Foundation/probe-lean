@@ -47,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   proofs, which downstream status propagation would silently trust. That is the
   same defaulted-upstream-flag failure shape as `value?`, so the level is now
   spelled out at the call site.
+- **The test suite now runs where the original bug shipped from.** CI gains a job
+  that runs the tests on the newest supported Lean toolchain (the pinned dev
+  toolchain alone could never catch a Lean-version-dependent regression), and the
+  release and lean-watch matrices run the suite before packaging — a toolchain row
+  with failing tests produces no artifact.
 
 ### Changed
 

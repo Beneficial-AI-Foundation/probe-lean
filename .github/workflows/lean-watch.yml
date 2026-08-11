@@ -182,6 +182,12 @@ jobs:
           # rev; --keep-toolchain stops it touching the toolchain lean-action set up.
           lake --keep-toolchain update Cli
           lake build
+          # Run the suite on this exact toolchain before the row can count as
+          # good: a Lean-version-dependent regression (like the `value?`
+          # default change that emptied theorem term-dependencies) must fail
+          # here rather than surface only in shipped binaries.
+          lake build tests
+          .lake/build/bin/tests
 
       - name: Report unbuildable version
         if: steps.exists.outputs.present == 'false' && steps.build.outcome != 'success'
