@@ -137,9 +137,9 @@ def testGeneratedCompanionTheoremNames (result : TestResult) : IO TestResult := 
     mk `d .def 20 30,
     -- parent is a def → not selected
     mk `d.mvcgen_spec .theorem 25 25 (deps := #[`d]),
-    -- name shape without a dependency on the parent → still selected: theorem
-    -- proof bodies are invisible in the imported env, so the reference cannot
-    -- be observed (accepted false positive; @[primary_spec] is the escape hatch)
+    -- name shape without a dependency on the parent → still selected: the
+    -- detection is name-shape-only by design and never requires a parent
+    -- edge (accepted false positive; @[primary_spec] is the escape hatch)
     mk `noRef.spec .theorem 120 130,
     mk `noRef.spec.mvcgen_spec .theorem 140 145,
     -- `attribute [step]` on an external axiom: proxy, resolved via env lookup → not selected

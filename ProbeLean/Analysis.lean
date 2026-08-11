@@ -145,7 +145,14 @@ def valueOf : ConstantInfo → Option Expr
   | .defnInfo v   => some v.value
   | .thmInfo v    => some v.value
   | .opaqueInfo v => some v.value
-  | _             => none
+  -- Deliberately exhaustive, no wildcard: a future value-bearing
+  -- `ConstantInfo` constructor must fail compilation here rather than be
+  -- silently dropped the way `value?` silently dropped theorem proofs.
+  | .axiomInfo _  => none
+  | .quotInfo _   => none
+  | .inductInfo _ => none
+  | .ctorInfo _   => none
+  | .recInfo _    => none
 
 /-- Get the dependencies of a constant, separated into type and term -/
 def getDependencies (info : ConstantInfo) : DependencyInfo :=
@@ -382,10 +389,12 @@ The name shape is the whole signal; two corroborations considered and
 rejected: (a) source ranges — the `attribute [step]` command form places the
 companion's range outside the parent's, so containment checks reject exactly
 the declarations this detection targets; (b) a dependency edge to the parent
-— the wrapper references its parent only in the *proof term*, so the edge
-lives in `termDependencies`, which this function does not receive (it works on
-`DeclInfo`s that may come from a filtered module set, where the parent can be
-absent). A hand-written theorem that happens to use the name shape is therefore flagged
+— the wrapper references its parent only in the *proof term*. That edge is
+observable here (a `DeclInfo`'s `termDependencies` holds raw, unfiltered
+names), but requiring it would couple this detection to the generator's proof
+shape — the wrapper happens to apply its parent today, and nothing pins that
+across Aeneas versions — so the name shape stays the sole signal.
+A hand-written theorem that happens to use the name shape is therefore flagged
 (accepted false positive: the suffix is Aeneas generator convention, hiding
 is mild, and an explicit `@[primary_spec]` tag restores it as primary
 spec).

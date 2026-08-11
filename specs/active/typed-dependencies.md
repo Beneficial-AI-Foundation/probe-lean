@@ -104,7 +104,8 @@ Note: A constant may appear in both `type-dependencies` and `term-dependencies` 
 
 1. For each declaration in the environment, `getDependencies` extracts two separate arrays:
    - `typeDeps` — constants from `info.type.getUsedConstants`
-   - `termDeps` — constants from `info.value?.getUsedConstants`
+   - `termDeps` — constants from `(valueOf info).getUsedConstants` (originally
+     `info.value?`; superseded in 0.12.0 — see the NOTE above)
 2. Both arrays are independently filtered to project-only, non-internal declarations (same rules as today).
 3. The `dependencies` field is computed as the deduplicated union of both (identical to current behavior).
 4. Both `type-dependencies` and `term-dependencies` are serialized to JSON.
