@@ -38,8 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   in a project and defeated primary-spec detection, whose known-attribute and
   sole-spec signals both require exactly one candidate. Exception: a theorem
   explicitly tagged `@[primary_spec]` whose statement names no specifiable constant
-  falls back to the union, so the user's override still attaches (an untagged abstract
-  theorem attaches to nothing).
+  falls back to the union when that leaves exactly one candidate, so the user's
+  override still attaches. Several candidates make the tag ambiguous (it marks the
+  theorem, not a target): nothing attaches, same as an untagged abstract theorem.
 - **The environment import level is pinned.** `importModules` relied on the
   defaulted `level`, whose current value (`.private`) loads all olean data, theorem
   proofs included; the exported level can present module-system theorems without

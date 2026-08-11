@@ -137,7 +137,8 @@ Note: A constant may appear in both `type-dependencies` and `term-dependencies` 
     CHANGELOG 0.12.0.
 - Changing `computeSpecs` logic (done separately in 0.12.0, which switched it to
   type dependencies, with a union fallback for explicitly `@[primary_spec]`-tagged
-  theorems whose statement names no specifiable constant)
+  theorems whose statement names no specifiable constant — applied only when the
+  union leaves exactly one candidate, since the tag cannot name its target)
 - Differentiating between dependencies from different parts of the type (e.g., hypotheses vs conclusion)
 
 ## Acceptance Criteria

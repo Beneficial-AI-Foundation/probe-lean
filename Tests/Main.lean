@@ -3274,8 +3274,10 @@ def testSpecsIgnoreProofDeps (result : TestResult) : IO TestResult := do
 /-- An explicit `@[primary_spec]` tag must still attach even when the specified
 constant appears *only* in the proof term (an abstract statement). `computeSpecs`
 walks `typeDependencies` by default, but a tagged theorem whose statement names no
-specifiable constant falls back to the union so the user's override is honoured.
-An *untagged* abstract theorem attaches to nothing, as before. -/
+specifiable constant falls back to the union — when that leaves exactly one
+candidate — so the user's override is honoured. Several candidates make the tag
+ambiguous (it marks the theorem, not a target), so nothing attaches; an
+*untagged* abstract theorem attaches to nothing, as before. -/
 def testPrimarySpecProofOnlyFallback (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3309,6 +3311,24 @@ def testPrimarySpecProofOnlyFallback (result : TestResult) : IO TestResult := do
   result ← test "untagged: proof-only constant gets no primary-spec" (match untaggedFoo with
     | some a => a.primarySpec.isNone
     | none => false) result
+  -- Ambiguous: the tagged theorem's proof invokes TWO specifiable defs, so
+  -- the fallback has no unique target and must attach to neither (otherwise
+  -- both would receive this theorem as spec AND primary-spec).
+  let bar : Atom :=
+    { name := "probe:Test.bar", displayName := "bar", dependencies := #[],
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .def }
+  let ambThm : Atom :=
+    { name := "probe:Test.amb_contract", displayName := "amb_contract",
+      dependencies := #["probe:Test.bar", "probe:Test.foo"]
+      typeDependencies := #[]
+      termDependencies := #["probe:Test.bar", "probe:Test.foo"]
+      isPrimarySpec := true
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .theorem }
+  let amb := computeSpecs #[foo, bar, ambThm]
+  let ambNoAttach := amb.all fun a =>
+    a.name == "probe:Test.amb_contract" || (a.specs.isEmpty && a.primarySpec.isNone)
+  result ← test "ambiguous tag: multiple proof-only candidates attach to nothing"
+    ambNoAttach result
   return result
 
 /-- `mkProjectFilter` decides project membership per module via `isProjectModule`,

@@ -119,8 +119,10 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
     Fallback for explicit tags: a theorem carrying `@[primary_spec]` whose
     *statement* names no specifiable constant (an abstract statement whose
     specified function enters only via the proof term) falls back to the union
-    `dependencies`, so the user's explicit override can still attach. Untagged
-    abstract theorems attach to nothing, as before. The `specs` map and the
+    `dependencies` — provided that leaves exactly one candidate — so the
+    user's explicit override can still attach. With several candidates the
+    tag is ambiguous (it marks the theorem, not a target) and attaches to
+    nothing, like an untagged abstract theorem. The `specs` map and the
     `@[primary_spec]` map share one target set (`specTargets`), so `primary-spec`
     never points outside `specs`.
 
@@ -148,11 +150,18 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
   -- The constants a theorem is a spec *of*: normally those named in its statement
   -- (`typeDependencies`). Fallback: an explicitly `@[primary_spec]`-tagged theorem
   -- whose statement names no specifiable constant walks the union `dependencies`
-  -- so the tag can still attach. Order preserved (inputs are name-sorted, P14).
+  -- so the tag can still attach — but only when that leaves exactly one
+  -- candidate. The tag marks the theorem, not its target, so with several
+  -- proof-invoked definitions there is nothing to disambiguate by: attaching
+  -- to all of them would spray `primary-spec` onto every helper the proof
+  -- touches. Ambiguous tags attach to nothing, like untagged abstract
+  -- theorems. Order preserved (inputs are name-sorted, P14).
   let specTargets : Atom → Array String := fun a =>
     let typeTargets := a.typeDependencies.filter isSpecifiable
     if !typeTargets.isEmpty || !a.isPrimarySpec then typeTargets
-    else a.dependencies.filter isSpecifiable
+    else
+      let unionTargets := a.dependencies.filter isSpecifiable
+      if unionTargets.size == 1 then unionTargets else #[]
   let specsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem && !isGeneratedTheorem a then
