@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-07
+
+### Fixed
+
+- **Theorem `term-dependencies` are populated again on Lean ≥ 4.30.** `getDependencies`
+  read a constant's value through `ConstantInfo.value?`, which in Lean 4.30 started
+  gating theorem proofs behind `allowOpaque := true`. Because the flag has a default,
+  the change was source-compatible: probe-lean kept compiling, and every release built
+  against Lean 4.30 or later silently emitted `"term-dependencies": []` for **every**
+  theorem. The proof graph was absent from the artifact and from the web UI, and
+  because `verification-status` is propagated over that graph, theorems resting on a
+  `sorry` were upgraded to `transitively-verified`. Restoring the proof edges removes
+  a class of these false upgrades (those whose `sorry` path runs through an emitted
+  declaration); the residual case is described under Known limitation below.
+  `valueOf` now reads `.defnInfo`/`.thmInfo`/`.opaqueInfo` values by direct field
+  match, so no future default change can empty them again, and a regression test built
+  on hand-made `ConstantInfo`s fails if they ever come back empty.
+  Repos pinned to Lean ≤ 4.29 (this one included) were unaffected locally, which is
+  why CI stayed green while released binaries were broken.
+- **`opaque` bodies now contribute dependencies.** `valueOf` reads the same value
+  fields (`.defnInfo`/`.thmInfo`/`.opaqueInfo`) that `AxiomCheck.constChildren` and
+  `Lean.collectAxioms` read; previously `value?` dropped `opaque` bodies on every Lean
+  version. Note this restores a better *syntactic* edge set (`Expr.getUsedConstants`),
+  not a kernel-closure taint proof — see the Known limitation below.
+- **`specs` no longer includes theorems that merely mention an atom in their proof.**
+  Reverse spec edges are now derived from `type-dependencies` rather than the
+  `dependencies` union: a theorem specifies what its *statement* is about. Without
+  this, restoring proof edges would have attached a spurious spec to most definitions
+  in a project and defeated primary-spec detection, whose known-attribute and
+  sole-spec signals both require exactly one candidate. Exception: a theorem
+  explicitly tagged `@[primary_spec]` whose statement names no specifiable constant
+  falls back to the union when that leaves exactly one candidate, so the user's
+  override still attaches. Several candidates make the tag ambiguous (it marks the
+  theorem, not a target): nothing attaches, same as an untagged abstract theorem.
+- **The environment import level is pinned.** `importModules` relied on the
+  defaulted `level`, whose current value (`.private`) loads all olean data, theorem
+  proofs included; the exported level can present module-system theorems without
+  proofs, which downstream status propagation would silently trust. That is the
+  same defaulted-upstream-flag failure shape as `value?`, so the level is now
+  spelled out at the call site.
+- **The test suite now runs where the original bug shipped from.** CI gains a job
+  that runs the tests on the newest supported Lean toolchain (the pinned dev
+  toolchain alone could never catch a Lean-version-dependent regression), and the
+  release and lean-watch matrices run the suite before packaging — a toolchain row
+  with failing tests produces no artifact.
+
+### Changed
+
+- **`dependencies` (the type+term union) changes contents, not shape.** Because
+  `valueOf` restores theorem proof-term edges (empty on Lean ≥ 4.30 releases) and adds
+  `opaque` bodies on all versions, a declaration's `dependencies` now covers more of
+  the reachability graph. Consumers that walk this field see additional edges; the
+  field is still the deduplicated union of `type-dependencies` and `term-dependencies`.
+
+### Performance
+
+- **`extract` is substantially faster** on large projects, so restoring the proof
+  graph is a net speedup despite the extra edges. Project
+  membership was decided by resolving a constant's module name and building a
+  `"Module."` string per candidate module — run over every constant in the
+  environment, Mathlib included. It is now a precomputed set of module indices behind
+  `ProjectFilter`, and each dependency list is partitioned into project/external in
+  one pass instead of being filtered five times.
+- Note the speedup is runtime only: restoring per-theorem proof edges (and their
+  `*-external` counterparts) grows the emitted artifact, since every theorem now
+  carries its proof-term dependencies. Runtime and artifact size move in opposite
+  directions here.
+
+### Known limitation
+
+- Some declarations can still be reported `transitively-verified` while resting on a
+  `sorry`. The known instance in SPQR is downstream of the `Map.Insts…Iterator` trait
+  instance whose `next` field SPQR's `aeneas-config.yml` replaces with `sorry` (a
+  workaround for aeneas#1043). Aeneas declares it with its `impl_def` command, whose
+  elaborator never calls `addDeclarationRanges`, so it has no source range, so
+  probe-lean drops it and then treats the missing dependency as trusted. A node that
+  is never emitted cannot contaminate anything, however complete the edges are.
+  Closing this has two tracks: aeneas emitting declaration ranges for `impl_def`
+  (AeneasVerif/aeneas#1247), and probe-lean deciding status from the kernel closure
+  rather than the emitted dependency graph. Tracked in #87.
+
 ## [0.11.1] - 2026-08-06
 
 ### Fixed

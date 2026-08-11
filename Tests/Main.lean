@@ -137,9 +137,9 @@ def testGeneratedCompanionTheoremNames (result : TestResult) : IO TestResult := 
     mk `d .def 20 30,
     -- parent is a def → not selected
     mk `d.mvcgen_spec .theorem 25 25 (deps := #[`d]),
-    -- name shape without a dependency on the parent → still selected: theorem
-    -- proof bodies are invisible in the imported env, so the reference cannot
-    -- be observed (accepted false positive; @[primary_spec] is the escape hatch)
+    -- name shape without a dependency on the parent → still selected: the
+    -- detection is name-shape-only by design and never requires a parent
+    -- edge (accepted false positive; @[primary_spec] is the escape hatch)
     mk `noRef.spec .theorem 120 130,
     mk `noRef.spec.mvcgen_spec .theorem 140 145,
     -- `attribute [step]` on an external axiom: proxy, resolved via env lookup → not selected
@@ -457,6 +457,7 @@ def testComputeSpecs (result : TestResult) : IO TestResult := do
     name := "probe:Test.add_assign_spec"
     displayName := "add_assign_spec"
     dependencies := #["probe:Test.add_assign", "probe:Test.helper"]
+    typeDependencies := #["probe:Test.add_assign", "probe:Test.helper"]
     codeModule := "Test"
     codePath := "Specs/Test.lean"
     codeText := some { linesStart := 50, linesEnd := 60 }
@@ -496,6 +497,7 @@ def testComputeSpecs (result : TestResult) : IO TestResult := do
     name := "probe:Test.add_assign_loop_spec"
     displayName := "add_assign_loop_spec"
     dependencies := #["probe:Test.add_assign"]
+    typeDependencies := #["probe:Test.add_assign"]
     codeModule := "Test"
     codePath := "Specs/Test.lean"
     codeText := none
@@ -513,6 +515,7 @@ def testComputeSpecs (result : TestResult) : IO TestResult := do
     name := "probe:Test.meta_spec"
     displayName := "meta_spec"
     dependencies := #["probe:Test.add_assign_spec"]
+    typeDependencies := #["probe:Test.add_assign_spec"]
     codeModule := "Test"
     codePath := "Specs/Test.lean"
     codeText := none
@@ -542,6 +545,7 @@ def testComputeSpecsGeneratedExclusion (result : TestResult) : IO TestResult := 
     name := "probe:Test.copy.spec"
     displayName := "copy.spec"
     dependencies := #["probe:Test.copy"]
+    typeDependencies := #["probe:Test.copy"]
     codeModule := "Test"
     codePath := "Properties/Test.lean"
     codeText := some { linesStart := 20, linesEnd := 40 }
@@ -1504,10 +1508,13 @@ def testTypedDependencies (result : TestResult) : IO TestResult := do
 
   return result
 
+/-- Spec-detection fixture. `deps` are *statement* dependencies: `computeSpecs`
+reads `typeDependencies`, and `dependencies` is its superset, so both are set. -/
 def mkSpecAtom (name : String) (kind : DeclKind) (deps : Array String)
     (isPrimarySpec : Bool := false) (attributes : Array String := #[]) : Atom :=
-  { name, displayName := name, dependencies := deps, codeModule := "Test",
-    codePath := "Test.lean", codeText := none, kind, isPrimarySpec, attributes }
+  { name, displayName := name, dependencies := deps, typeDependencies := deps,
+    codeModule := "Test", codePath := "Test.lean", codeText := none, kind,
+    isPrimarySpec, attributes }
 
 def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -2527,6 +2534,7 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
     name := "probe:Inv.mydef_spec"
     displayName := "mydef_spec"
     dependencies := #["probe:Inv.mydef"]
+    typeDependencies := #["probe:Inv.mydef"]
     codeModule := "Inv"
     codePath := "Inv.lean"
     codeText := some { linesStart := 20, linesEnd := 30 }
@@ -2564,6 +2572,7 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
     name := "probe:Bi.f_spec"
     displayName := "f_spec"
     dependencies := #["probe:Bi.f"]
+    typeDependencies := #["probe:Bi.f"]
     codeModule := "Bi"
     codePath := "Bi.lean"
     codeText := some { linesStart := 10, linesEnd := 15 }
@@ -2573,6 +2582,7 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
     name := "probe:Bi.f_loop_spec"
     displayName := "f_loop_spec"
     dependencies := #["probe:Bi.f"]
+    typeDependencies := #["probe:Bi.f"]
     codeModule := "Bi"
     codePath := "Bi.lean"
     codeText := none
@@ -3172,8 +3182,177 @@ def testViewFilterOmitsGenerated (result : TestResult) : IO TestResult := do
   result ← test "viewify drops hidden atom" (!names.contains "hidden") result
   return result
 
+/-- Regression guard for the Lean 4.30 `ConstantInfo.value?` change.
+
+`value?` stopped returning theorem proofs by default in Lean 4.30, which silently
+emptied every theorem's `term-dependencies` and erased all proof edges from the
+dependency graph. `valueOf` reads the field directly so the behaviour is fixed
+across toolchains; these tests fail if anything reintroduces the dependency on
+`value?`'s default. They operate on hand-built `ConstantInfo`s, so they hold on
+every Lean version regardless of what the release matrix builds against. -/
+def testValueOfAndProofDeps (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing valueOf exposes theorem proofs and opaque bodies..."
+  let stated := Lean.mkConst `Test.stated
+  let helper := Lean.mkConst `Test.helperLemma
+  let thm : Lean.ConstantInfo := .thmInfo
+    { name := `Test.thm, levelParams := [], type := stated,
+      value := Lean.mkApp helper stated }
+  let opaq : Lean.ConstantInfo := .opaqueInfo
+    { name := `Test.op, levelParams := [], type := stated,
+      value := helper, isUnsafe := false }
+  let ax : Lean.ConstantInfo := .axiomInfo
+    { name := `Test.ax, levelParams := [], type := stated, isUnsafe := false }
+  result ← test "valueOf returns a theorem's proof term" (valueOf thm).isSome result
+  result ← test "valueOf returns an opaque's body" (valueOf opaq).isSome result
+  result ← test "valueOf returns none for an axiom" (valueOf ax).isNone result
+
+  IO.println ""
+  IO.println "Testing getDependencies separates statement from proof..."
+  let deps := getDependencies thm
+  result ← test "proof-only constant is a term dependency"
+    (deps.termDeps.contains `Test.helperLemma) result
+  result ← test "proof-only constant is NOT a type dependency"
+    (!deps.typeDeps.contains `Test.helperLemma) result
+  result ← test "statement constant is a type dependency"
+    (deps.typeDeps.contains `Test.stated) result
+  result ← test "union covers both" (deps.all.contains `Test.helperLemma
+    && deps.all.contains `Test.stated) result
+  -- The failure mode this guards: an empty proof-dep set for a theorem that has one.
+  result ← test "theorem term dependencies are not empty" (!deps.termDeps.isEmpty) result
+  let axDeps := getDependencies ax
+  result ← test "axiom has no term dependencies" axDeps.termDeps.isEmpty result
+  -- Call-site guard that fires on EVERY Lean version: default `value?` has
+  -- always dropped `opaque` bodies, so if `getDependencies` ever reverts to
+  -- it, this assertion fails even on toolchains where theorem proofs still
+  -- come back (the theorem assertions above only fail on Lean ≥ 4.30).
+  let opaqDeps := getDependencies opaq
+  result ← test "opaque term dependencies are not empty" (!opaqDeps.termDeps.isEmpty) result
+  result ← test "opaque body constant is a term dependency"
+    (opaqDeps.termDeps.contains `Test.helperLemma) result
+  return result
+
+/-- `computeSpecs` must read `typeDependencies`, not the union: a theorem specifies
+what its statement is about, not every constant its proof happens to invoke. With
+proof edges restored, reading the union would put a spurious spec on most
+definitions in a project and defeat primary-spec detection. -/
+def testSpecsIgnoreProofDeps (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing computeSpecs ignores proof-only dependencies..."
+  let stated : Atom :=
+    { name := "probe:Test.stated", displayName := "stated", dependencies := #[],
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .def }
+  let proofOnly : Atom :=
+    { name := "probe:Test.proofOnly", displayName := "proofOnly", dependencies := #[],
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .def }
+  -- A theorem stating something about `stated`, proved using `proofOnly`.
+  let thm : Atom :=
+    { name := "probe:Test.stated_spec", displayName := "stated_spec",
+      dependencies := #["probe:Test.proofOnly", "probe:Test.stated"]
+      typeDependencies := #["probe:Test.stated"]
+      termDependencies := #["probe:Test.proofOnly"]
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .theorem }
+  let res := computeSpecs #[stated, proofOnly, thm]
+  let statedRes := res.find? fun a => a.name == "probe:Test.stated"
+  let proofOnlyRes := res.find? fun a => a.name == "probe:Test.proofOnly"
+  result ← test "statement dependency gets the spec" (match statedRes with
+    | some a => a.specs == #["probe:Test.stated_spec"]
+    | none => false) result
+  result ← test "proof-only dependency gets no spec" (match proofOnlyRes with
+    | some a => a.specs.isEmpty
+    | none => false) result
+  result ← test "proof-only dependency gets no primary-spec" (match proofOnlyRes with
+    | some a => a.primarySpec.isNone
+    | none => false) result
+  result ← test "statement dependency still gets primary-spec" (match statedRes with
+    | some a => a.primarySpec == some "probe:Test.stated_spec"
+    | none => false) result
+  return result
+
+/-- An explicit `@[primary_spec]` tag must still attach even when the specified
+constant appears *only* in the proof term (an abstract statement). `computeSpecs`
+walks `typeDependencies` by default, but a tagged theorem whose statement names no
+specifiable constant falls back to the union — when that leaves exactly one
+candidate — so the user's override is honoured. Several candidates make the tag
+ambiguous (it marks the theorem, not a target), so nothing attaches; an
+*untagged* abstract theorem attaches to nothing, as before. -/
+def testPrimarySpecProofOnlyFallback (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing @[primary_spec] fallback for proof-only specified constant..."
+  let foo : Atom :=
+    { name := "probe:Test.foo", displayName := "foo", dependencies := #[],
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .def }
+  -- Abstract statement: `foo` is not named in the type, only used in the proof.
+  let mkThm (isPrimarySpec : Bool) : Atom :=
+    { name := "probe:Test.foo_contract", displayName := "foo_contract",
+      dependencies := #["probe:Test.foo"]
+      typeDependencies := #[]
+      termDependencies := #["probe:Test.foo"]
+      isPrimarySpec
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .theorem }
+  -- Tagged: fallback fires.
+  let tagged := computeSpecs #[foo, mkThm (isPrimarySpec := true)]
+  let taggedFoo := tagged.find? fun a => a.name == "probe:Test.foo"
+  result ← test "tagged: proof-only constant gets the spec" (match taggedFoo with
+    | some a => a.specs == #["probe:Test.foo_contract"]
+    | none => false) result
+  result ← test "tagged: proof-only constant gets primary-spec" (match taggedFoo with
+    | some a => a.primarySpec == some "probe:Test.foo_contract"
+    | none => false) result
+  -- Untagged: no fallback, matches the proof-only default.
+  let untagged := computeSpecs #[foo, mkThm (isPrimarySpec := false)]
+  let untaggedFoo := untagged.find? fun a => a.name == "probe:Test.foo"
+  result ← test "untagged: proof-only constant gets no spec" (match untaggedFoo with
+    | some a => a.specs.isEmpty
+    | none => false) result
+  result ← test "untagged: proof-only constant gets no primary-spec" (match untaggedFoo with
+    | some a => a.primarySpec.isNone
+    | none => false) result
+  -- Ambiguous: the tagged theorem's proof invokes TWO specifiable defs, so
+  -- the fallback has no unique target and must attach to neither (otherwise
+  -- both would receive this theorem as spec AND primary-spec).
+  let bar : Atom :=
+    { name := "probe:Test.bar", displayName := "bar", dependencies := #[],
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .def }
+  let ambThm : Atom :=
+    { name := "probe:Test.amb_contract", displayName := "amb_contract",
+      dependencies := #["probe:Test.bar", "probe:Test.foo"]
+      typeDependencies := #[]
+      termDependencies := #["probe:Test.bar", "probe:Test.foo"]
+      isPrimarySpec := true
+      codeModule := "Test", codePath := "Test.lean", codeText := none, kind := .theorem }
+  let amb := computeSpecs #[foo, bar, ambThm]
+  let ambNoAttach := amb.all fun a =>
+    a.name == "probe:Test.amb_contract" || (a.specs.isEmpty && a.primarySpec.isNone)
+  result ← test "ambiguous tag: multiple proof-only candidates attach to nothing"
+    ambNoAttach result
+  return result
+
+/-- `mkProjectFilter` decides project membership per module via `isProjectModule`,
+so pin that predicate's contract — notably that a name-prefix collision
+(`SpqrExtra` vs `Spqr`) is not a match. -/
+def testProjectModuleMembership (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing isProjectModule..."
+  let mods : Array Lean.Name := #[`Spqr, `SrcTranslated]
+  result ← test "exact module matches" (isProjectModule mods `Spqr) result
+  result ← test "descendant module matches" (isProjectModule mods `Spqr.Specs.Poly) result
+  result ← test "unrelated module does not match" (!isProjectModule mods `Mathlib.Data.Nat) result
+  result ← test "name-prefix collision does not match"
+    (!isProjectModule mods `SpqrExtra.Foo) result
+  result ← test "empty module set matches nothing" (!isProjectModule #[] `Spqr) result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
+  result ← testValueOfAndProofDeps result
+  result ← testSpecsIgnoreProofDeps result
+  result ← testPrimarySpecProofOnlyFallback result
+  result ← testProjectModuleMembership result
   result ← testConstants result
   result ← testAnalysisHelpers result
   result ← testPrivateNames result

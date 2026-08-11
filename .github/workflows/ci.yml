@@ -32,6 +32,62 @@ jobs:
       - name: Run tests
         run: .lake/build/bin/tests
 
+  # The dev toolchain is pinned (lean-toolchain), so the Test job above can never
+  # catch a regression that only manifests on a newer Lean — the class that shipped
+  # broken release binaries while CI stayed green: the Lean 4.30
+  # `ConstantInfo.value?` default change silently emptied every theorem's
+  # term-dependencies, and the pinned-toolchain suite could not see it. This job
+  # re-runs the whole suite on the newest supported stable toolchain, using the
+  # same toolchain-rewrite + Cli-resolve dance as release.yml. Bump LEAN_VERSION
+  # when lean-watch reports a new stable line.
+  test-newest:
+    name: Test (newest supported Lean)
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      LEAN_VERSION: v4.33.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rewrite toolchain to newest supported Lean
+        run: |
+          echo "leanprover/lean4:${LEAN_VERSION}" > lean-toolchain
+          # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
+          # build precondition needs it; the Cli rev is rewritten below.
+          rm -rf .lake
+
+      # Installs the toolchain from lean-toolchain; build happens below after
+      # the Cli rev is resolved.
+      - uses: leanprover/lean-action@v1
+        with:
+          build: false
+          test: false
+
+      - name: Resolve Cli, pin it, and build tests
+        run: |
+          cli_rev=$(tools/resolve-cli-rev.sh "${LEAN_VERSION}")
+          echo "Using lean4-cli $cli_rev for Lean ${LEAN_VERSION}"
+          # Rewrite the rev of ONLY the lean4-cli dependency (same awk as
+          # release.yml).
+          awk -v ver="$cli_rev" '
+            /^[[:space:]]*\[\[/ { incli = 0 }
+            /git = ".*lean4-cli"/ { incli = 1 }
+            incli && /^[[:space:]]*rev[[:space:]]*=/ { sub(/"v[^"]*"/, "\"" ver "\"") }
+            { print }
+          ' lakefile.toml > lakefile.toml.tmp && mv lakefile.toml.tmp lakefile.toml
+          lake --keep-toolchain update Cli
+          # Build the CLI too, not just the test harness: `Tests.Main` does not
+          # pull in `ProbeLean.Main`/`Cli`, so the executable can break on a new
+          # toolchain while the tests stay green.
+          lake build
+          lake build tests
+
+      - name: Smoke test
+        run: .lake/build/bin/probe-lean --version
+
+      - name: Run tests
+        run: .lake/build/bin/tests
+
   check-version:
     name: Version consistency
     runs-on: ubuntu-latest
@@ -63,7 +119,7 @@ jobs:
   auto-tag:
     name: Auto-tag release
     runs-on: ubuntu-latest
-    needs: [build, test, check-version, check-extract]
+    needs: [build, test, test-newest, check-version, check-extract]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: write

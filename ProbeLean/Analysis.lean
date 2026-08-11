@@ -52,17 +52,40 @@ def getModuleName (env : Environment) (name : Name) : Option Name :=
   env.getModuleIdxFor? name >>= fun idx =>
     env.allImportedModuleNames[idx.toNat]?
 
-/-- Check if a declaration belongs to the project (not an imported dependency) -/
-def isProjectDecl (env : Environment) (projectModules : Array Name) (name : Name) : Bool :=
-  match getModuleName env name with
-  | some modName =>
-    -- Check if the module is one of the project modules
-    projectModules.any fun projMod =>
-      modName == projMod || modName.toString.startsWith (projMod.toString ++ ".")
-  | none =>
-    -- No module means it might be defined in the current module being processed
-    -- This shouldn't happen for our use case where we import modules
-    false
+/-- Whether a module belongs to the project: it is one of `projectModules`, or a
+descendant of one. The one place project membership is decided. -/
+def isProjectModule (projectModules : Array Name) (modName : Name) : Bool :=
+  projectModules.any fun projMod =>
+    modName == projMod || modName.toString.startsWith (projMod.toString ++ ".")
+
+/-- Whether a declaration belongs to the project, as a set of module *indices*.
+
+The obvious formulation — resolve the constant's module name, then prefix-match it
+against every project module — builds a string per comparison. That is fine once
+but it is the dominant cost of extraction in bulk: `getProjectDecls` tests every
+constant in the environment (Mathlib included), and `declInfoToAtom` every
+dependency occurrence, which on a 190-module project with proof-term dependencies
+included runs to tens of thousands. Deciding membership per *module* up front turns
+each test into a hash lookup, and made `extract` on SPQR 8× faster. -/
+structure ProjectFilter where
+  moduleIdxs : Std.HashSet Nat
+
+/-- Precompute the project's module indices. -/
+def mkProjectFilter (env : Environment) (projectModules : Array Name) : ProjectFilter :=
+  Id.run do
+    let names := env.allImportedModuleNames
+    let mut idxs : Std.HashSet Nat := {}
+    for i in [:names.size] do
+      if h : i < names.size then
+        if isProjectModule projectModules names[i] then
+          idxs := idxs.insert i
+    return { moduleIdxs := idxs }
+
+/-- Whether `name` is declared in one of the project's modules. -/
+def ProjectFilter.contains (pf : ProjectFilter) (env : Environment) (name : Name) : Bool :=
+  match env.getModuleIdxFor? name with
+  | some idx => pf.moduleIdxs.contains idx.toNat
+  | none => false
 
 /-- Check if a declaration is an auto-named type class instance.
     Lean auto-names instances with an `inst` prefix (e.g., `instAddNat`,
@@ -106,10 +129,35 @@ structure DependencyInfo where
   termDeps : Array Name
   all : Array Name
 
+/-- The defining value of a constant: a definition's body, a theorem's proof term,
+or an `opaque`'s body.
+
+Reads the field directly instead of calling `ConstantInfo.value?`. That function
+gates theorems and `opaque`s behind an `allowOpaque` flag, and its treatment of
+theorems changed in Lean 4.30 (`some value` → `if allowOpaque then … else none`).
+Because the flag has a default, the change was source-compatible: probe-lean kept
+compiling and silently emitted empty `term-dependencies` for **every** theorem on
+releases built against Lean ≥ 4.30, which erased all proof edges from the
+dependency graph and let `sorry`-tainted theorems be upgraded to
+`transitively-verified`. Matching on `ConstantInfo` cannot regress that way.
+`AxiomCheck.constChildren` reads the same fields for the same reason. -/
+def valueOf : ConstantInfo → Option Expr
+  | .defnInfo v   => some v.value
+  | .thmInfo v    => some v.value
+  | .opaqueInfo v => some v.value
+  -- Deliberately exhaustive, no wildcard: a future value-bearing
+  -- `ConstantInfo` constructor must fail compilation here rather than be
+  -- silently dropped the way `value?` silently dropped theorem proofs.
+  | .axiomInfo _  => none
+  | .quotInfo _   => none
+  | .inductInfo _ => none
+  | .ctorInfo _   => none
+  | .recInfo _    => none
+
 /-- Get the dependencies of a constant, separated into type and term -/
 def getDependencies (info : ConstantInfo) : DependencyInfo :=
   let type := info.type
-  let value := info.value?
+  let value := valueOf info
   let typeConsts := type.getUsedConstants
   let valueConsts := match value with
     | some v => v.getUsedConstants
@@ -341,10 +389,12 @@ The name shape is the whole signal; two corroborations considered and
 rejected: (a) source ranges — the `attribute [step]` command form places the
 companion's range outside the parent's, so containment checks reject exactly
 the declarations this detection targets; (b) a dependency edge to the parent
-— the wrapper references its parent only in the *proof term*, and theorem
-proof bodies are not visible in the imported environment (theorem
-term-dependencies come out empty), so the edge cannot be observed. A
-hand-written theorem that happens to use the name shape is therefore flagged
+— the wrapper references its parent only in the *proof term*. That edge is
+observable here (a `DeclInfo`'s `termDependencies` holds raw, unfiltered
+names), but requiring it would couple this detection to the generator's proof
+shape — the wrapper happens to apply its parent today, and nothing pins that
+across Aeneas versions — so the name shape stays the sole signal.
+A hand-written theorem that happens to use the name shape is therefore flagged
 (accepted false positive: the suffix is Aeneas generator convention, hiding
 is mild, and an explicit `@[primary_spec]` tag restores it as primary
 spec).
@@ -372,14 +422,15 @@ def generatedCompanionTheoremNames (decls : Array DeclInfo)
   return result
 
 /-- Get all project declarations from an environment. -/
-def getProjectDecls (env : Environment) (projectModules : Array Name) : Array DeclInfo := Id.run do
+def getProjectDecls (env : Environment) (projectModules : Array Name)
+    (projFilter : ProjectFilter := mkProjectFilter env projectModules) : Array DeclInfo := Id.run do
   let mut decls : Array DeclInfo := #[]
   for (name, info) in env.constants.map₁.toList do
     -- Skip internal names
     if isInternalName name then
       continue
     -- Skip non-project declarations
-    if !isProjectDecl env projectModules name then
+    if !projFilter.contains env name then
       continue
     -- Skip constructors and recursors (they'll be covered by their parent type)
     match info with
@@ -468,7 +519,7 @@ def stripLeadingDotSlash (path : String) : String :=
   if path.startsWith "./" then (path.drop 2).toString else path
 
 /-- Convert a DeclInfo to an Atom -/
-def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectModules : Array Name) (crate : String) (fileCache : FileCache) (info : DeclInfo) : IO Atom := do
+def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilter : ProjectFilter) (crate : String) (fileCache : FileCache) (info : DeclInfo) : IO Atom := do
   let sourcePathStr ← match info.sourceInfo with
     | some _ =>
       let sourcePath ← getModuleSourcePath env projectPath info.moduleName
@@ -478,20 +529,26 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projectM
     | none => pure ""
 
   let isProjectDep (dep : Name) : Bool :=
-    !isInternalName dep && isProjectDecl env projectModules dep
-
-  let projDeps := info.dependencies.filter isProjectDep
-  let projTypeDeps := info.typeDependencies.filter isProjectDep
-  let projTermDeps := info.termDependencies.filter isProjectDep
+    !isInternalName dep && projFilter.contains env dep
 
   -- External (non-project) deps: referenced but outside the project (Mathlib,
   -- core). Emitted alongside the project-filtered deps so a downstream
   -- classifier can reconstruct the full reachability graph (it needs edges to
   -- external anchors that `projTypeDeps`/`projTermDeps` drop).
-  let isExternalDep (dep : Name) : Bool :=
-    !isInternalName dep && !isProjectDecl env projectModules dep
-  let extTypeDeps := info.typeDependencies.filter isExternalDep
-  let extTermDeps := info.termDependencies.filter isExternalDep
+  --
+  -- Partitioned in one pass per list rather than filtered once per output array:
+  -- `isInternalName` scans the name and the module lookup hashes it, and with
+  -- proof terms included these lists run to tens of thousands of entries per
+  -- project. Input order is preserved, so both outputs stay name-sorted (P14).
+  let partitionDeps (deps : Array Name) : Array Name × Array Name :=
+    deps.foldl (init := (#[], #[])) fun (proj, ext) dep =>
+      if isInternalName dep then (proj, ext)
+      else if projFilter.contains env dep then (proj.push dep, ext)
+      else (proj, ext.push dep)
+
+  let projDeps := info.dependencies.filter isProjectDep
+  let (projTypeDeps, extTypeDeps) := partitionDeps info.typeDependencies
+  let (projTermDeps, extTermDeps) := partitionDeps info.termDependencies
 
   let rustSource ← getDeclRustSource env info.name
   let isRelevant := if crate.isEmpty then true else isRelevantSource rustSource crate
