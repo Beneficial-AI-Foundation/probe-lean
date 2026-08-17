@@ -4,6 +4,7 @@
 import Lean
 import ProbeLean.Types
 import ProbeLean.Attrs
+import ProbeLean.Environment
 
 namespace ProbeLean
 
@@ -166,10 +167,15 @@ def getDependencies (info : ConstantInfo) : DependencyInfo :=
   let sortByName (arr : Array Name) := arr.qsort fun a b => a.toString < b.toString
   { typeDeps := sortByName typeConsts, termDeps := sortByName valueConsts, all := sortByName all }
 
-/-- Get source file path for a module (relative to project root) -/
+/-- Get source file path for a module (relative to project root).
+    Converts component-wise via `moduleNameToRelPath`: rendering the name with
+    `Name.toString` would wrap non-identifier components in guillemets
+    (`Misc/«Real-EReal-ENNReal».lean`), a path that never exists on disk, so
+    such modules would lose their source location (and with it code text,
+    source attributes, and sorry matching). -/
 def getModuleSourcePath (_env : Environment) (projectPath : System.FilePath) (modName : Name) : IO (Option String) := do
-  -- Convert module name to relative file path
-  let relPath := modName.toString.replace "." "/" ++ ".lean"
+  let some rel := moduleNameToRelPath modName | return none
+  let relPath := rel ++ ".lean"
   let fullPath := projectPath / relPath
   if ← fullPath.pathExists then
     return some relPath

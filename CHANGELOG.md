@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-08-17
+
+### Fixed
+
+- **`extract` no longer aborts on modules whose file name needs guillemets** (#94).
+  Module names were derived from olean paths with `String.toName`, which mangles
+  any non-identifier segment: segments with hyphens or spaces collapse the whole
+  name to `.anonymous`, and digit-only segments become numeric components — both
+  invalid as module names. `importModules` then rejected the import list with
+  `import failed, trying to import module with anonymous name`. This crashed the
+  flagless invocation (the one VeriLib's atomizer uses) on e.g. teorth/analysis,
+  whose `Analysis.Misc.«Real-EReal-ENNReal»` is a legal Lake module. With
+  `--library` the anonymous name was silently dropped from the import list instead,
+  so such a module's atoms survived only if another module imported it. Names are
+  now built one atomic component per path segment (`pathToModuleName`) — the same
+  construction Lean core's `moduleNameOfFileName` uses — which represents guillemet
+  components exactly in both modes.
+- **Declarations in guillemet-named modules regain source locations and
+  verification status** (#94). `getModuleSourcePath` rebuilt the source path by
+  string-replacing dots in `Name.toString`, producing guillemet-quoted paths
+  (`Misc/«Real-EReal-ENNReal».lean`) that never exist on disk. Every declaration
+  in such a module therefore lost its `code-path`/`code-text`, its source-level
+  attributes, and — because sorry matching needs the location — was conservatively
+  reported `unverified` even when fully proved (17 such atoms on teorth/analysis).
+  The path is now rebuilt component-wise (`moduleNameToRelPath`, the exact inverse
+  of `pathToModuleName`).
+
 ## [0.12.0] - 2026-08-07
 
 ### Fixed

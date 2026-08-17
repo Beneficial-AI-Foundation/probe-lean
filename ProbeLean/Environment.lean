@@ -133,6 +133,32 @@ def loadCache (projectPath : System.FilePath) : IO (Option String) := do
   else
     return none
 
+/-- Convert an olean's slash-separated relative path (`.olean` suffix already
+    stripped) to its module name, one atomic component per path segment — the
+    same construction Lean core uses (`Lean.moduleNameOfFileName`).
+    Built with `Name.mkStr` rather than `String.toName` because path segments
+    are not necessarily plain identifiers: a file like
+    `Misc/Real-EReal-ENNReal.lean` is a legal Lake module whose name is
+    written `Misc.«Real-EReal-ENNReal»`, and `String.toName` mangles such
+    segments (non-identifier segments collapse the whole name to `.anonymous`,
+    which `importModules` rejects outright; digit-only segments become numeric
+    components, which are invalid in module names). -/
+def pathToModuleName (relPath : String) : Lean.Name :=
+  (relPath.splitOn "/").foldl .mkStr .anonymous
+
+/-- Convert a module name back to the slash-separated relative path of its
+    backing source file (extension not included) — the inverse of
+    `pathToModuleName`. Reads each atomic component's string directly rather
+    than going through `Name.toString`, whose guillemet quoting
+    (`Misc.«Real-EReal-ENNReal»`) never appears in file names. Module names
+    have no numeric components (Lean's own module-path resolution rejects
+    them), so a `.num` component yields `none`. -/
+def moduleNameToRelPath : Lean.Name → Option String
+  | .anonymous => none
+  | .str .anonymous s => some s
+  | .str p s => (moduleNameToRelPath p).map (· ++ "/" ++ s)
+  | .num _ _ => none
+
 /-- Recursively collect .olean files, returning for each its module name together
     with its path relative to `basePath`, slash-separated and with the `.olean`
     suffix stripped (e.g. `"A/B/C"`). The relative path is kept so callers can
@@ -150,8 +176,7 @@ partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System
       let relPath := (path.toString.dropPrefix basePath.toString).toString
       let relPath := (relPath.dropPrefix "/").toString
       let relPath := (relPath.dropSuffix ".olean").toString
-      let moduleName := relPath.replace "/" "."
-      result := result.push (String.toName moduleName, relPath)
+      result := result.push (pathToModuleName relPath, relPath)
   return result
 
 /-- Partition collected olean modules into (source-backed, orphan), where a
