@@ -3347,12 +3347,52 @@ def testProjectModuleMembership (result : TestResult) : IO TestResult := do
   result ← test "empty module set matches nothing" (!isProjectModule #[] `Spqr) result
   return result
 
+/-- Module names are derived from olean paths one atomic component per path
+segment, so segments that are not plain identifiers (and would need guillemets
+in source) must survive — `String.toName` collapsed them to `.anonymous`,
+which `importModules` rejects. `moduleNameToRelPath` must invert the
+construction exactly, since source paths rebuilt via `Name.toString` would
+contain guillemets that never appear in file names. -/
+def testPathToModuleName (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing pathToModuleName..."
+  result ← test "single segment" (pathToModuleName "Analysis" == `Analysis) result
+  result ← test "nested segments" (pathToModuleName "Analysis/Section_1_2" == `Analysis.Section_1_2) result
+  result ← test "guillemet segment"
+    (pathToModuleName "Analysis/Misc/Real-EReal-ENNReal" == `Analysis.Misc.«Real-EReal-ENNReal») result
+  result ← test "guillemet segment is not anonymous"
+    (!(pathToModuleName "Analysis/Misc/Real-EReal-ENNReal").isAnonymous) result
+  result ← test "guillemet module belongs to its library root"
+    (moduleInLibraries (pathToModuleName "Analysis/Misc/Real-EReal-ENNReal") #["Analysis"]) result
+  result ← test "digit-only segment stays a string component, never numeric"
+    (pathToModuleName "A/123" == Lean.Name.mkStr (.mkStr .anonymous "A") "123") result
+  result ← test "segment containing a dot stays one component"
+    (pathToModuleName "A/X.Y" == Lean.Name.mkStr (.mkStr .anonymous "A") "X.Y") result
+  result ← test "segment with a space survives"
+    (pathToModuleName "A/two words" == Lean.Name.mkStr (.mkStr .anonymous "A") "two words") result
+
+  IO.println ""
+  IO.println "Testing moduleNameToRelPath..."
+  result ← test "plain round-trip"
+    (moduleNameToRelPath (pathToModuleName "Analysis/Section_1_2") == some "Analysis/Section_1_2") result
+  result ← test "guillemet round-trip"
+    (moduleNameToRelPath (pathToModuleName "Analysis/Misc/Real-EReal-ENNReal")
+      == some "Analysis/Misc/Real-EReal-ENNReal") result
+  result ← test "digit-only round-trip"
+    (moduleNameToRelPath (pathToModuleName "A/123") == some "A/123") result
+  result ← test "anonymous has no path" (moduleNameToRelPath .anonymous == none) result
+  result ← test "numeric component has no path"
+    (moduleNameToRelPath (Lean.Name.mkNum `A 3) == none) result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← testValueOfAndProofDeps result
   result ← testSpecsIgnoreProofDeps result
   result ← testPrimarySpecProofOnlyFallback result
   result ← testProjectModuleMembership result
+  result ← testPathToModuleName result
   result ← testConstants result
   result ← testAnalysisHelpers result
   result ← testPrivateNames result
