@@ -70,7 +70,10 @@ probe-lean publishes a pre-built binary per `(Lean version, platform)` on its Gi
 releases, for `linux-x86_64` and `darwin-arm64`. The set of Lean versions tracked is:
 
 - every **stable** Lean release at or above `v4.28.0-rc1`, plus
-- the **latest release candidate** of any version line that has not yet shipped a stable,
+- the **latest release candidate** of any version line that has not yet shipped a stable, plus
+- every version **pinned** in [`tools/lean-version-extras.txt`](tools/lean-version-extras.txt) —
+  typically a superseded RC that tracked target projects still use (Mathlib cuts its releases
+  against RC toolchains, so Mathlib-pinned projects commonly sit on one),
 
 restricted to versions that [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli)
 has tagged. probe-lean pins `lean4-cli` to the Lean version tag, so a Lean release without a

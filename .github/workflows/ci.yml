@@ -17,6 +17,22 @@ jobs:
         with:
           test: false
 
+  # Offline fixture-driven suites for the release tooling. The release build
+  # matrix (and with it every published binary) is derived by these scripts, so
+  # a broken version policy or pinned-extras entry must fail CI before auto-tag
+  # can cut a release from the commit.
+  shell-tests:
+    name: Shell tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version-policy tests
+        run: bash tests/lean-versions/run.sh
+
+      - name: Installer helper tests
+        run: bash tests/test_install_helpers.sh
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -119,7 +135,7 @@ jobs:
   auto-tag:
     name: Auto-tag release
     runs-on: ubuntu-latest
-    needs: [build, test, test-newest, check-version, check-extract]
+    needs: [build, test, test-newest, check-version, check-extract, shell-tests]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: write

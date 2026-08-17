@@ -103,6 +103,11 @@ still works, just slower.
 
 ## Things to note
 
+> **Update (2026-08):** the two statements below are partially superseded — versions can now be
+> pinned in `tools/lean-version-extras.txt` (built and released alongside the derived set), so
+> a superseded RC that tracked target projects still use *can* be actively rebuilt. See the
+> README's "Pre-built binary availability".
+
 - **Both workflows derive the version set live; there is no committed version-pin file.** A
   tagged release builds whatever the policy yields at the moment it runs, so the exact artifact
   set is not reproducible from the tag alone. This is accepted: a single unbuildable version is

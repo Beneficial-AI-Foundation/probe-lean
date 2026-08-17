@@ -1,0 +1,20 @@
+# Extra Lean toolchain versions to build and release, in addition to the set
+# tools/lean-versions.sh derives from the leanprover/lean4 releases (every
+# stable >= the floor, plus the latest RC of any line without a stable).
+#
+# Use this to pin versions the derived policy no longer covers — typically a
+# superseded release candidate that real target projects still sit on: Mathlib
+# cuts its releases against RC toolchains, so Mathlib-pinned projects commonly
+# stay on an RC long after the stable ships. Without a pinned asset, the
+# installer serves the *old* probe-lean release that last shipped that RC.
+#
+# One version tag per line, canonical spelling (vMAJOR.MINOR.PATCH[-rcN]);
+# `#` comments and blank lines are ignored. A pin is a promise to ship an
+# asset, so every bad entry is a hard error rather than a silent drop:
+# malformed or non-canonical spelling, below the version floor, not a
+# published (non-draft) leanprover/lean4 release, or no compatible lean4-cli
+# tag for its major.minor line. Remove entries when no tracked target project
+# needs them anymore.
+
+# teorth/analysis (and its Mathlib pin) — see issue #94.
+v4.29.0-rc8

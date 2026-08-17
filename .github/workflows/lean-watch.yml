@@ -63,11 +63,19 @@ jobs:
 
           assets=$(gh release view "$target" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
 
+          # Derive the supported set in a guarded assignment first: a failure
+          # inside `for v in $(...)` is silently an empty loop, and this job
+          # would then report "nothing missing" instead of the real error.
+          if ! supported=$(tools/lean-versions.sh --json | jq -r '.[]'); then
+            echo "::error::Failed to derive supported Lean versions."
+            exit 1
+          fi
+
           # A version needs work if any expected platform's tarball is absent.
           # Exact whole-line fixed-string match (grep -xF) means a stable
           # (v4.32.0) is never confused with its RC assets (v4.32.0-rc1-...).
           missing='[]'
-          for v in $(tools/lean-versions.sh --json | jq -r '.[]'); do
+          for v in $supported; do
             for plat in $EXPECTED_PLATFORMS; do
               if ! printf '%s\n' "$assets" | grep -qxF "probe-lean-${v}-${plat}.tar.gz"; then
                 missing=$(printf '%s' "$missing" | jq --arg v "$v" '. + [$v]')
@@ -252,10 +260,18 @@ jobs:
           set -euo pipefail
           assets=$(gh release view "$TARGET" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
 
+          # Guarded assignment for the same reason as in compute: a failure
+          # inside `for v in $(...)` is silently an empty loop, and this job
+          # would then close the tracking issue claiming full coverage.
+          if ! supported=$(tools/lean-versions.sh --json | jq -r '.[]'); then
+            echo "::error::Failed to derive supported Lean versions."
+            exit 1
+          fi
+
           # Same coverage check as compute: any expected platform still missing an
           # asset after the build job ran.
           missing=""
-          for v in $(tools/lean-versions.sh --json | jq -r '.[]'); do
+          for v in $supported; do
             missing_plat=""
             for plat in $EXPECTED_PLATFORMS; do
               if ! printf '%s\n' "$assets" | grep -qxF "probe-lean-${v}-${plat}.tar.gz"; then

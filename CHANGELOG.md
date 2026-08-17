@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Pinned extra Lean versions in the release matrix** (`tools/lean-version-extras.txt`).
+  The derived version policy stops shipping an RC once its stable lands, but real target
+  projects sit on superseded RC toolchains for months (Mathlib cuts releases against RCs),
+  and for such a toolchain the installer would silently serve the *old* probe-lean release
+  that last shipped the RC asset — on teorth/analysis (`v4.29.0-rc8`) that meant v0.9.4,
+  which predates the #94 fix. Versions listed in the extras file are now built and released
+  alongside the derived set. A pin is a promise to ship an asset, so every bad entry is a
+  hard error rather than a silent drop: malformed or non-canonical spelling, below the
+  version floor, not a published (non-draft) Lean release, or no compatible lean4-cli tag.
+  Ships `v4.29.0-rc8` as the first pin. The version-policy and installer-helper test
+  suites now run in CI and gate auto-tagging, and the lean-watch coverage loops abort
+  loudly when version derivation fails instead of reporting an empty (or fully covered)
+  set.
+
 ## [0.12.1] - 2026-08-17
 
 ### Fixed

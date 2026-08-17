@@ -17,6 +17,13 @@ FIXTURE="$HERE/fixtures/releases.json"
 # minor's tag, while v4.33.0/v4.34.0 (untagged minors) are dropped.
 export LEAN_CLI_TAGS_FILE="$HERE/fixtures/cli-tags.txt"
 
+# Disable the checked-in pinned-extras list so the policy tests assert the
+# derived set alone; the extras mechanism has its own section below.
+export LEAN_VERSION_EXTRAS_FILE=/dev/null
+
+EXTRAS_TMP="$(mktemp -d)"
+trap 'rm -rf "$EXTRAS_TMP"' EXIT
+
 PASS=0
 FAIL=0
 
@@ -94,6 +101,69 @@ else
     echo "  FAIL: tagged patch v4.30.1 should be kept"; FAIL=$((FAIL + 1))
 fi
 
+echo
+echo "Testing pinned extras..."
+
+# A pinned superseded RC ships, sorted below its own stable, alongside the
+# derived set; comments and blank lines in the extras file are ignored.
+cat > "$EXTRAS_TMP/rc8.txt" <<'EOF'
+# superseded RC pinned for a target project
+
+v4.29.0-rc8   # trailing comment
+EOF
+assert_eq "pinned superseded RC ships in sorted position" \
+    $'v4.28.0\nv4.29.0-rc8\nv4.29.0\nv4.30.0\nv4.30.1\nv4.31.0\nv4.31.1\nv4.32.0-rc10' \
+    "$(LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/rc8.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
+
+# An extra that the policy already derives is deduplicated, not doubled.
+printf 'v4.29.0\n' > "$EXTRAS_TMP/dup.txt"
+assert_eq "extra duplicating a derived version dedups" \
+    "$(LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")" \
+    "$(LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/dup.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT")"
+
+# JSON mode carries extras like any other version.
+assert_eq "json mode includes pinned extra" \
+    '["v4.28.0","v4.29.0-rc8","v4.29.0","v4.30.0","v4.30.1","v4.31.0","v4.31.1","v4.32.0-rc10"]' \
+    "$(LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/rc8.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT" --json | jq -c .)"
+
+# A pin is a promise to ship an asset, so every bad entry is FATAL, never a
+# silent drop: malformed, non-canonical, interior whitespace, below floor,
+# not a published (non-draft) lean4 release, no compatible lean4-cli tag
+# (v4.34.0 is a non-draft release on an untagged minor), an explicitly named
+# extras file that does not exist, and a pin whose release list is empty.
+printf 'banana\n' > "$EXTRAS_TMP/malformed.txt"
+assert_fails "malformed extras entry fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/malformed.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+printf 'v04.29.0-rc8\n' > "$EXTRAS_TMP/non-canonical.txt"
+assert_fails "non-canonical extras entry fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/non-canonical.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+printf 'v4. 29.0-rc8\n' > "$EXTRAS_TMP/inner-space.txt"
+assert_fails "extras entry with interior whitespace fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/inner-space.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+printf 'v4.27.0\n' > "$EXTRAS_TMP/below-floor.txt"
+assert_fails "below-floor extras entry fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/below-floor.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+printf 'v4.29.0-rc7\n' > "$EXTRAS_TMP/unpublished.txt"
+assert_fails "extras entry that is not a published release fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/unpublished.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+printf 'v4.34.0\n' > "$EXTRAS_TMP/untagged.txt"
+assert_fails "extras entry on a lean4-cli-untagged minor fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/untagged.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+assert_fails "missing explicit extras file fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/does-not-exist.txt" LEAN_RELEASES_FILE="$FIXTURE" "$SCRIPT"
+assert_fails "pin with an empty release list fails" \
+    env LEAN_VERSION_EXTRAS_FILE="$EXTRAS_TMP/rc8.txt" LEAN_RELEASES_FILE="$HERE/fixtures/empty.json" "$SCRIPT"
+
+# The checked-in default extras file is picked up when the env override is
+# absent, and its current pins (v4.29.0-rc8) are emitted.
+default_extras_out="$(env -u LEAN_VERSION_EXTRAS_FILE LEAN_RELEASES_FILE="$FIXTURE" LEAN_CLI_TAGS_FILE="$LEAN_CLI_TAGS_FILE" "$SCRIPT")"
+if printf '%s\n' "$default_extras_out" | grep -qx "v4.29.0-rc8"; then
+    echo "  PASS: checked-in extras file ships v4.29.0-rc8"; PASS=$((PASS + 1))
+else
+    echo "  FAIL: checked-in extras file should ship v4.29.0-rc8"; FAIL=$((FAIL + 1))
+fi
+
+echo
 # Failure paths must exit non-zero, not silently produce wrong output.
 assert_fails "non-array API response (rate limit) fails" \
     env LEAN_RELEASES_FILE="$HERE/fixtures/rate-limited.json" "$SCRIPT"
