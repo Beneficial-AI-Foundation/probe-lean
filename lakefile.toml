@@ -22,3 +22,10 @@ name = "Tests"
 name = "tests"
 root = "Tests.Main"
 supportInterpreter = true
+
+[[lean_lib]]
+name = "Tools"
+
+[[lean_exe]]
+name = "gen-fixture"
+root = "Tools.GenFixture"

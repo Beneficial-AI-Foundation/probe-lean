@@ -23,6 +23,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   loudly when version derivation fails instead of reporting an empty (or fully covered)
   set.
 
+### Fixed
+
+- **The example extract artifact is now generated and guarded against staleness.**
+  `examples/lean_Curve25519Dalek_0.1.0.json` was a 2.6 MB real artifact from tool version
+  `0.4.5` that had been hand-patched rather than regenerated ever since — the codomain
+  facts were added with 8 inserted lines, leaving `codomain-is-prop` on 3 of 1539 atoms
+  where the serializer emits it for every atom. Nothing caught the drift: five test
+  functions read the file but skipped silently when it was absent, and the
+  `probe-extract-check` CI job tolerates missing optional fields. It is replaced by
+  `examples/lean_ExampleProject_0.1.0.json`, an 8 KB fixture written by
+  `tools/gen-fixture.sh` through probe-lean's own `Envelope` / `UnifiedAtomsOutput`
+  serializers, so the committed file stays genuine tool output. CI regenerates it and
+  fails on any diff, and a missing fixture is now a test failure rather than a skip. Any
+  output-format change must be accompanied by re-running the script.
+
+- **P14 determinism assertion no longer passes vacuously.** Regenerating the fixture
+  revealed that emitted JSON object keys are *descending*, not ascending: `Json.mkObj`
+  is `Std.TreeMap.Raw.ofList`, which orders by key regardless of insertion order, and
+  `Json.pretty` then renders that map reversed. The old fixture predated this behaviour,
+  so the test asserting ascending `data` keys was only green because the artifact was
+  stale. Output remains byte-deterministic across runs, which is what P14 requires, so
+  the assertion now checks that key order is a consistent function of the keys rather
+  than a particular direction. The `qsort` in `AtomsOutput.toJson` and
+  `UnifiedAtomsOutput.toJson` was dead code with respect to the emitted JSON and has
+  been removed — verified by regenerating the fixture byte-identically without it.
+
 ## [0.12.1] - 2026-08-17
 
 ### Fixed

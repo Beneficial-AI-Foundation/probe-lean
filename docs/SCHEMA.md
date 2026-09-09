@@ -167,7 +167,7 @@ Examples:
 
 The probe filename convention uses underscores for filesystem safety:
 
-- `lean_Curve25519Dalek_0.1.0.json`
+- `lean_ExampleProject_0.1.0.json`
 - `lean_Arklib_a1b2c3d.json`
 
 ## Code-Name URI Format
