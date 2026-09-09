@@ -301,7 +301,7 @@ instance : Lean.ToJson AtomsOutput where
   -- which orders by key regardless of insertion order, and `Json.pretty` then
   -- renders that map reversed (`Printer.lean` folds ascending but prepends).
   -- Output is therefore deterministic (P14) but descending by key; sorting the
-  -- array here would have no effect on the emitted JSON.
+  -- array here doesn't change key order for distinct names (but duplicates may affect which value is retained).
   toJson output :=
     let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
