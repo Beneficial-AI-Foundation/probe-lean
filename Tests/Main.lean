@@ -755,12 +755,12 @@ def testAtomSpecsJson (result : TestResult) : IO TestResult := do
       | .ok ps => ps == "probe:Test.won_spec"
       | _ => false
     | _ => false
-  let wonnerUntagged := match wonJson.getObjVal? "probe:Test.won_spec" with
+  let winnerUntagged := match wonJson.getObjVal? "probe:Test.won_spec" with
     | .ok v => match v.getObjValAs? Bool "is-primary-spec" with
       | .ok false => true | _ => false
     | _ => false
   result ← test "heuristic winner serializes is-primary-spec false (tagged, not won)"
-    (wonHasPrimary && wonnerUntagged) result
+    (wonHasPrimary && winnerUntagged) result
   return result
 
 def testAtomLanguageField (result : TestResult) : IO TestResult := do
