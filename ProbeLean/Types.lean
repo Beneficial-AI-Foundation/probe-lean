@@ -297,9 +297,13 @@ structure AtomsOutput where
   deriving Repr
 
 instance : Lean.ToJson AtomsOutput where
+  -- Key order is not ours to choose: `Json.mkObj` is `Std.TreeMap.Raw.ofList`,
+  -- which orders by key regardless of insertion order, and `Json.pretty` then
+  -- renders that map reversed (`Printer.lean` folds ascending but prepends).
+  -- Output is therefore deterministic (P14) but descending by key; sorting the
+  -- array here doesn't change key order for distinct names (but duplicates may affect which value is retained).
   toJson output :=
-    let sorted := output.atoms.qsort fun a b => a.name < b.name
-    let entries := sorted.map fun atom => (atom.name, Lean.toJson atom)
+    let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
 
 instance : Lean.FromJson AtomsOutput where
@@ -555,9 +559,10 @@ structure UnifiedAtomsOutput where
   deriving Repr
 
 instance : Lean.ToJson UnifiedAtomsOutput where
+  -- See `AtomsOutput`: `Json.mkObj` re-orders by key, so array order here does
+  -- not reach the output.
   toJson output :=
-    let sorted := output.atoms.qsort fun a b => a.name < b.name
-    let entries := sorted.map fun atom => (atom.name, Lean.toJson atom)
+    let entries := output.atoms.map fun atom => (atom.name, Lean.toJson atom)
     Lean.Json.mkObj entries.toList
 
 instance : Lean.FromJson UnifiedAtomsOutput where

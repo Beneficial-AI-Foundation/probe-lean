@@ -48,6 +48,18 @@ jobs:
       - name: Run tests
         run: .lake/build/bin/tests
 
+      # The example fixture is real probe-lean output, so any output-format
+      # change must be reflected in it. Regenerating and diffing makes staleness
+      # a hard failure instead of silent drift (the previous fixture was
+      # hand-patched and sat at tool version 0.4.5 for months).
+      - name: Verify example fixture is up to date
+        run: |
+          ./tools/gen-fixture.sh
+          if ! git diff --exit-code examples/lean_ExampleProject_0.1.0.json; then
+            echo "::error::examples/lean_ExampleProject_0.1.0.json is out of date. Run ./tools/gen-fixture.sh and commit."
+            exit 1
+          fi
+
   # The dev toolchain is pinned (lean-toolchain), so the Test job above can never
   # catch a regression that only manifests on a newer Lean — the class that shipped
   # broken release binaries while CI stayed green: the Lean 4.30
@@ -129,8 +141,11 @@ jobs:
       - name: Install probe-extract-check
         run: cargo install --git https://github.com/Beneficial-AI-Foundation/probe probe-extract-check
 
+      # No --allow-warnings: the old fixture needed it (4 warnings, including
+      # overlapping source locations from real generated declarations), but the
+      # generated fixture is warning-free, so the check can be strict.
       - name: Run structural checks on example JSON
-        run: probe-extract-check examples/lean_Curve25519Dalek_0.1.0.json --allow-warnings
+        run: probe-extract-check examples/lean_ExampleProject_0.1.0.json
 
   auto-tag:
     name: Auto-tag release

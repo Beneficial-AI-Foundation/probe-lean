@@ -50,13 +50,21 @@ All tests run without external tools.
 ## Integration tests (example JSON)
 
 26 tests across 4 test functions that load
-`examples/lean_Curve25519Dalek_0.1.0.json` and validate the real
-extract output:
+`examples/lean_ExampleProject_0.1.0.json` and validate real extract output.
+
+That fixture is **generated, not hand-written**: `tools/gen-fixture.sh` builds it
+through probe-lean's own `Envelope` / `UnifiedAtomsOutput` serializers, so the
+committed file is genuine tool output and stays meaningful to the
+`probe-extract-check` job in CI. Output is byte-deterministic, and the `test` job
+regenerates it and fails on any diff — so **any output-format change (a new atom
+field, a renamed key, a version bump) requires re-running the script and
+committing the result.** Do not edit the file by hand; the fixture it replaced was
+hand-patched and sat at tool version `0.4.5` while the real format moved on.
 
 | Test function | Checks | What it validates |
 |---------------|--------|-------------------|
 | `testExampleJsonEnvelopeStructure` | 8 | Schema is `probe-lean/extract`, version `3.0`, non-empty timestamp, tool name/command, source package/language, data object present |
-| `testExampleJsonLoadAtoms` | 4 | `loadAtoms` succeeds, >1000 atoms, all keys start with `probe:`, all atoms have language `"lean"` |
+| `testExampleJsonLoadAtoms` | 4 | `loadAtoms` succeeds, fixture is non-empty, all keys start with `probe:`, all atoms have language `"lean"` |
 | `testExampleJsonAtomRequiredFields` | 8 | Non-empty `display-name`, `code-module`, `code-path`; valid `DeclKind`; has `def`, `theorem`, and `projection` atoms; all atoms have source location |
 | `testExampleJsonVerificationStatus` | 6 | All atoms have valid `verification-status` (verified/unverified/failed/trusted); at least some `"verified"` and `"trusted"`; all trusted have valid `trusted-reason`; non-trusted have no `trusted-reason` |
 
