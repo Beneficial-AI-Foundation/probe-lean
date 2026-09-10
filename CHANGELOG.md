@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-10
+
 ### Added
 
 - **`is-primary-spec` is now emitted on every atom, and `extract` warns about ambiguous

@@ -194,7 +194,12 @@ structure PrimarySpecCollision where
 
     The tagged set is a union over names rather than a `name → Bool` map: with
     duplicate published names, an untagged namesake must not clobber a tagged
-    theorem. The `kind == theorem` gate mirrors `attrPrimarySpecMap`. -/
+    theorem. The `kind == theorem` gate mirrors `attrPrimarySpecMap`. The cost is
+    a spurious record when a tagged theorem's published name is shared by an
+    untagged namesake that some other target lists: the name counts as tagged for
+    that target too. Only this warning is affected — `attrPrimarySpecMap` keys on
+    each tagged theorem's own `specTargets`, so the emitted `primary-spec` stays
+    correct. Suppressing it would mean masking real candidates instead. -/
 def ambiguousPrimarySpecs (atoms : Array Atom) : Array PrimarySpecCollision := Id.run do
   let mut tagged : Std.HashSet String := {}
   for a in atoms do
