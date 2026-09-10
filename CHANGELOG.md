@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-10
+
 ### Added
+
+- **`is-primary-spec` is now emitted on every atom, and `extract` warns about ambiguous
+  `@[primary_spec]` tags.** Both `fromJson` implementations already read the field and
+  neither `toJson` wrote it, so it silently round-tripped to `false`. It records whether a
+  declaration is *tagged*, not whether it *won*: a theorem the heuristic signals pick as
+  some target's `primary-spec` reads `false` unless it is tagged too, and a tagged
+  non-theorem reads `true`. Intersecting a target's `specs` with the flag recovers the
+  tagged candidates. When two or more tagged theorems resolve to the same target, the
+  winner is an arbitrary tie-break; `extract` now prints one stderr warning per affected
+  target naming the winner and the rejected candidates. Exit codes and `schema-version`
+  are unchanged, and no declaration changed which flags it carries. Because the boolean is
+  always present, every atom gains a key — extract artifacts will show a whole-file diff
+  against an older run even for projects with no ambiguity.
 
 - **Pinned extra Lean versions in the release matrix** (`tools/lean-version-extras.txt`).
   The derived version policy stops shipping an RC once its stable lands, but real target

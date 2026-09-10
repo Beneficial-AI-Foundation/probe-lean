@@ -54,6 +54,7 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-lean-generated": false,
       "is-aeneas-generated": false,
       "is-ignored": false,
+      "is-primary-spec": false,
       "rust-source": null,
       "specs": ["probe:ArkLib.SumCheck.Protocol.Prover.prove_spec"],
       "primary-spec": "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec",
@@ -86,6 +87,7 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-lean-generated": false,
       "is-aeneas-generated": false,
       "is-ignored": false,
+      "is-primary-spec": true,
       "attributes": ["primary_spec"],
       "rust-source": null,
       "verification-status": "verified"
@@ -106,6 +108,7 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-lean-generated": false,
       "is-aeneas-generated": false,
       "is-ignored": false,
+      "is-primary-spec": false,
       "rust-source": null,
       "verification-status": "trusted",
       "trusted-reason": "axiom"
@@ -257,6 +260,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `is-lean-generated` | bool | Core-Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
 | `is-aeneas-generated` | bool | Declarations that exist only because of Aeneas: name ends with a suffix from the `extraction-artifact-suffixes` config (source scaffolding), or an attribute-machinery companion theorem (e.g. the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`) |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
+| `is-primary-spec` | bool | The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a theorem the heuristic signals pick as some target's `primary-spec` reads `false` here unless it is also tagged, and a tagged non-theorem reads `true` even though it can never be a `primary-spec`. Intersecting a target's `specs` with this flag recovers the tagged candidates for that target. |
 | `attributes` | array of strings | Lean tag attributes detected on this declaration (absent when empty) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 
@@ -270,6 +274,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `is-lean-generated` | **AUTO** | Auto-detected for `deriving`-generated instance clusters and structure/class projections. |
 | `is-aeneas-generated` | **CONFIG + AUTO** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json` (declaration name ends with a configured suffix), and auto-detected for `@[step]`'s attribute-machinery companion theorems (`X.mvcgen_spec`). |
 | `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |
+| `is-primary-spec` | **AUTO** | Set from the `@[primary_spec]` attribute handle (registered by `ProbeLean.Attrs`), independently of the primary-spec signals. It records that the declaration was *tagged*, not that it *won*: a heuristic winner carries `false`, and a tagged non-theorem carries `true`. The attribute installs no kind validator, so `@[primary_spec] def foo` is accepted. |
 | `attributes` | **AUTO** | Lean attributes detected on the declaration. Populated from two sources: (1) handle-based detection for attributes registered via `ProbeLean.Attrs` (`primary_spec`, `externally_verified`), and (2) source-level scanning of `@[...]` annotations in `.lean` files. Source scanning acts as a general fallback that works for any attribute, including those registered independently by the target project. probe-lean uses known verification-framework attributes (`progress`, `pspec`, `step`) as a signal for primary-spec detection; all other attributes are raw fact data for consumers. |
 | `rust-source` | **AUTO** | Extracted from Aeneas-generated docstrings (`Source: 'path'` pattern). `null` for declarations without Aeneas docstrings. |
 
@@ -305,10 +310,11 @@ Each value contains all atom fields plus verification status and specs:
 | `is-lean-generated` | bool | Core-Lean-generated code (deriving clusters, projections) |
 | `is-aeneas-generated` | bool | Aeneas-only declarations (suffix-matched scaffolding, attribute-machinery companion theorems) |
 | `is-ignored` | bool | From config's ignored list |
+| `is-primary-spec` | bool | The declaration carries `@[primary_spec]`. *Tagged*, not *won* — a heuristic-chosen `primary-spec` reads `false` here, a tagged non-theorem reads `true`. |
 | `attributes` | array or absent | Lean tag attributes on this declaration. Absent when empty. |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 | `specs` | array or absent | Code-names of theorem atoms whose **`type-dependencies`** include this atom — that is, theorems whose *statement* mentions it. A constant a theorem only invokes in its proof is not something the theorem specifies, so it is excluded — except a theorem explicitly tagged `@[primary_spec]` whose statement mentions no specifiable constant, which falls back to its proof-term dependencies **when those name exactly one specifiable constant** (with several, the tag is ambiguous and attaches to nothing). Also excludes generated theorems — `is-lean-generated` or `is-aeneas-generated` — unless explicitly tagged `@[primary_spec]` (machine-generated companions are not user specs). Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
-| `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. |
+| `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. When several `@[primary_spec]` theorems target the same atom the pick is an arbitrary tie-break — `extract` warns on stderr, and the rejected candidates stay in `specs` with `is-primary-spec: true`. Conversely, signals 2-4 name a winner without tagging it, so `primary-spec` may point at a theorem whose own `is-primary-spec` is `false`. |
 | `verification-status` | string or absent | `"transitively-verified"`, `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. A declaration is `"verified"` if its own body does not contain `sorry`; it is upgraded to `"transitively-verified"` if, additionally, all its transitive dependencies are verified or trusted (computed via reverse-BFS contamination, skippable with `--skip-enrich`). Declarations that are locally sorry-free but have at least one unverified or failed transitive dependency remain `"verified"`. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
 | `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"externally_verified"` (declaration tagged `@[externally_verified]` — proof discharged outside Lean), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |
 | `codomain-head` | string or absent | Fully-qualified head constant of the declaration's result type (after stripping `∀`/`→` binders), if the head is a constant. Absent otherwise. A neutral fact about the declaration's shape; a downstream tool can combine it with its own catalogue to classify the codomain. |

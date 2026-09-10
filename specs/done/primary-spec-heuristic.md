@@ -42,6 +42,8 @@ On the matched theorem:
 { "is-primary-spec": true }
 ```
 
+*Erratum:* `is-primary-spec` means *tagged*, not *won* — a heuristic-matched theorem carries `false`. See `specs/done/ambiguous-primary-spec-reporting.md`.
+
 ## Behavior
 
 ### Normal Operation

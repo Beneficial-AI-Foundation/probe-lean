@@ -84,6 +84,14 @@ facts about its result type (see [SCHEMA.md](SCHEMA.md)). These are domain-agnos
 probe-lean does not classify declarations itself, but a downstream tool can reconstruct a
 declaration's codomain shape from them plus its own catalogue.
 
+Every atom also carries `is-primary-spec`, recording whether the declaration is tagged
+`@[primary_spec]` — *tagged*, not *won*, so a theorem the heuristic signals pick as some
+target's `primary-spec` reads `false` unless it is tagged too. When two or more tagged
+theorems resolve to the same target, the winner is an arbitrary tie-break and `extract`
+prints one stderr warning per affected target naming the chosen theorem and the rejected
+candidates (exit code unchanged). Intersecting a target's `specs` with `is-primary-spec`
+recovers the same candidate set from the artifact.
+
 `extract` also auto-flags generated code as `is-hidden` plus an origin flag, so `viewify` and
 the web UI omit it: `deriving`-generated instance clusters and structure/class projections are
 core-Lean output (`is-lean-generated`), while attribute-machinery companion theorems (the

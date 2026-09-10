@@ -174,6 +174,72 @@ def duplicateAtomNames (atoms : Array Atom) : Array String := Id.run do
   let dups := counts.toList.filterMap fun (name, n) => if n > 1 then some name else none
   return dups.toArray.qsort (· < ·)
 
+/-- A target whose `primary-spec` was an arbitrary tie-break. -/
+structure PrimarySpecCollision where
+  target : String
+  winner : String
+  /-- Tagged candidates other than the winner: sorted, de-duplicated, non-empty. -/
+  rejected : Array String
+  deriving Repr, BEq
+
+/-- Targets whose `primary-spec` was an arbitrary tie-break: two or more
+    `@[primary_spec]`-tagged theorems resolve to the same target. One record per
+    target name, sorted by target name, candidate names de-duplicated.
+
+    Only targets with `primarySpec` set are considered, so this must run on the
+    post-`computeSpecs` array. Derived from the same `specs` / `isPrimarySpec`
+    data the artifact emits, so a warning cannot disagree with the emitted JSON
+    when published names are unique; under duplicate names it follows the
+    pre-serialization array and is the more correct of the two.
+
+    The tagged set is a union over names rather than a `name → Bool` map: with
+    duplicate published names, an untagged namesake must not clobber a tagged
+    theorem. The `kind == theorem` gate mirrors `attrPrimarySpecMap`. The cost is
+    a spurious record when a tagged theorem's published name is shared by an
+    untagged namesake that some other target lists: the name counts as tagged for
+    that target too. Only this warning is affected — `attrPrimarySpecMap` keys on
+    each tagged theorem's own `specTargets`, so the emitted `primary-spec` stays
+    correct. Suppressing it would mean masking real candidates instead. -/
+def ambiguousPrimarySpecs (atoms : Array Atom) : Array PrimarySpecCollision := Id.run do
+  let mut tagged : Std.HashSet String := {}
+  for a in atoms do
+    if a.kind == DeclKind.theorem && a.isPrimarySpec then
+      tagged := tagged.insert a.name
+  -- Keyed by target name: `computeSpecs` sets `primarySpec` on every atom whose
+  -- name matches the target, so iterating atoms would report a duplicated
+  -- target twice.
+  let mut seen : Std.HashSet String := {}
+  let mut collisions : Array PrimarySpecCollision := #[]
+  for a in atoms do
+    if seen.contains a.name then continue
+    seen := seen.insert a.name
+    let some winner := a.primarySpec | continue
+    let mut candidates : Array String := #[]
+    let mut candidateSeen : Std.HashSet String := {}
+    for s in a.specs do
+      if tagged.contains s && !candidateSeen.contains s then
+        candidateSeen := candidateSeen.insert s
+        candidates := candidates.push s
+    if candidates.size ≥ 2 then
+      collisions := collisions.push
+        { target := a.name, winner, rejected := (candidates.filter (· != winner)).qsort (· < ·) }
+  return collisions.qsort (fun x y => x.target < y.target)
+
+/-- Render one collision as its stderr warning line. Pure, so the exact text is
+    testable without capturing stderr. Takes the record rather than positional
+    strings so `target` and `winner` bind by name. -/
+def formatPrimarySpecWarning (c : PrimarySpecCollision) : String :=
+  let count := c.rejected.size + 1
+  let alsoTagged := ", ".intercalate c.rejected.toList
+  s!"Warning: {count} @[primary_spec] theorems target {c.target} — " ++
+    s!"chose {c.winner} (arbitrary tie-break); also tagged: {alsoTagged}"
+
+/-- The `extract` wiring for `ambiguousPrimarySpecs`, split out so the call site
+    is covered by a test rather than only by review. -/
+def warnAmbiguousPrimarySpecs (atoms : Array Atom) : IO Unit := do
+  for c in ambiguousPrimarySpecs atoms do
+    IO.eprintln (formatPrimarySpecWarning c)
+
 /-- Build (honouring the cache) and discover/select the project's modules.
     Shared by `runExtractInProject` and the `check-axioms` command so the audit path
     and the extraction path can't drift on nix detection, build, or module selection.
@@ -295,6 +361,10 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let ignoredList := loadIsIgnoredList userConfig
   let atoms := markAtomFlags atoms hiddenList aeneasGeneratedSuffixes ignoredList
   let atoms := computeSpecs atoms
+
+  -- Must run after `computeSpecs`: the collision is only visible once `specs`
+  -- and `primarySpec` are populated.
+  warnAmbiguousPrimarySpecs atoms
 
   -- === Step 2: Sorry detection ===
   IO.println "=== Step 2/3: Verify ==="

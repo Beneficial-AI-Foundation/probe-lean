@@ -227,6 +227,9 @@ structure Atom where
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
+  /-- The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a theorem
+  the heuristic signals pick as some target's `primarySpec` is `false` here
+  unless it is also tagged, and the attribute accepts non-theorems. -/
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
   /-- Head constant of the result type, if any (neutral fact). -/
@@ -255,6 +258,7 @@ instance : Lean.ToJson Atom where
       ("is-ignored", Lean.toJson atom.isIgnored),
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("is-in-package", Lean.toJson atom.isInPackage),
+      ("is-primary-spec", Lean.toJson atom.isPrimarySpec),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
     let withAttrs := if atom.attributes.isEmpty then base
@@ -463,6 +467,7 @@ structure UnifiedAtom where
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
+  /-- The declaration carries `@[primary_spec]` — see `Atom.isPrimarySpec`. -/
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus
@@ -493,6 +498,7 @@ instance : Lean.ToJson UnifiedAtom where
       ("is-ignored", Lean.toJson atom.isIgnored),
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("is-in-package", Lean.toJson atom.isInPackage),
+      ("is-primary-spec", Lean.toJson atom.isPrimarySpec),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
     let withExtType := if atom.typeDependenciesExternal.isEmpty then base

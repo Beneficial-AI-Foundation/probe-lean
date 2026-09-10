@@ -677,6 +677,21 @@ def testAtomsOutputJson (result : TestResult) : IO TestResult := do
       | .ok true => true | _ => false
     | _ => false
   result ← test "atom has is-ignored true" hasIsIgnoredTrue result
+
+  let hasIsPrimarySpec := match atomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-primary-spec" with
+      | .ok false => true | _ => false
+    | _ => false
+  result ← test "atom has is-primary-spec field" hasIsPrimarySpec result
+
+  let taggedAtom : Atom := { testAtom with isPrimarySpec := true }
+  let taggedAtomsOutput : AtomsOutput := { atoms := #[taggedAtom] }
+  let taggedAtomsJson := Lean.toJson taggedAtomsOutput
+  let hasIsPrimarySpecTrue := match taggedAtomsJson.getObjVal? "probe:Test.foo" with
+    | .ok v => match v.getObjValAs? Bool "is-primary-spec" with
+      | .ok true => true | _ => false
+    | _ => false
+  result ← test "atom has is-primary-spec true" hasIsPrimarySpecTrue result
   return result
 
 def testAtomSpecsJson (result : TestResult) : IO TestResult := do
@@ -715,6 +730,37 @@ def testAtomSpecsJson (result : TestResult) : IO TestResult := do
     | .ok a => a.specs.isEmpty
     | .error _ => false
   result ← test "Atom empty specs round-trips through JSON" noSpecsRtOk result
+
+  IO.println ""
+  IO.println "Testing Atom is-primary-spec round-trip..."
+  let atomTagged : Atom := { atomNoSpecs with kind := .theorem, isPrimarySpec := true }
+  let taggedRtOk := match Lean.FromJson.fromJson? (Lean.toJson atomTagged) (α := Atom) with
+    | .ok a => a.isPrimarySpec
+    | .error _ => false
+  result ← test "Atom is-primary-spec true round-trips" taggedRtOk result
+  let untaggedRtOk := match Lean.FromJson.fromJson? noSpecsJson (α := Atom) with
+    | .ok a => !a.isPrimarySpec
+    | .error _ => false
+  result ← test "Atom is-primary-spec false round-trips" untaggedRtOk result
+
+  -- Tagged, not won: the `_spec` suffix signal makes `won_spec` the primary spec
+  -- of `won` without tagging it, so the winner's own atom serializes `false`.
+  let wonDef : Atom := { atomNoSpecs with name := "probe:Test.won", displayName := "won" }
+  let wonThm : Atom := { atomNoSpecs with
+    name := "probe:Test.won_spec", displayName := "won_spec", kind := .theorem,
+    dependencies := #["probe:Test.won"], typeDependencies := #["probe:Test.won"] }
+  let wonJson := Lean.toJson ({ atoms := computeSpecs #[wonDef, wonThm] } : AtomsOutput)
+  let wonHasPrimary := match wonJson.getObjVal? "probe:Test.won" with
+    | .ok v => match v.getObjValAs? String "primary-spec" with
+      | .ok ps => ps == "probe:Test.won_spec"
+      | _ => false
+    | _ => false
+  let winnerUntagged := match wonJson.getObjVal? "probe:Test.won_spec" with
+    | .ok v => match v.getObjValAs? Bool "is-primary-spec" with
+      | .ok false => true | _ => false
+    | _ => false
+  result ← test "heuristic winner serializes is-primary-spec false (tagged, not won)"
+    (wonHasPrimary && winnerUntagged) result
   return result
 
 def testAtomLanguageField (result : TestResult) : IO TestResult := do
@@ -1016,6 +1062,22 @@ def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
   let unsAbsent := match unsJson.getObjVal? "specs" with
     | .ok _ => false | _ => true
   result ← test "UnifiedAtom specs absent when empty" unsAbsent result
+
+  IO.println ""
+  IO.println "Testing UnifiedAtom is-primary-spec serialization..."
+  let unifiedTagged : UnifiedAtom := { unifiedNoSpecs with
+    name := "probe:Test.tagged", kind := .theorem, isPrimarySpec := true }
+  let utJson := Lean.toJson unifiedTagged
+  let utTrueOk := match utJson.getObjValAs? Bool "is-primary-spec" with
+    | .ok true => true | _ => false
+  result ← test "UnifiedAtom is-primary-spec true in JSON" utTrueOk result
+  let utFalseOk := match unsJson.getObjValAs? Bool "is-primary-spec" with
+    | .ok false => true | _ => false
+  result ← test "UnifiedAtom is-primary-spec present (false) when untagged" utFalseOk result
+  let utRtOk := match Lean.FromJson.fromJson? utJson (α := UnifiedAtom) with
+    | .ok a => a.isPrimarySpec
+    | .error _ => false
+  result ← test "UnifiedAtom is-primary-spec round-trips" utRtOk result
   return result
 
 -- Build-time registration test for the classification tag hooks retained in
@@ -1476,6 +1538,10 @@ def testTypedDependencies (result : TestResult) : IO TestResult := do
     | .ok a => a.dependencies.size == 1 && a.typeDependencies.isEmpty && a.termDependencies.isEmpty
     | .error _ => false
   result ← test "legacy JSON without typed deps parses with empty arrays" legacyRt result
+  let legacyPrimaryRt := match Lean.FromJson.fromJson? legacyJson (α := Atom) with
+    | .ok a => !a.isPrimarySpec
+    | .error _ => false
+  result ← test "legacy JSON without is-primary-spec defaults to false" legacyPrimaryRt result
 
   IO.println ""
   IO.println "Testing UnifiedAtom typed dependencies round-trip..."
@@ -1694,6 +1760,238 @@ def testPrimarySpecSoleSpec (result : TestResult) : IO TestResult := do
     | some ps => a.specs.contains ps
   result ← test "sole-spec: primary-spec is always in specs" primarySpecInSpecs result
 
+  return result
+
+/-- A post-`computeSpecs` atom shape `computeSpecs` cannot produce, for the
+duplicate-published-name cases: `specs` and `primarySpec` are set directly, so
+"no record" can only mean the helper's own de-duplication and gating worked. -/
+def mkResolvedAtom (name : String) (kind : DeclKind) (specs : Array String)
+    (primarySpec : Option String := none) (isPrimarySpec : Bool := false) : Atom :=
+  { name, displayName := name, dependencies := #[], typeDependencies := #[],
+    codeModule := "Test", codePath := "Test.lean", codeText := none, kind,
+    specs, primarySpec, isPrimarySpec }
+
+/-- Collision fixtures run `computeSpecs` first — analysis atoms carry neither
+`specs` nor `primarySpec`, and the helper gates on `primarySpec` — and are built
+in the name-sorted order production feeds them, so the asserted winner is the
+real tie-break rather than an artefact of the test array. -/
+def testPrimarySpecAmbiguityBasic (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing ambiguous primary-spec detection (two tagged theorems)..."
+  let helper := mkSpecAtom "probe:Test.helper" .def #[]
+  let bounds := mkSpecAtom "probe:Test.helper_bounds" .theorem #["probe:Test.helper"]
+    (isPrimarySpec := true)
+  let correct := mkSpecAtom "probe:Test.helper_correct" .theorem #["probe:Test.helper"]
+    (isPrimarySpec := true)
+  let two := computeSpecs #[helper, bounds, correct]
+  let twoCols := ambiguousPrimarySpecs two
+  result ← test "two tagged theorems on one def → one record"
+    (twoCols == (#[{ target := "probe:Test.helper", winner := "probe:Test.helper_correct",
+                     rejected := #["probe:Test.helper_bounds"] }] : Array PrimarySpecCollision))
+    result
+  let winnerIsAtoms := match two.find? (fun a => a.name == "probe:Test.helper"), twoCols[0]? with
+    | some a, some c => a.primarySpec == some c.winner
+    | _, _ => false
+  result ← test "winner equals the target atom's primarySpec" winnerIsAtoms result
+
+  IO.println ""
+  IO.println "Testing ambiguous primary-spec detection (three tagged theorems)..."
+  let alt := mkSpecAtom "probe:Test.helper_alt" .theorem #["probe:Test.helper"]
+    (isPrimarySpec := true)
+  let three := computeSpecs #[helper, alt, bounds, correct]
+  result ← test "three tagged theorems → two rejected, sorted"
+    (ambiguousPrimarySpecs three ==
+      (#[{ target := "probe:Test.helper", winner := "probe:Test.helper_correct",
+           rejected := #["probe:Test.helper_alt", "probe:Test.helper_bounds"] }]
+        : Array PrimarySpecCollision)) result
+
+  IO.println ""
+  IO.println "Testing unambiguous primary-spec cases produce no record..."
+  let one := computeSpecs #[helper, correct]
+  let oneHasWinner := match one.find? fun a => a.name == "probe:Test.helper" with
+    | some a => a.primarySpec == some "probe:Test.helper_correct"
+    | none => false
+  result ← test "one tagged theorem → no record"
+    (oneHasWinner && (ambiguousPrimarySpecs one).isEmpty) result
+
+  let fanOut := computeSpecs #[
+    mkSpecAtom "probe:Test.d1" .def #[],
+    mkSpecAtom "probe:Test.d2" .def #[],
+    mkSpecAtom "probe:Test.d_spec" .theorem #["probe:Test.d1", "probe:Test.d2"]
+      (isPrimarySpec := true)]
+  let bothTargeted := fanOut.all fun a =>
+    a.kind != DeclKind.def || a.primarySpec == some "probe:Test.d_spec"
+  result ← test "fan-out (one tag, two targets) → no record"
+    (bothTargeted && (ambiguousPrimarySpecs fanOut).isEmpty) result
+  return result
+
+def testPrimarySpecAmbiguityEdgeCases (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing primary-spec ambiguity: untagged heuristic ambiguity..."
+  let heur := computeSpecs #[
+    mkSpecAtom "probe:Test.foo" .def #[],
+    mkSpecAtom "probe:Test.foo_alt" .theorem #["probe:Test.foo"] (attributes := #["progress"]),
+    mkSpecAtom "probe:Test.foo_progress" .theorem #["probe:Test.foo"] (attributes := #["progress"])]
+  let heurNoWinner := match heur.find? fun a => a.name == "probe:Test.foo" with
+    | some a => a.primarySpec.isNone
+    | none => false
+  result ← test "two @[progress] specs: no primary-spec, no record"
+    (heurNoWinner && (ambiguousPrimarySpecs heur).isEmpty) result
+
+  IO.println ""
+  IO.println "Testing primary-spec ambiguity under duplicate published names..."
+  let dupPublished := #[
+    mkResolvedAtom "probe:Test.T" .def #["probe:Test.X", "probe:Test.X"] (some "probe:Test.X"),
+    mkResolvedAtom "probe:Test.X" .theorem #[] none true,
+    mkResolvedAtom "probe:Test.X" .theorem #[] none true]
+  result ← test "two theorems publishing one name → de-duplicated, no record"
+    (ambiguousPrimarySpecs dupPublished).isEmpty result
+
+  let dupTargets := computeSpecs #[
+    mkSpecAtom "probe:Test.helper" .def #[],
+    mkSpecAtom "probe:Test.helper" .def #[],
+    mkSpecAtom "probe:Test.helper_bounds" .theorem #["probe:Test.helper"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.helper_correct" .theorem #["probe:Test.helper"] (isPrimarySpec := true)]
+  let bothCarryWinner := dupTargets.all fun a =>
+    a.kind != DeclKind.def || a.primarySpec == some "probe:Test.helper_correct"
+  result ← test "duplicate target names → exactly one record"
+    (bothCarryWinner && (ambiguousPrimarySpecs dupTargets).size == 1) result
+
+  IO.println ""
+  IO.println "Testing the tagged set unions over duplicate names..."
+  let target := mkResolvedAtom "probe:Test.T" .def #["probe:Test.X", "probe:Test.Y"]
+    (some "probe:Test.Y")
+  let taggedX := mkResolvedAtom "probe:Test.X" .theorem #[] none true
+  let untaggedX := mkResolvedAtom "probe:Test.X" .theorem #[] none false
+  let taggedY := mkResolvedAtom "probe:Test.Y" .theorem #[] none true
+  let expected : Array PrimarySpecCollision :=
+    #[{ target := "probe:Test.T", winner := "probe:Test.Y", rejected := #["probe:Test.X"] }]
+  result ← test "untagged namesake does not mask a tagged theorem (tagged first)"
+    (ambiguousPrimarySpecs #[target, taggedX, untaggedX, taggedY] == expected) result
+  result ← test "untagged namesake does not mask a tagged theorem (untagged first)"
+    (ambiguousPrimarySpecs #[target, untaggedX, taggedX, taggedY] == expected) result
+
+  let taggedDef := mkResolvedAtom "probe:Test.X" .def #[] none true
+  result ← test "tagged non-theorem sharing a spec name is not a candidate"
+    (ambiguousPrimarySpecs #[target, taggedDef, untaggedX, taggedY]).isEmpty result
+
+  let noWinner := mkResolvedAtom "probe:Test.T" .def #["probe:Test.X", "probe:Test.Y"] none
+  result ← test "two tagged candidates but no winner → no record"
+    (ambiguousPrimarySpecs #[noWinner, taggedX, taggedY]).isEmpty result
+  return result
+
+def testPrimarySpecAmbiguityInvariants (result : TestResult) : IO TestResult := do
+  let mut result := result
+  let taggedNames (atoms : Array Atom) : Array String :=
+    atoms.filterMap fun a =>
+      if a.kind == DeclKind.theorem && a.isPrimarySpec then some a.name else none
+  let candidatesOf (target : Atom) (atoms : Array Atom) : Array String :=
+    let tagged := taggedNames atoms
+    (target.specs.filter fun s => tagged.contains s).foldl (init := #[]) fun acc s =>
+      if acc.contains s then acc else acc.push s
+
+  IO.println ""
+  IO.println "Testing primary-spec collision invariant (rejected ∪ winner = candidates)..."
+  let three := computeSpecs #[
+    mkSpecAtom "probe:Test.helper" .def #[],
+    mkSpecAtom "probe:Test.helper_alt" .theorem #["probe:Test.helper"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.helper_bounds" .theorem #["probe:Test.helper"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.helper_correct" .theorem #["probe:Test.helper"] (isPrimarySpec := true)]
+  let invariant := match three.find? (fun a => a.name == "probe:Test.helper"),
+      (ambiguousPrimarySpecs three)[0]? with
+    | some t, some c =>
+      let candidates := (candidatesOf t three).qsort (· < ·)
+      candidates == (c.rejected.push c.winner).qsort (· < ·)
+        && c.rejected == candidates.filter (· != c.winner)
+    | _, _ => false
+  result ← test "rejected ∪ {winner} is exactly the tagged candidate set" invariant result
+
+  IO.println ""
+  IO.println "Testing primary-spec collision ordering..."
+  let multi := computeSpecs #[
+    mkSpecAtom "probe:Test.alpha" .def #[],
+    mkSpecAtom "probe:Test.alpha_one" .theorem #["probe:Test.alpha"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.alpha_two" .theorem #["probe:Test.alpha"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.zeta" .def #[],
+    mkSpecAtom "probe:Test.zeta_one" .theorem #["probe:Test.zeta"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.zeta_two" .theorem #["probe:Test.zeta"] (isPrimarySpec := true)]
+  let cols := ambiguousPrimarySpecs multi
+  let sortedByTarget := match cols[0]?, cols[1]? with
+    | some a, some b =>
+      cols.size == 2 && a.target == "probe:Test.alpha" && b.target == "probe:Test.zeta"
+    | _, _ => false
+  result ← test "output sorted by target name" sortedByTarget result
+  result ← test "rejected is sorted" (cols.all fun c => c.rejected == c.rejected.qsort (· < ·)) result
+  -- Shuffled *after* `computeSpecs`: re-running it would legitimately pick a
+  -- different winner through its last-write-wins insert.
+  let rotated := multi.extract 4 multi.size ++ multi.extract 0 4
+  result ← test "results independent of input order (reversed)"
+    (cols == ambiguousPrimarySpecs multi.reverse) result
+  result ← test "results independent of input order (rotated)"
+    (cols == ambiguousPrimarySpecs rotated) result
+  return result
+
+def testPrimarySpecAmbiguityWarning (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing primary-spec collision warning text..."
+  let twoCandidates : PrimarySpecCollision := {
+    target := "probe:MyModule.helper", winner := "probe:MyModule.helper_correct",
+    rejected := #["probe:MyModule.helper_bounds"] }
+  result ← test "two-candidate warning text"
+    (formatPrimarySpecWarning twoCandidates ==
+      "Warning: 2 @[primary_spec] theorems target probe:MyModule.helper — chose " ++
+      "probe:MyModule.helper_correct (arbitrary tie-break); also tagged: " ++
+      "probe:MyModule.helper_bounds") result
+  let threeCandidates : PrimarySpecCollision := { twoCandidates with
+    rejected := #["probe:MyModule.helper_alt", "probe:MyModule.helper_bounds"] }
+  result ← test "three-candidate warning counts candidates, not rejects"
+    (formatPrimarySpecWarning threeCandidates ==
+      "Warning: 3 @[primary_spec] theorems target probe:MyModule.helper — chose " ++
+      "probe:MyModule.helper_correct (arbitrary tie-break); also tagged: " ++
+      "probe:MyModule.helper_alt, probe:MyModule.helper_bounds") result
+
+  IO.println ""
+  IO.println "Testing the warning agrees with the emitted atom..."
+  let atoms := computeSpecs #[
+    mkSpecAtom "probe:Test.helper" .def #[],
+    mkSpecAtom "probe:Test.helper_bounds" .theorem #["probe:Test.helper"] (isPrimarySpec := true),
+    mkSpecAtom "probe:Test.helper_correct" .theorem #["probe:Test.helper"] (isPrimarySpec := true)]
+  let json := Lean.toJson ({ atoms } : AtomsOutput)
+  let taggedInJson (n : String) : Bool := match json.getObjVal? n with
+    | .ok v => match v.getObjValAs? Bool "is-primary-spec" with
+      | .ok b => b | _ => false
+    | _ => false
+  let cols := ambiguousPrimarySpecs atoms
+  let agrees := match cols[0]? with
+    | some c =>
+      (match json.getObjVal? c.target with
+        | .ok v =>
+          (match v.getObjValAs? String "primary-spec" with
+            | .ok ps => ps == c.winner | _ => false)
+          && (match v.getObjValAs? (Array String) "specs" with
+            | .ok ss => c.rejected.all fun r => ss.contains r
+            | _ => false)
+        | _ => false)
+      && c.rejected.all taggedInJson
+    | none => false
+  result ← test "warning agrees with the emitted atom (unique names)" agrees result
+
+  IO.println ""
+  IO.println "Testing the extract wiring for ambiguous primary specs..."
+  let (warned, _) ← IO.FS.withIsolatedStreams (warnAmbiguousPrimarySpecs atoms)
+  let expectedOutput := match cols[0]? with
+    | some c => formatPrimarySpecWarning c ++ "\n"
+    | none => ""
+  result ← test "warnAmbiguousPrimarySpecs prints one line per collision"
+    (cols.size == 1 && warned == expectedOutput) result
+  let unambiguous := computeSpecs #[
+    mkSpecAtom "probe:Test.solo" .def #[],
+    mkSpecAtom "probe:Test.solo_spec" .theorem #["probe:Test.solo"] (isPrimarySpec := true)]
+  let (quiet, _) ← IO.FS.withIsolatedStreams (warnAmbiguousPrimarySpecs unambiguous)
+  result ← test "no warning when the tie-break is unambiguous" (quiet == "") result
   return result
 
 def testTrustedStatus (result : TestResult) : IO TestResult := do
@@ -3429,6 +3727,10 @@ def main : IO UInt32 := do
   result ← testPrimarySpecHeuristic result
   result ← testPrimarySpecKnownAttribute result
   result ← testPrimarySpecSoleSpec result
+  result ← testPrimarySpecAmbiguityBasic result
+  result ← testPrimarySpecAmbiguityEdgeCases result
+  result ← testPrimarySpecAmbiguityInvariants result
+  result ← testPrimarySpecAmbiguityWarning result
   result ← testTrustedStatus result
   result ← testExampleJsonEnvelopeStructure result
   result ← testExampleJsonLoadAtoms result
