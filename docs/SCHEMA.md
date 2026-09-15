@@ -296,11 +296,11 @@ Each value contains all atom fields plus verification status and specs:
 | `display-name` | string | Last component of the name |
 | `kind` | string | Declaration kind |
 | `language` | string | Always `"lean"` |
-| `dependencies` | array | `probe:`-prefixed names this declaration depends on (union of type + term) |
-| `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature |
-| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof. For a theorem this is the proof term, so it is normally non-empty and typically much larger than `type-dependencies`. |
-| `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/core) referenced in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. |
-| `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced in the body/proof. Absent when empty. |
+| `dependencies` | array | `probe:`-prefixed names this declaration depends on: the **deduplicated union** of `type-dependencies` and `term-dependencies`. This is an invariant, not an approximation — nothing appears here that is absent from both arrays. |
+| `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature, plus project names reached from the type only through non-emitted auxiliary constants (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)). |
+| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof, plus project names reached from the body only through non-emitted auxiliary constants (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)). For a theorem this is the proof term, so it is normally non-empty and typically much larger than `type-dependencies`. |
+| `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/core) referenced **directly** in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. Auxiliary folding does not contribute here: an external constant reached only through an auxiliary is not listed (see the asymmetry note below). |
+| `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced **directly** in the body/proof. Absent when empty. Same direct-only rule as `type-dependencies-external`. |
 | `code-module` | string | Module name containing the declaration |
 | `code-path` | string | Relative path to source file |
 | `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
@@ -325,6 +325,58 @@ The `codomain-*` fields are neutral, domain-agnostic primitives emitted for ever
 does not classify declarations itself: a downstream tool reconstructs the codomain shape from these
 primitives plus its own catalogue. The envelope carries no `classification` object and no
 `source.class` field.
+
+### Auxiliary-dependency folding
+
+Lean abstracts non-atomic embedded proofs and match arms into auxiliary constants
+(`X._proof_N`, `X.match_N`, tactic-generated helpers). probe-lean does not emit those as
+atoms, so a dependency reached only through one of them used to leave no trace at all:
+`host → aux → lemma` produced no `lemma` edge, and the reporter who trusted an in-degree of
+0 to prune unreferenced declarations broke the build.
+
+`extract` therefore folds such edges into the referencing declaration. The pass is strictly
+**additive**: it only ever adds names to `type-dependencies` and `term-dependencies`, never
+removes an entry from any of the four dependency arrays, never adds to the `*-external`
+arrays, and never changes the atom set. A folded target lands in whichever bucket the
+auxiliary occurred in — both, if the auxiliary occurs in both the type and the body.
+
+What is folded **through** (traversed, contributing what it reaches):
+
+- constants filtered from the atom set by name (`X._proof_N`, `X.match_N`, and the rest of
+  `isInternalName`'s classes), and project constants with no declaration range, provided
+  they are value-bearing (`def` / `theorem` / `opaque`).
+
+What is **not** folded through:
+
+- structural members of a type (`.mk`, `.injEq`, `.casesOn`, `.eq_N`, …). A direct edge to
+  one is still emitted exactly as before; mapping members to their parent atom is separate
+  work.
+- axioms, inductives, constructors, recursors and `Quot`. "Not folded through" is not "not
+  an edge": a direct dependency on any of these is emitted as always, and an emitted project
+  axiom or inductive reached through an auxiliary is *added* as a target.
+- anything already emitted as an atom — traversal stops at a real dependency instead of
+  flattening the graph past it.
+
+**Direct-vs-folded asymmetry for external constants.** Only project-internal targets are
+folded. Folding external targets too would add tens of thousands of entries on a
+Mathlib-backed project (a single `by omega` drags in ~50 `Lean.Omega.*` constants), so the
+output is deliberately abstraction-sensitive for them: `host → anchor` appears in
+`*-dependencies-external`, `host → aux → anchor` does not. This is a size tradeoff, not a
+claim that external edges are uninformative. Note that "external" means *outside the
+extracted project filter*, which under `--library`/`--module` restriction is not the same as
+"Mathlib or core".
+
+**What folding does not fix.** It recovers edges, not nodes, and only for the classes above.
+It does **not** make `verification-status` sound: status propagation has no "unknown" state,
+so any dependency still missing from the graph is treated as trusted. Recovering an edge can
+therefore *downgrade* an atom from `transitively-verified` to `verified` (the
+locally-verified-but-contaminated state) — that is the intended effect — but a clean status
+remains a claim about the emitted graph rather than a proof obligation discharged.
+
+Folding is also *compiled-environment* reachability only. Source-level rebuildability also
+depends on notation, macros, attributes and elaboration-time instances that leave no
+surviving constant reference, so **a zero in-degree here is still not a licence to delete a
+declaration from the sources.**
 
 ### `probe-lean/viewify` (molecules)
 

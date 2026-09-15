@@ -22,3 +22,7 @@ atoms.json
 # Python artifacts (tools/python)
 __pycache__/
 *.pyc
+
+# probe-lean output written into the aux-fold fixture by its CI check
+.verilib/
+tests/fixtures/aux-fold/lake-manifest.json

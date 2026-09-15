@@ -48,6 +48,25 @@ jobs:
       - name: Run tests
         run: .lake/build/bin/tests
 
+      # End-to-end gate for the auxiliary-dependency fold (issue #99). The unit
+      # suite exercises the traversal on fabricated graphs and the classifier on
+      # the test binary's own environment; only a real `extract` run shows that
+      # a recovered edge actually reaches `verification-status`.
+      #
+      # The fixture is a five-declaration Lake project on this repo's own
+      # toolchain with no dependencies to fetch, so the step costs one small
+      # `lake build`. `AuxFoldCheck.lean` asserts the *precondition* too — that
+      # the auxiliary exists and the edge really is hidden behind it — because
+      # whether Lean abstracts a proof obligation is elaborator-dependent, and
+      # without that assertion the check silently degrades into testing a direct
+      # dependency that was never lost.
+      - name: End-to-end aux-fold extract check
+        run: |
+          lake build probe-lean
+          cd tests/fixtures/aux-fold
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .
+          lake env lean --run AuxFoldCheck.lean
+
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
       # a hard failure instead of silent drift (the previous fixture was
