@@ -533,11 +533,14 @@ def stripLeadingDotSlash (path : String) : String :=
 -- filters those out of its output (`isInternalName`), which used to lose every
 -- edge underneath them: `host → aux → lemma` left no trace of `lemma`.
 --
--- The fold is a strictly **additive** second pass. Governing invariant:
+-- The fold is a strictly **additive** second pass. Governing invariant, stated
+-- once in `docs/SCHEMA.md` ("Auxiliary-dependency folding") and not restated
+-- elsewhere:
 --
---   It only ever *adds* names to `type-dependencies` and `term-dependencies`.
---   It never removes an entry from any of the four dependency arrays, never adds
---   to the `*-external` arrays, and never changes the atom set.
+--   It only ever *adds* names to `term-dependencies`. It never adds to
+--   `type-dependencies`, never removes an entry from any of the four dependency
+--   arrays, never adds to the `*-external` arrays, and never changes the atom
+--   set.
 --
 -- `partitionDeps` keeps its behaviour byte-for-byte; the fold runs after it and
 -- appends. Consequently edges to emitted project axioms/inductives/structures
@@ -546,17 +549,27 @@ def stripLeadingDotSlash (path : String) : String :=
 
 /-- How the auxiliary-fold pass treats one dependency occurrence. -/
 inductive DepClass where
-  /-- A project constant that extraction emits as an atom: a fold *target*.
-      Collected, never traversed through (so the fold does not flatten a host's
-      graph past its real dependencies). -/
+  /-- A fold *target*: a project constant that survives the name filter and has
+      a declaration range. Collected, never traversed through (so the fold does
+      not flatten a host's graph past its real dependencies).
+
+      That is every atom **plus named inductive constructors**: `getProjectDecls`
+      additionally skips `.ctorInfo`/`.recInfo`, which this classifier does not
+      mirror, so a project `Color.red` is a target while never being emitted as
+      an atom of its own. Benign, and identical to how a *direct* edge to such a
+      constructor already behaves (`partitionMissingDeps` treats a constructor
+      whose parent type is extracted as benign) — but "targets are exactly the
+      atoms" is false, and `docs/SCHEMA.md` says so too. -/
   | emitted
   /-- Not emitted as an atom, value-bearing, not a structural member: traversed
       through, contributing whatever it reaches. -/
   | foldable
-  /-- Neither a target nor traversable: external constants, structural members
-      (`.mk`, `.injEq`, `.casesOn`, …), and non-value-bearing constants (axioms,
-      inductives, constructors, recursors, `Quot`). "Not foldable" is different
-      from "not an edge" — a direct edge to any of these is emitted as before. -/
+  /-- Neither a target nor traversable: constants outside the project filter,
+      structural members (`.mk`, `.injEq`, `.casesOn`, …), and non-value-bearing
+      constants with no declaration range (axioms, inductives, constructors,
+      recursors, `Quot`). Note that a *project* axiom or inductive with a range
+      is `.emitted`, not `.ignored`. "Not foldable" is different from "not an
+      edge" — a direct edge to any of these is emitted as before. -/
   | ignored
   /-- `env.find?` failed. Not silently dropped: reported once per extraction. -/
   | unresolved
@@ -626,9 +639,14 @@ structure FoldState where
   expansions : Nat := 0
   /-- Edges scanned (performance gate). -/
   edgesScanned : Nat := 0
-  /-- Expansions whose result was incomplete because a back-edge was skipped, so
-      the cycle rules actually fired. Reported, because a run where this stays 0
-      has not exercised them at all. -/
+  /-- Revisits suppressed because the node was already visited in this root
+      query and had no cached complete closure — i.e. how often rule 2 fired.
+      Not a count of incomplete expansions: one expansion can suppress several
+      revisits, and an expansion that is incomplete only because a descendant
+      was does not appear here. Nor is every suppression an active back-edge; the
+      skipped node may be one that already completed without becoming cacheable.
+      Reported, because a run where this stays 0 has not exercised the cycle
+      rules at all. -/
   nonCacheable : Nat := 0
   /-- Dependency entries the fold added (the recovered edges). -/
   addedEdges : Nat := 0
@@ -782,8 +800,15 @@ def foldAtomDeps (env : Environment) (isProjectMember : Name → Bool)
     -- Recovered edges all land in `term-dependencies`, including those found
     -- under an auxiliary the *type* named. `type-dependencies` therefore stays
     -- exactly what `partitionDeps` produced — syntactically what the signature
-    -- mentions — and the fold cannot perturb `specs` / `primary-spec` at all,
-    -- since `computeSpecs` walks that array to decide what a theorem specifies.
+    -- mentions — so the fold leaves *type-driven* spec selection untouched:
+    -- `computeSpecs` walks that array to decide what a theorem specifies.
+    --
+    -- It is not a blanket "`specs` cannot change" guarantee. `specTargets`
+    -- (`ProbeLean/Atomize.lean`) has one fallback that reads the union
+    -- `dependencies`: a `@[primary_spec]`-tagged theorem whose statement names
+    -- nothing specifiable. A folded *term* edge can add a second candidate
+    -- there and detach the tag with `type-dependencies` byte-identical — see
+    -- `testPrimarySpecFoldFallback` in `Tests/Main.lean`.
     --
     -- The alternative (route a type-position auxiliary's *type* reach into the
     -- type bucket, its *value* reach into the term bucket) was implemented and

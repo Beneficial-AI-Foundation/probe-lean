@@ -95,8 +95,9 @@ The step reports its accounting on stdout, e.g.
 Auxiliary fold: recovered 2 dependency edge(s) (2 expansions, 22 edges scanned, 0 cycle suppression(s), cache 2 entr(ies) / 1 name(s))
 ```
 
-`cycle suppression(s)` counts how often the traversal hit a back-edge. A run reporting 0 —
-as curve25519-dalek-lean-verify does — never exercised the cycle-handling rules at all.
+`cycle suppression(s)` counts revisits the traversal skipped because the node was already
+visited in the same query and had no cached complete closure. A run reporting 0 — as
+curve25519-dalek-lean-verify does — never exercised the cycle-handling rules at all.
 
 If a dependency name cannot be resolved in the imported environment, `extract` lists it on
 stderr rather than dropping it silently: edges underneath such a name are not recovered.

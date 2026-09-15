@@ -260,7 +260,7 @@ In addition to the core fields defined by the interchange spec, probe-lean atoms
 | `is-lean-generated` | bool | Core-Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
 | `is-aeneas-generated` | bool | Declarations that exist only because of Aeneas: name ends with a suffix from the `extraction-artifact-suffixes` config (source scaffolding), or an attribute-machinery companion theorem (e.g. the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`) |
 | `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
-| `is-primary-spec` | bool | The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a theorem the heuristic signals pick as some target's `primary-spec` reads `false` here unless it is also tagged, and a tagged non-theorem reads `true` even though it can never be a `primary-spec`. Intersecting a target's `specs` with this flag recovers the tagged candidates for that target. |
+| `is-primary-spec` | bool | The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a theorem the heuristic signals pick as some target's `primary-spec` reads `false` here unless it is also tagged, and a tagged non-theorem reads `true` even though it can never be a `primary-spec`. It also does not mean the tag *attached*: the attribute takes no argument, so probe-lean infers the target, and a tagged theorem whose statement names no specifiable atom and whose proof names several can appear in no target's `specs` at all while still reading `true` here (issue #104). Intersecting a target's `specs` with this flag recovers the tagged candidates for that target. |
 | `attributes` | array of strings | Lean tag attributes detected on this declaration (absent when empty) |
 | `rust-source` | string or null | Rust source path from Aeneas docstring |
 
@@ -334,22 +334,36 @@ atoms, so a dependency reached only through one of them used to leave no trace a
 `host → aux → lemma` produced no `lemma` edge, and the reporter who trusted an in-degree of
 0 to prune unreferenced declarations broke the build.
 
-`extract` therefore folds such edges into the referencing declaration. The pass is strictly
-**additive**: it only ever adds names to `type-dependencies` and `term-dependencies`, never
-removes an entry from any of the four dependency arrays, never adds to the `*-external`
-arrays, and never changes the atom set.
+`extract` therefore folds such edges into the referencing declaration. This is the one place
+the invariant is stated; everything else in the repo points here rather than restating it.
+The pass is strictly **additive**:
+
+> It only ever adds names to `term-dependencies`. It never adds to `type-dependencies`,
+> never removes an entry from any of the four dependency arrays, never adds to the
+> `*-external` arrays, and never changes the atom set.
 
 **Every recovered edge lands in `term-dependencies`**, including one found under an
 auxiliary named in the declaration's *type*. `type-dependencies` therefore stays exactly
-what the signature syntactically mentions, and the fold cannot change `specs` or
-`primary-spec` at all — those are computed from `type-dependencies`, and a constant reached
-only through an auxiliary's implementation is not something a statement specifies. Since
-`dependencies` is the union of the two buckets, verification-status propagation still sees
-every recovered edge.
+what the signature syntactically mentions, so *type-driven* spec selection is unaffected:
+`specs` / `primary-spec` are normally computed from `type-dependencies`, and a constant
+reached only through an auxiliary's implementation is not something a statement specifies.
+Since `dependencies` is the union of the two buckets, verification-status propagation still
+sees every recovered edge.
+
+That is not a blanket guarantee that `specs` cannot change. Spec selection has one fallback
+that reads the union: a `@[primary_spec]`-tagged theorem whose *statement* names no
+specifiable constant falls back to `dependencies`, and attaches only when that leaves
+exactly one candidate. A folded term edge can add a second candidate there and detach such a
+tag with `type-dependencies` byte-identical. Projects that do not rely on that fallback see
+no `specs` change at all (measured: zero on curve25519-dalek-lean-verify). The fallback
+exists only because `@[primary_spec]` cannot name its own target; issue #104 proposes giving
+it a parameter, which removes the dependency on inference entirely.
 
 A consequence worth stating: a folded entry in `term-dependencies` is *indirect*. The array
-is no longer only "constants named in the body" — it is "constants the body reaches", with
-the auxiliaries themselves elided. Use `dependencies` for reachability and treat
+is no longer only "constants named in the body" — it is the direct project dependencies of
+the body/proof, plus the project targets reached by expanding eligible auxiliary occurrences
+in **either** the type or the body, stopping at targets. It is neither restricted to the
+body nor unrestricted transitive reachability. Use `dependencies` for reachability and treat
 `type-dependencies` as the exact signature signal.
 
 What is folded **through** (traversed, contributing what it reaches):
@@ -360,9 +374,14 @@ What is folded **through** (traversed, contributing what it reaches):
 
 What is **not** folded through:
 
-- structural members of a type (`.mk`, `.injEq`, `.casesOn`, `.eq_N`, …). A direct edge to
-  one is still emitted exactly as before; mapping members to their parent atom is separate
-  work.
+- structural members of a type, as listed in `autoGeneratedSuffixes`: `.mk`, `.injEq`,
+  `.casesOn`, `.rec`, `.recOn`, `.brecOn`, `.noConfusion`, `.sizeOf_spec`, `.inj`, `.elim`,
+  `.ctorIdx`, and the equation lemmas `.eq_1` / `.eq_2` / `.eq_3` / `.eq_def`. A direct edge
+  to one is still emitted exactly as before; mapping members to their parent atom is separate
+  work. Note the list is literal, not a pattern: a higher-index equation lemma (`f.eq_4`)
+  matches no entry, so it is *not* excluded — it is a target if it carries a declaration
+  range and folded through if it does not. Generalising the suffix would change atom
+  emission, which is why it is a follow-up rather than part of the fold.
 - axioms, inductives, constructors, recursors and `Quot`. "Not folded through" is not "not
   an edge": a direct dependency on any of these is emitted as always, and an emitted project
   axiom or inductive reached through an auxiliary is *added* as a target.

@@ -154,13 +154,18 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
   check fs "sorried_bound is unverified"
     (statusOf data "probe:sorried_bound" == some "unverified")
   -- NOTE: the *type*-position fold (an auxiliary named in a statement, whose
-  -- implementation reach must be routed to `term-dependencies` rather than
+  -- reach must be routed to `term-dependencies` rather than
   -- `type-dependencies`) is deliberately not asserted here. It needs a project
   -- constant with no declaration range in a statement — what Aeneas produces by
   -- `addDecl`ing instances — and every declaration written in a source file has
-  -- a range, so that shape cannot be built in this fixture. The routing is
-  -- covered by `testFoldScopeRouting` and the environment-backed classifier
-  -- checks in `Tests/Main.lean`, which synthesize the range-less declaration.
+  -- a range, so that shape cannot be built in this fixture.
+  --
+  -- The routing is covered instead by the environment-backed block in
+  -- `Tests/Main.lean`, which synthesizes the range-less declaration and calls
+  -- the real `foldAtomDeps` on a host whose *type* names it (see
+  -- `auxFoldEnvChecks`). What is missing here, and nowhere else, is an
+  -- *elaborated* host with that shape — so the type path has unit coverage of
+  -- the production function but no end-to-end coverage.
 
 def main : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]

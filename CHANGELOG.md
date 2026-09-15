@@ -24,26 +24,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `verification-status`.
 
   `extract` now traverses each non-emitted auxiliary and appends the project constants it
-  reaches to the referencing declaration's `type-dependencies`/`term-dependencies`. The pass
-  is strictly **additive**: it never removes an entry from any of the four dependency
-  arrays, never adds to the `*-external` arrays, and never changes the atom set. Edges to
-  emitted project axioms, inductives, structures and classes, and direct external anchors,
-  are therefore untouched by construction. `dependencies` is now derived as the union of the
-  two folded arrays, which is what keeps its documented contract true.
+  reaches to the referencing declaration's `term-dependencies`. The pass is strictly
+  **additive**: it never adds to `type-dependencies`, never removes an entry from any of the
+  four dependency arrays, never adds to the `*-external` arrays, and never changes the atom
+  set. Edges to emitted project axioms, inductives, structures and classes, and direct
+  external anchors, are therefore untouched by construction. `dependencies` is now derived as
+  the union of the two arrays, which is what keeps its documented contract true.
+  `docs/SCHEMA.md#auxiliary-dependency-folding` is the single statement of the contract.
 
   Every recovered edge lands in **`term-dependencies`**, including one found under an
   auxiliary named in the declaration's *type*. `type-dependencies` is left exactly as it
-  was, so the fold provably cannot change `specs` or `primary-spec`: those are computed from
-  `type-dependencies`, and a constant reached only through an instance's implementation is
-  not something a statement specifies. (An earlier revision routed type-position reach into
-  the type bucket; on dalek it pushed 14 implementation constants into four theorems'
-  `type-dependencies` and detached one atom's `primary-spec`.) Since `dependencies` is the
-  union of the two buckets, verification-status propagation still sees every recovered edge.
+  was, so *type-driven* spec selection cannot move: `specs` / `primary-spec` are normally
+  computed from `type-dependencies`, and a constant reached only through an instance's
+  implementation is not something a statement specifies. (An earlier revision routed
+  type-position reach into the type bucket; on dalek it pushed 14 implementation constants
+  into four theorems' `type-dependencies` and detached one atom's `primary-spec`.) It is not
+  a blanket "`specs` cannot change" guarantee: the `@[primary_spec]` fallback for a theorem
+  whose statement names nothing specifiable walks the union `dependencies`, so a folded term
+  edge can still detach such a tag — covered by a unit regression. Since `dependencies` is
+  the union of the two buckets, verification-status propagation sees every recovered edge.
   The trade-off, stated in `docs/SCHEMA.md`: a folded entry in `term-dependencies` is
-  *indirect* — the array holds what the body reaches, not only what it names.
+  *indirect* — the array holds what the declaration reaches through eligible auxiliaries in
+  either the type or the body, not only what the body names.
 
   Deliberately out of scope, each a follow-up: structural members of a type (`.mk`,
-  `.injEq`, `.casesOn`, `.eq_N`) are not folded through; external targets are not folded
+  `.injEq`, `.casesOn`, and the equation lemmas `.eq_1`–`.eq_3`/`.eq_def` the suffix list
+  actually names) are not folded through; external targets are not folded
   (a single `by omega` drags in ~50 `Lean.Omega.*` constants, and folding all external
   targets would add ~49k entries on a dalek-sized project), which makes the `*-external`
   arrays abstraction-sensitive — `host → anchor` is listed, `host → aux → anchor` is not.
@@ -57,16 +63,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   **Output impact**, measured on curve25519-dalek-lean-verify (2354 atoms, Lean 4.31.0)
   against the immediately preceding build:
 
-  - 575 dependency edges recovered across 157 atoms, all in `term-dependencies`;
+  - 575 dependency edges recovered across 157 atoms, all in `term-dependencies`. This is
+    **not** comparable with the 565 above: that baseline traverses only name-filtered
+    auxiliaries, while the shipped fold excludes structural members but additionally folds
+    through project members with no declaration range (Aeneas's `*_loop.mutual` helpers, for
+    instance), which the baseline never visited. Neither number is a subset of the other —
+    see `tools/audit/README.md`;
   - 65 atoms went from in-degree 0 to non-zero — the class the reporter pruned;
   - 6 atoms moved from `transitively-verified` to `verified`, and they are exactly the 6
     the independent taint audit (`tools/audit/Audit2.lean`) names, by identity: the
     `select_loop_spec`, `from_loop_spec` and `mul_loop_spec` trio plus their
     `.mvcgen_spec` companions;
   - **zero** `specs` / `primary-spec` changes, and `type-dependencies` byte-identical on
-    every atom — by construction, not by luck. The `@[primary_spec]` fallback can still
-    detach a tag through the union `dependencies` if a project ever relies on it, so there
-    is a unit regression for that path.
+    every atom. The type bucket is unchanged by construction; the absence of `specs` changes
+    is a property of this corpus, because the `@[primary_spec]` fallback walks the union
+    `dependencies` and can detach a tag on a project that relies on it — there is a unit
+    regression for that path, and `tools/audit/compare-extract.py` now asserts the
+    type-bucket invariant rather than only reporting it.
 
   Cost on the same project: extract wall-clock 8.87 s → 8.69 s (steady-state means of three
   runs — within noise; the agreed gate was ≤5% or ≤2 s), peak RSS +0.03%, clean `lake build`
