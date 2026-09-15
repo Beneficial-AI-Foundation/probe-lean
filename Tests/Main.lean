@@ -3977,6 +3977,13 @@ run_cmd do
   mkAux `AuxFoldEnv.kindsAux
     (← `(fun (_ : AuxFoldEnv.Color) (_ : AuxFoldEnv.Pair) (_ : AuxFoldEnv.Marked Nat) =>
           AuxFoldEnv.trustMe)) "def" false
+  -- An auxiliary *outside* the project filter. `notEmitted`'s first disjunct
+  -- (`isInternalName`) carries no project guard, so a non-project constant the
+  -- name filter drops is folded through like any other auxiliary — only the
+  -- targets it contributes are project-filtered. Not a curiosity: under a
+  -- module-prefix filter a non-project module can sit between two filtered
+  -- modules, and then the edge underneath its auxiliary is real.
+  mkAux `OutsideFold.helper._proof_1 (← `(AuxFoldEnv.viaBase)) "thm" false
 
   let env ← getEnv
   let inProject : Name → Bool := fun n => (`AuxFoldEnv).isPrefixOf n
@@ -4028,6 +4035,15 @@ run_cmd do
     ("named project constructor is a target, though never an atom",
       cls `AuxFoldEnv.Color.red == .emitted),
     ("external constant is ignored", cls `Nat.succ_pos == .ignored),
+    -- …but an external constant the *name* filter drops is still foldable:
+    -- `notEmitted`'s `isInternalName` disjunct has no project guard. Pinned
+    -- because "ignored means non-project" is the natural misreading, and
+    -- because this is the term that makes the traversal's cost sensitive to
+    -- external proof-term size.
+    ("external constant dropped by the name filter is foldable",
+      cls `OutsideFold.helper._proof_1 == .foldable),
+    ("a non-project auxiliary still contributes its project targets",
+      closure `OutsideFold.helper._proof_1 == #[`AuxFoldEnv.viaBase]),
     ("unresolvable name is unresolved", cls `AuxFoldEnv.doesNotExist == .unresolved),
     -- `viaBase` is emitted, so traversal must stop there and not flatten
     -- through to `base`.
