@@ -4,10 +4,10 @@
 Compares two `probe-lean extract` artifacts — one from before the fold, one from
 after — and asserts the governing invariant:
 
-    The fold only ever *adds* names to `type-dependencies` and
-    `term-dependencies`. It never removes an entry from any of the four
-    dependency arrays, never adds to the `*-external` arrays, and never changes
-    the atom set.
+    The fold only ever *adds* names to `term-dependencies`. It never adds to
+    `type-dependencies`, never removes an entry from any of the four dependency
+    arrays, never adds to the `*-external` arrays, and never changes the atom
+    set.
 
 What matters here is the invariants, not the edge counts: recovering the *wrong*
 565 edges would pass any numeric test. Pass `--oracle` (output of
@@ -91,9 +91,16 @@ def main():
                 removed.append(f"{name}: {sorted(lost)[:5]}")
         fail(f"entries removed from {field}", removed)
 
-    # --- the external arrays are byte-identical -----------------------------
-    for field in ("type-dependencies-external", "term-dependencies-external"):
-        changed = [name for name in common
+    # --- the arrays the fold must not touch at all ---------------------------
+    # `type-dependencies` belongs here, not merely in the "nothing removed"
+    # loop: every recovered edge is routed to `term-dependencies` so that
+    # type-driven `specs` selection cannot move, and that is the one invariant
+    # this gate previously could not catch — an artifact pair whose only change
+    # was a type-bucket addition printed "All invariants hold." and exited 0.
+    for field in ("type-dependencies",
+                  "type-dependencies-external", "term-dependencies-external"):
+        changed = [f"{name}: {sorted(set(deps(after[name], field)) - set(deps(before[name], field)))[:5]}"
+                   for name in common
                    if deps(before[name], field) != deps(after[name], field)]
         fail(f"{field} changed", changed)
 

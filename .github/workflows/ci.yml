@@ -53,15 +53,21 @@ jobs:
       # the test binary's own environment; only a real `extract` run shows that
       # a recovered edge actually reaches `verification-status`.
       #
-      # The fixture is a five-declaration Lake project on this repo's own
-      # toolchain with no dependencies to fetch, so the step costs one small
-      # `lake build`. `AuxFoldCheck.lean` asserts the *precondition* too — that
-      # the auxiliary exists and the edge really is hidden behind it — because
-      # whether Lean abstracts a proof obligation is elaborator-dependent, and
-      # without that assertion the check silently degrades into testing a direct
-      # dependency that was never lost.
+      # The fixture is a five-declaration Lake project with no dependencies to
+      # fetch, so the step costs one small `lake build`. `AuxFoldCheck.lean`
+      # asserts the *precondition* too — that the auxiliary exists and the edge
+      # really is hidden behind it — because whether Lean abstracts a proof
+      # obligation is elaborator-dependent, and without that assertion the check
+      # silently degrades into testing a direct dependency that was never lost.
+      #
+      # The fixture needs its own `lean-toolchain` (it is a separate Lake
+      # project), so the pin is duplicated. The `diff` keeps the copies in step:
+      # without it, bumping the root pin would leave this check silently running
+      # on the old elaborator — exactly the drift the precondition exists for.
       - name: End-to-end aux-fold extract check
         run: |
+          diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
+            || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           lake build probe-lean
           cd tests/fixtures/aux-fold
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .

@@ -3986,6 +3986,27 @@ run_cmd do
   -- Restricted-library extraction: the same environment, a narrower project set.
   let closureNarrow (n : Name) : Array Name :=
     (foldedDepsFrom (FoldWalk.ofEnv env (fun n => n == `AuxFoldEnv.trustMe)) n).run' {}
+  -- Wiring check for the production entry point itself. `testFoldBucketRouting`
+  -- re-implements `foldAtomDeps`' body on fabricated graphs, so it cannot catch
+  -- a regression in the routing *inside* `foldAtomDeps` — e.g. sending the
+  -- type-position reach back into the type bucket. This calls the real function
+  -- on the one shape that distinguishes the two routings: a host whose *type*
+  -- names a range-less auxiliary (`typeOnlyAux`) that hides `Color`.
+  --
+  -- `projTypeDeps` is what `partitionDeps` would produce for that type list:
+  -- it filters only by `isInternalName`, so the non-internal, range-less
+  -- `typeOnlyAux` survives as a direct edge *as well as* being folded.
+  let auxCache : AuxDepCache ← IO.mkRef {}
+  let hostInfo : DeclInfo :=
+    { name := `AuxFoldEnv.foldHost, displayName := "foldHost",
+      moduleName := `Tests.Main, kind := .theorem,
+      dependencies := #[`AuxFoldEnv.base, `AuxFoldEnv.typeOnlyAux],
+      typeDependencies := #[`AuxFoldEnv.base, `AuxFoldEnv.typeOnlyAux],
+      termDependencies := #[], sourceInfo := none }
+  let hostProjType : Array Name := #[`AuxFoldEnv.base, `AuxFoldEnv.typeOnlyAux]
+  let (hostUnion, hostType, hostTerm) ←
+    foldAtomDeps env inProject auxCache hostInfo hostProjType #[]
+  let hostAdded := (← auxCache.get).addedEdges
   let checks : Array (String × Bool) := #[
     ("internal name with a source range is foldable",
       cls `AuxFoldEnv.host._proof_9 == .foldable),
@@ -3999,6 +4020,13 @@ run_cmd do
     ("emitted project inductive is a target", cls `AuxFoldEnv.Color == .emitted),
     ("emitted project structure is a target", cls `AuxFoldEnv.Pair == .emitted),
     ("emitted project class is a target", cls `AuxFoldEnv.Marked == .emitted),
+    -- Targets are *not* exactly the atom set: `getProjectDecls` also skips
+    -- `.ctorInfo`/`.recInfo`, which the classifier does not mirror, so a named
+    -- project constructor is a target while never being emitted as an atom.
+    -- Pinned here so the leak is a recorded decision (see `DepClass.emitted`
+    -- and docs/SCHEMA.md), not something that silently flips.
+    ("named project constructor is a target, though never an atom",
+      cls `AuxFoldEnv.Color.red == .emitted),
     ("external constant is ignored", cls `Nat.succ_pos == .ignored),
     ("unresolvable name is unresolved", cls `AuxFoldEnv.doesNotExist == .unresolved),
     -- `viaBase` is emitted, so traversal must stop there and not flatten
@@ -4019,7 +4047,18 @@ run_cmd do
     -- `testFoldBucketRouting`): `noRangeThm`'s only project reference is
     -- `viaBase`, in its value.
     ("an auxiliary's value dependency is recovered",
-      closure `AuxFoldEnv.noRangeThm == #[`AuxFoldEnv.viaBase])]
+      closure `AuxFoldEnv.noRangeThm == #[`AuxFoldEnv.viaBase]),
+    -- `foldAtomDeps` itself, on a host whose type names the auxiliary. The
+    -- non-emptiness is part of the assertion: an empty-vs-empty comparison
+    -- cannot tell the two routings apart, which is the gap the end-to-end
+    -- fixture has.
+    ("foldAtomDeps returns the type bucket unchanged",
+      hostType == hostProjType && !hostType.isEmpty),
+    ("foldAtomDeps routes a type-position auxiliary's target to the term bucket",
+      hostTerm == #[`AuxFoldEnv.Color]),
+    ("foldAtomDeps derives dependencies as the union of both buckets",
+      hostUnion == sortDedupNames (hostType ++ hostTerm)),
+    ("foldAtomDeps counts the edges it added", hostAdded == 1)]
   -- `mkIdent`, not a plain quotation: a quoted binder name picks up macro
   -- scopes and the generated definition would be unreferenceable.
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
@@ -4032,17 +4071,22 @@ def testFoldClassifierEnv (result : TestResult) : IO TestResult := do
   IO.println "Testing classifyFoldCandidate against a real environment..."
   -- Guard against the whole block silently vanishing.
   result ← test "environment-backed checks were generated"
-    (auxFoldEnvChecks.size ≥ 18) result
+    (auxFoldEnvChecks.size ≥ 22) result
   for (name, ok) in auxFoldEnvChecks do
     result ← test name ok result
   return result
 
-/-- Bucket routing: every recovered edge lands in `term-dependencies`, including
-one found under an auxiliary the *type* named. `type-dependencies` is left exactly
-as `partitionDeps` produced it, so the fold cannot perturb `specs` /
-`primary-spec` — `computeSpecs` walks that array to decide what a theorem
-specifies, and a constant reached only through an instance's implementation is
-not something the statement specifies. -/
+/-- Bucket routing on fabricated graphs: every recovered edge lands in
+`term-dependencies`, including one found under an auxiliary the *type* named.
+`type-dependencies` is left exactly as `partitionDeps` produced it, so
+*type-driven* spec selection cannot move — `computeSpecs` walks that array to
+decide what a theorem specifies, and a constant reached only through an
+instance's implementation is not something the statement specifies. (The
+`@[primary_spec]` fallback reads the union and *can* move; see
+`testPrimarySpecFoldFallback`.)
+
+The production entry point `foldAtomDeps` is exercised by the
+environment-backed block above, not here: these graphs cannot reach it. -/
 def testFoldBucketRouting (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -4057,8 +4101,10 @@ def testFoldBucketRouting (result : TestResult) : IO TestResult := do
   result ← test "a type-position auxiliary's target lands in the term bucket"
     (routed == #[`hidden]) result
   -- The type bucket is passed through untouched, so the union is type ++ term.
+  -- (That `foldAtomDeps` really passes it through is asserted against the real
+  -- function in the environment-backed block; comparing a literal to itself
+  -- here would assert nothing.)
   let projType : Array Lean.Name := #[`stated]
-  result ← test "type bucket is passed through unchanged" (projType == #[`stated]) result
   result ← test "union carries both buckets"
     (sortDedupNames (projType ++ routed) == #[`hidden, `stated]) result
   -- Nothing foldable: the term bucket is returned untouched, no churn.
