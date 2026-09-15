@@ -578,8 +578,13 @@ inductive DepClass where
       module-prefix filter a non-project module can sit between two filtered
       modules, and an edge through its auxiliary is then genuinely recoverable.
 
-      "Not foldable" is different from "not an edge" — a direct edge to any of
-      these is emitted as before. -/
+      "Not foldable" is different from "not an edge" — but it is not "edge
+      preserved" either, and which applies is decided by the name filter rather
+      than by anything here. A direct reference that survives `isInternalName`
+      stays in its project or `*-external` bucket as always; one the name filter
+      catches (every structural-member suffix, every recursor) is dropped from
+      all four arrays by `partitionDeps`, also as always. Constructors split on
+      that same rule, not as a class: `Color.red` is kept, `Foo.mk` is not. -/
   | ignored
   /-- `env.find?` failed. Not silently dropped: reported once per extraction. -/
   | unresolved
@@ -662,9 +667,14 @@ structure FoldState where
   addedEdges : Nat := 0
 
 /-- A traversal policy: the out-edges to follow and how to classify what they
-reach. Bundled so a `FoldState`'s cache cannot be shared between two different
-policies by accident — a cached closure is only valid for the walk that built
-it. -/
+reach. Bundling the two means a caller cannot supply a `children` from one policy
+and a `classify` from another.
+
+It does **not** tie the policy to a `FoldState`: a cached closure is only valid
+for the walk that built it, but that is an invariant the caller upholds, not one
+the types enforce — `foldedDepsFrom` takes the walk and the state independently.
+The single production caller establishes it by building one state per extraction
+run alongside one walk (`ProbeLean/Atomize.lean`). -/
 structure FoldWalk where
   children : Name → Array Name
   classify : Name → DepClass
