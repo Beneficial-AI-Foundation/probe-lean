@@ -105,6 +105,11 @@ jobs:
       - name: Rewrite toolchain to newest supported Lean
         run: |
           echo "leanprover/lean4:${LEAN_VERSION}" > lean-toolchain
+          # The aux-fold fixture is a separate Lake project with its own pin, and
+          # the end-to-end step below asserts the two agree. Rewrite it here so
+          # the fixture follows the root instead of silently running this job's
+          # check on the pinned elaborator.
+          cp lean-toolchain tests/fixtures/aux-fold/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -140,6 +145,21 @@ jobs:
 
       - name: Run tests
         run: .lake/build/bin/tests
+
+      # The reason this job runs the fixture at all: the unit suite's
+      # environment-backed checks synthesize auxiliary shapes with `addDecl`, so
+      # they pin the classifier but never the *elaborator*. Whether Lean
+      # abstracts a proof obligation into a `_proof_N` at all is version
+      # dependent, and only a real `extract` run carries that through to
+      # `verification-status`. `rm -rf .lake` above cleared the fixture's build
+      # dir too, so this is a cold build of five declarations.
+      - name: End-to-end aux-fold extract check
+        run: |
+          diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
+            || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/aux-fold
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .
+          lake env lean --run AuxFoldCheck.lean
 
   check-version:
     name: Version consistency
