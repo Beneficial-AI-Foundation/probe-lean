@@ -51,12 +51,18 @@ def check (fs : Failures) (name : String) (ok : Bool) : IO Unit := do
     IO.println s!"  ✗ {name}"
     fs.modify (·.push name)
 
-/-- Whether `n` reaches `sorried_bound` through auxiliary constants only. -/
-partial def reachesViaAux (env : Environment) (n : Name) : Bool :=
+/-- Whether `n` reaches `sorried_bound` through auxiliary constants only.
+
+Carries a visited set: without one, a cycle among `._`-named constants would
+loop forever, and since this runs as a CI step the failure mode would be a hung
+job rather than a red build. -/
+partial def reachesViaAux (env : Environment) (seen : Std.HashSet Name) (n : Name) : Bool :=
+  if seen.contains n then false else
+  let seen := seen.insert n
   match env.find? n with
   | none => false
   | some ci => (usedConsts ci).any fun d =>
-      d == `sorried_bound || (looksAuxiliary d && reachesViaAux env d)
+      d == `sorried_bound || (looksAuxiliary d && reachesViaAux env seen d)
 
 def checkPrecondition (fs : Failures) : IO Unit := do
   initSearchPath (← findSysroot)
@@ -70,7 +76,7 @@ def checkPrecondition (fs : Failures) : IO Unit := do
       check fs s!"{host} has no direct edge to sorried_bound"
         (!direct.contains `sorried_bound)
       check fs s!"{host} references an auxiliary that reaches sorried_bound"
-        (direct.any fun d => looksAuxiliary d && reachesViaAux env d)
+        (direct.any fun d => looksAuxiliary d && reachesViaAux env {} d)
   match env.find? `theoremUse with
   | none => check fs "theoremUse exists" false
   | some ci =>
@@ -83,15 +89,23 @@ def checkPrecondition (fs : Failures) : IO Unit := do
     check fs "cleanUse references an auxiliary"
       (direct.any looksAuxiliary)
     check fs "cleanUse's auxiliary does not reach sorried_bound"
-      (!direct.any fun d => looksAuxiliary d && reachesViaAux env d)
+      (!direct.any fun d => looksAuxiliary d && reachesViaAux env {} d)
 
-/-- The single extract artifact under `.verilib/probes/`. -/
-def findArtifact : IO (Option System.FilePath) := do
+/-- The extract artifact under `.verilib/probes/`, and only if there is exactly
+one. The filename embeds the git commit (`lean_demo_<sha>.json`), so a leftover
+artifact from an earlier run would otherwise be picked silently and the check
+would assert on the wrong output. -/
+def findArtifact (fs : Failures) : IO (Option System.FilePath) := do
   let dir : System.FilePath := ".verilib/probes"
-  if !(← dir.pathExists) then return none
+  if !(← dir.pathExists) then
+    check fs s!"{dir} exists (run `probe-lean extract .` first)" false
+    return none
   let entries ← dir.readDir
-  let jsons := entries.filter fun e => e.fileName.endsWith ".json"
-  return (jsons.map (·.path)).qsort (fun a b => a.toString < b.toString) |>.back?
+  let jsons := (entries.filter fun e => e.fileName.endsWith ".json").map (·.path)
+  if jsons.size == 1 then return jsons[0]?
+  check fs s!"exactly one artifact under {dir} (found {jsons.size}: \
+    {jsons.map (·.fileName)}) — remove stale ones" false
+  return none
 
 def atomField (data : Json) (atom field : String) : Option Json :=
   (data.getObjVal? atom >>= (·.getObjVal? field)).toOption
@@ -109,8 +123,7 @@ def depsOf (data : Json) (atom field : String) : Array String :=
 def checkExtractOutput (fs : Failures) : IO Unit := do
   IO.println ""
   IO.println "Extract output: the recovered edge and its status consequence"
-  let some path ← findArtifact
-    | check fs "extract artifact exists under .verilib/probes" false
+  let some path ← findArtifact fs | return ()
   IO.println s!"  (artifact: {path})"
   let contents ← IO.FS.readFile path
   let .ok json := Json.parse contents
@@ -140,6 +153,14 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
     (statusOf data "probe:cleanUse" == some "transitively-verified")
   check fs "sorried_bound is unverified"
     (statusOf data "probe:sorried_bound" == some "unverified")
+  -- NOTE: the *type*-position fold (an auxiliary named in a statement, whose
+  -- implementation reach must be routed to `term-dependencies` rather than
+  -- `type-dependencies`) is deliberately not asserted here. It needs a project
+  -- constant with no declaration range in a statement — what Aeneas produces by
+  -- `addDecl`ing instances — and every declaration written in a source file has
+  -- a range, so that shape cannot be built in this fixture. The routing is
+  -- covered by `testFoldScopeRouting` and the environment-backed classifier
+  -- checks in `Tests/Main.lean`, which synthesize the range-less declaration.
 
 def main : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]
@@ -150,6 +171,9 @@ def main : IO UInt32 := do
   if failures.isEmpty then
     IO.println "aux-fold end-to-end check: all assertions passed"
     return 0
+  -- `IO.println` is buffered and `IO.eprintln` is not, so without this flush the
+  -- summary lands *above* the check log it summarizes in a merged CI log.
+  (← IO.getStdout).flush
   IO.eprintln s!"aux-fold end-to-end check: {failures.size} assertion(s) failed:"
   for f in failures do IO.eprintln s!"  {f}"
   return 1

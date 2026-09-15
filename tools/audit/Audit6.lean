@@ -119,19 +119,19 @@ partial def closure (c : Ctx) (n : Name) (acc : Std.HashSet Name)
     | .foldable => closure c d acc seen
     | _         => (acc, seen)
 
-/-- Targets the fold should add to one bucket: everything reachable through the
-bucket's foldable occurrences, minus what the bucket already holds, minus the
-host itself. -/
-def addedFor (c : Ctx) (host : Name) (raw : Array Name) : Array Name := Id.run do
-  let direct := raw.filter fun d => !isInternalName d && c.isProject d
+/-- Everything reachable through `raw`'s foldable occurrences. Unfiltered: the
+per-bucket subtraction happens at the routing step, as `mergeFolded` does it. -/
+def reachFor (c : Ctx) (raw : Array Name) : Std.HashSet Name := Id.run do
   let mut acc : Std.HashSet Name := {}
   for d in raw do
     if c.classify d == .foldable then
       -- One fresh visited set per occurrence, mirroring `foldedDepsFrom`.
       let (acc', _) := closure c d acc {}
       acc := acc'
-  let out := acc.toArray.filter fun d => !direct.contains d && d != host
-  return out.qsort fun a b => a.toString < b.toString
+  return acc
+
+def sorted (s : Std.HashSet Name) : Array Name :=
+  s.toArray.qsort fun a b => a.toString < b.toString
 
 /-- Render a name the way the artifact does: `probeRef` strips the private
 mangling (`_private.M.0.Bar.foo` → `Bar.foo`), so the oracle must too or every
@@ -152,10 +152,16 @@ def main (args : List String) : IO Unit := do
     | .ctorInfo _ | .recInfo _ => continue
     | _ => pure ()
     unless (declRangeExt.find? env name).isSome do continue
-    for t in addedFor c name ci.type.getUsedConstants do
-      rows := rows.push s!"{render name}\ttype\t{render t}"
-    let valConsts := (valueOf ci).elim #[] Expr.getUsedConstants
-    for t in addedFor c name valConsts do
+    let typeRaw := ci.type.getUsedConstants
+    let valRaw := (valueOf ci).elim #[] Expr.getUsedConstants
+    -- Every recovered edge is a term edge: `type-dependencies` is left exactly
+    -- as `partitionDeps` produced it, so the fold cannot perturb `specs`.
+    let directTerm := valRaw.filter fun d => !isInternalName d && c.isProject d
+    let reach := (reachFor c typeRaw).insertMany (reachFor c valRaw)
+    let mut termAdd : Std.HashSet Name := {}
+    for t in reach do
+      unless directTerm.contains t || t == name do termAdd := termAdd.insert t
+    for t in sorted termAdd do
       rows := rows.push s!"{render name}\tterm\t{render t}"
   -- Deduplicated after rendering: two private declarations in different modules
   -- can recover to the same user-facing name (`extract` warns about exactly

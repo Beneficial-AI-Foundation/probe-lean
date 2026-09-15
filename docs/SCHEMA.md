@@ -296,9 +296,9 @@ Each value contains all atom fields plus verification status and specs:
 | `display-name` | string | Last component of the name |
 | `kind` | string | Declaration kind |
 | `language` | string | Always `"lean"` |
-| `dependencies` | array | `probe:`-prefixed names this declaration depends on: the **deduplicated union** of `type-dependencies` and `term-dependencies`. This is an invariant, not an approximation — nothing appears here that is absent from both arrays. |
-| `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature, plus project names reached from the type only through non-emitted auxiliary constants (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)). |
-| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof, plus project names reached from the body only through non-emitted auxiliary constants (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)). For a theorem this is the proof term, so it is normally non-empty and typically much larger than `type-dependencies`. |
+| `dependencies` | array | `probe:`-prefixed names this declaration depends on: the **union** of `type-dependencies` and `term-dependencies`. This is an invariant, not an approximation — nothing appears here that is absent from both arrays. Deduplication is by *declaration identity*, and names are printed with private mangling stripped (`_private.M.0.Bar.foo` → `Bar.foo`), so two distinct private declarations that recover to the same user-facing name can appear twice; `extract` warns on stderr when that collision exists. |
+| `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature. Exactly what the signature mentions — auxiliary folding never adds here (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)), so this stays the signal `specs` / `primary-spec` are derived from. |
+| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof, plus every project name the fold recovers from under a non-emitted auxiliary — including auxiliaries named in the *type* (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)). Folded entries are therefore *indirect*: the array holds what the declaration reaches, not only what it literally names. For a theorem this is the proof term, so it is normally non-empty and typically much larger than `type-dependencies`. |
 | `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/core) referenced **directly** in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. Auxiliary folding does not contribute here: an external constant reached only through an auxiliary is not listed (see the asymmetry note below). |
 | `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced **directly** in the body/proof. Absent when empty. Same direct-only rule as `type-dependencies-external`. |
 | `code-module` | string | Module name containing the declaration |
@@ -337,8 +337,20 @@ atoms, so a dependency reached only through one of them used to leave no trace a
 `extract` therefore folds such edges into the referencing declaration. The pass is strictly
 **additive**: it only ever adds names to `type-dependencies` and `term-dependencies`, never
 removes an entry from any of the four dependency arrays, never adds to the `*-external`
-arrays, and never changes the atom set. A folded target lands in whichever bucket the
-auxiliary occurred in — both, if the auxiliary occurs in both the type and the body.
+arrays, and never changes the atom set.
+
+**Every recovered edge lands in `term-dependencies`**, including one found under an
+auxiliary named in the declaration's *type*. `type-dependencies` therefore stays exactly
+what the signature syntactically mentions, and the fold cannot change `specs` or
+`primary-spec` at all — those are computed from `type-dependencies`, and a constant reached
+only through an auxiliary's implementation is not something a statement specifies. Since
+`dependencies` is the union of the two buckets, verification-status propagation still sees
+every recovered edge.
+
+A consequence worth stating: a folded entry in `term-dependencies` is *indirect*. The array
+is no longer only "constants named in the body" — it is "constants the body reaches", with
+the auxiliaries themselves elided. Use `dependencies` for reachability and treat
+`type-dependencies` as the exact signature signal.
 
 What is folded **through** (traversed, contributing what it reaches):
 
@@ -356,6 +368,12 @@ What is **not** folded through:
   axiom or inductive reached through an auxiliary is *added* as a target.
 - anything already emitted as an atom — traversal stops at a real dependency instead of
   flattening the graph past it.
+
+A folded **target** is any project constant that survives the name filter and has a
+declaration range. That is every atom, plus named inductive constructors, which are
+referenced but never emitted as atoms of their own — exactly as for a *direct* edge to such
+a constructor today. So a folded name is not guaranteed to be a key in `data`; the
+missing-dependency reporting treats a constructor whose parent type is extracted as benign.
 
 **Direct-vs-folded asymmetry for external constants.** Only project-internal targets are
 folded. Folding external targets too would add tens of thousands of entries on a

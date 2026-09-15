@@ -3705,14 +3705,13 @@ constants, structural members and non-value-bearing constants, so "not
 traversed, not added" is the default and has to be overridden explicitly. -/
 private def foldGraph (edges : List (Lean.Name × List Lean.Name))
     (emitted : List Lean.Name) (foldable : List Lean.Name)
-    (unresolved : List Lean.Name := []) :
-    (Lean.Name → Array Lean.Name) × (Lean.Name → DepClass) :=
-  (fun n => ((edges.lookup n).getD []).toArray,
-   fun n =>
-     if emitted.contains n then .emitted
-     else if foldable.contains n then .foldable
-     else if unresolved.contains n then .unresolved
-     else .ignored)
+    (unresolved : List Lean.Name := []) : FoldWalk :=
+  { children := fun n => ((edges.lookup n).getD []).toArray
+    classify := fun n =>
+      if emitted.contains n then .emitted
+      else if foldable.contains n then .foldable
+      else if unresolved.contains n then .unresolved
+      else .ignored }
 
 /-- Run a fold computation on a fresh state, keeping only the value. Spelled out
 because `StateM`'s `run'` leaves the result under `Id`, where `BEq` will not
@@ -3724,14 +3723,12 @@ private def runFold {α : Type} (act : StateM FoldState α) : α := act.run' {}
 private def runFoldSt {α : Type} (act : StateM FoldState α) : α × FoldState := act.run {}
 
 /-- Names of one closure query, run on a fresh state. -/
-private def closureOf (g : (Lean.Name → Array Lean.Name) × (Lean.Name → DepClass))
-    (n : Lean.Name) : Array Lean.Name :=
-  runFold (foldedDepsFrom g.1 g.2 n)
+private def closureOf (g : FoldWalk) (n : Lean.Name) : Array Lean.Name :=
+  runFold (foldedDepsFrom g n)
 
 /-- `Aᵢ → [Lᵢ, Aᵢ₊₁]`: a chain with a distinct emitted exit per level. The
 quadratic-materialisation case — `n` expansions cache `n(n+1)/2` names. -/
-private def exitChain (n : Nat) :
-    (Lean.Name → Array Lean.Name) × (Lean.Name → DepClass) :=
+private def exitChain (n : Nat) : FoldWalk :=
   let a (i : Nat) : Lean.Name := Lean.Name.mkSimple s!"A{i}"
   let l (i : Nat) : Lean.Name := Lean.Name.mkSimple s!"L{i}"
   let idx := List.range n
@@ -3761,8 +3758,8 @@ def testFoldedDeps (result : TestResult) : IO TestResult := do
   -- across cache hits (two hosts reaching the same unresolved node once each).
   let g4 := foldGraph [(`aux, [`Gone, `lemma]), (`aux2, [`aux])] [`lemma] [`aux, `aux2] [`Gone]
   let st4 := (runFoldSt (do
-      let _ ← foldedDepsFrom g4.1 g4.2 `aux
-      foldedDepsFrom g4.1 g4.2 `aux2)).2
+      let _ ← foldedDepsFrom g4 `aux
+      foldedDepsFrom g4 `aux2)).2
   result ← test "unresolved name reported" (st4.unresolved.contains `Gone) result
   result ← test "unresolved names deduplicated" (st4.unresolved.size == 1) result
   result ← test "unresolved does not block siblings"
@@ -3786,8 +3783,8 @@ def testFoldedDepsCycles (result : TestResult) : IO TestResult := do
   result ← test "cold query of B recovers L (child order flipped)"
     (closureOf cyFlip `B == #[`L]) result
   let warm := runFoldSt (do
-      let _ ← foldedDepsFrom cy.1 cy.2 `A
-      foldedDepsFrom cy.1 cy.2 `B)
+      let _ ← foldedDepsFrom cy `A
+      foldedDepsFrom cy `B)
   result ← test "warm query of B recovers L after A" (warm.1 == #[`L]) result
   result ← test "cyclic node A not cached" (!warm.2.cache.contains `A) result
   result ← test "cyclic node B not cached" (!warm.2.cache.contains `B) result
@@ -3795,8 +3792,8 @@ def testFoldedDepsCycles (result : TestResult) : IO TestResult := do
   -- A consumed an incomplete result, so A must not be cached either.
   let anc := foldGraph [(`P, [`A, `L]), (`A, [`B]), (`B, [`P])] [`L] [`A, `B, `P]
   let ancRun := runFoldSt (do
-      let first ← foldedDepsFrom anc.1 anc.2 `A
-      let second ← foldedDepsFrom anc.1 anc.2 `A
+      let first ← foldedDepsFrom anc `A
+      let second ← foldedDepsFrom anc `A
       return (first, second))
   result ← test "A recovers L through the cycle" (ancRun.1.1 == #[`L]) result
   result ← test "later reference to A still recovers L" (ancRun.1.2 == #[`L]) result
@@ -3806,8 +3803,8 @@ def testFoldedDepsCycles (result : TestResult) : IO TestResult := do
   let rev := foldGraph [(`R, [`A, `B]), (`A, [`X, `L]), (`X, [`A]), (`B, [`X])]
     [`L] [`R, `A, `B, `X]
   let revRun := runFoldSt (do
-      let root ← foldedDepsFrom rev.1 rev.2 `R
-      let later ← foldedDepsFrom rev.1 rev.2 `B
+      let root ← foldedDepsFrom rev `R
+      let later ← foldedDepsFrom rev `B
       return (root, later))
   result ← test "root R recovers L" (revRun.1.1 == #[`L]) result
   result ← test "warm query of completed-but-uncached B recovers L"
@@ -3819,7 +3816,7 @@ def testFoldedDepsCycles (result : TestResult) : IO TestResult := do
   let lay := foldGraph
     [(`T, [`M1, `M2]), (`M1, [`B1, `B2]), (`M2, [`B1, `B2]),
      (`B1, [`T, `L]), (`B2, [`T, `L])] [`L] [`T, `M1, `M2, `B1, `B2]
-  let layRun := runFoldSt (foldedDepsFrom lay.1 lay.2 `T)
+  let layRun := runFoldSt (foldedDepsFrom lay `T)
   result ← test "layered cyclic sharing recovers L" (layRun.1 == #[`L]) result
   result ← test "layered cyclic sharing stays bounded" (layRun.2.expansions ≤ 5) result
   return result
@@ -3832,41 +3829,41 @@ def testFoldDepList (result : TestResult) : IO TestResult := do
   -- suppressed only for itself: H₁ → aux → H₁, H₂ → aux must still give H₂ H₁.
   let sh := foldGraph [(`aux, [`H1, `L])] [`H1, `L] [`aux]
   let shRun := runFold (do
-      let h1 ← foldDepList sh.1 sh.2 `H1 #[`aux] #[]
-      let h2 ← foldDepList sh.1 sh.2 `H2 #[`aux] #[]
+      let h1 ← foldDepList sh `H1 #[`aux] #[]
+      let h2 ← foldDepList sh `H2 #[`aux] #[]
       return (h1, h2))
   result ← test "self-edge suppressed for the host itself" (shRun.1 == #[`L]) result
   result ← test "other host still gets the shared target" (shRun.2 == #[`H1, `L]) result
   let shFlip := runFold (do
-      let h2 ← foldDepList sh.1 sh.2 `H2 #[`aux] #[]
-      let h1 ← foldDepList sh.1 sh.2 `H1 #[`aux] #[]
+      let h2 ← foldDepList sh `H2 #[`aux] #[]
+      let h1 ← foldDepList sh `H1 #[`aux] #[]
       return (h1, h2))
   result ← test "self-edge suppression is order-independent"
     (shFlip.1 == #[`L] && shFlip.2 == #[`H1, `L]) result
   -- Additive: existing entries survive, folded ones are merged in, re-sorted.
   let g := foldGraph [(`aux, [`beta])] [`alpha, `beta, `zeta] [`aux]
-  let merged := runFold (foldDepList g.1 g.2 `host #[`zeta, `aux, `alpha] #[`alpha, `zeta])
+  let merged := runFold (foldDepList g `host #[`zeta, `aux, `alpha] #[`alpha, `zeta])
   result ← test "existing entries kept, folded entry merged and sorted"
     (merged == #[`alpha, `beta, `zeta]) result
   -- Nothing to fold: the list is returned untouched (no re-sort, no churn).
   let g0 := foldGraph [] [`alpha] []
   result ← test "list with no foldable occurrence is untouched"
-    (runFold (foldDepList g0.1 g0.2 `host #[`alpha] #[`alpha]) == #[`alpha]) result
+    (runFold (foldDepList g0 `host #[`alpha] #[`alpha]) == #[`alpha]) result
   -- A dangling direct edge to a non-emitted project name is kept *as well as*
   -- folded, so the missing-dependency warning still fires.
   let dang := foldGraph [(`Proj.noRange, [`L])] [`L] [`Proj.noRange]
-  let dangRun := runFold (foldDepList dang.1 dang.2 `host #[`Proj.noRange] #[`Proj.noRange])
+  let dangRun := runFold (foldDepList dang `host #[`Proj.noRange] #[`Proj.noRange])
   result ← test "non-emitted project dep kept as well as folded"
     (dangRun == #[`L, `Proj.noRange]) result
   -- The same auxiliary in type and term position lands in both buckets.
   let both := runFold (do
-      let ty ← foldDepList g.1 g.2 `host #[`aux] #[]
-      let tm ← foldDepList g.1 g.2 `host #[`aux] #[]
+      let ty ← foldDepList g `host #[`aux] #[]
+      let tm ← foldDepList g `host #[`aux] #[]
       return (ty, tm))
   result ← test "aux in both positions lands in both buckets"
     (both.1 == #[`beta] && both.2 == #[`beta]) result
   -- Added-edge accounting counts only genuinely new entries.
-  let acc := runFoldSt (foldDepList g.1 g.2 `host #[`aux, `beta] #[`beta])
+  let acc := runFoldSt (foldDepList g `host #[`aux, `beta] #[`beta])
   result ← test "already-present folded target counts as no new edge"
     (acc.1 == #[`beta] && acc.2.addedEdges == 0) result
   return result
@@ -3880,8 +3877,8 @@ def testFoldedDepsSharing (result : TestResult) : IO TestResult := do
       (Lean.Name.mkSimple s!"D{i}", [Lean.Name.mkSimple s!"D{i+1}"]) ) [`D40]
     ((List.range 40).map fun i => Lean.Name.mkSimple s!"D{i}")
   let deepRun := runFoldSt (do
-      let a ← foldedDepsFrom deep.1 deep.2 `D0
-      let b ← foldedDepsFrom deep.1 deep.2 `D0
+      let a ← foldedDepsFrom deep `D0
+      let b ← foldedDepsFrom deep `D0
       return (a, b))
   result ← test "deep chain reaches the exit" (deepRun.1.1 == #[`D40]) result
   result ← test "deep chain expands each node once"
@@ -3892,12 +3889,12 @@ def testFoldedDepsSharing (result : TestResult) : IO TestResult := do
   let dag := foldGraph
     [(`top, [`l, `r]), (`l, [`shared]), (`r, [`shared]), (`shared, [`exit])]
     [`exit] [`top, `l, `r, `shared]
-  let dagRun := runFoldSt (foldedDepsFrom dag.1 dag.2 `top)
+  let dagRun := runFoldSt (foldedDepsFrom dag `top)
   result ← test "shared DAG subtree recovered once"
     (dagRun.1 == #[`exit] && dagRun.2.expansions == 4) result
   -- Quadratic-materialisation case, stated honestly in the spec: `n`
   -- expansions, `n(n+1)/2` cached names. The bound is what the test pins.
-  let chainRun := runFoldSt (foldedDepsFrom (exitChain 12).1 (exitChain 12).2 `A0)
+  let chainRun := runFoldSt (foldedDepsFrom (exitChain 12) `A0)
   result ← test "exit chain recovers every level"
     (chainRun.1.size == 12) result
   -- 13, not 12: the chain's tail `A12` is foldable too (it just has no edges).
@@ -3984,12 +3981,11 @@ run_cmd do
   let env ← getEnv
   let inProject : Name → Bool := fun n => (`AuxFoldEnv).isPrefixOf n
   let cls := classifyFoldCandidate env inProject
-  let children := constChildren env
-  let closure (n : Name) : Array Name := (foldedDepsFrom children cls n).run' {}
+  let walk := FoldWalk.ofEnv env inProject
+  let closure (n : Name) : Array Name := (foldedDepsFrom walk n).run' {}
   -- Restricted-library extraction: the same environment, a narrower project set.
-  let clsNarrow := classifyFoldCandidate env (fun n => n == `AuxFoldEnv.trustMe)
   let closureNarrow (n : Name) : Array Name :=
-    (foldedDepsFrom children clsNarrow n).run' {}
+    (foldedDepsFrom (FoldWalk.ofEnv env (fun n => n == `AuxFoldEnv.trustMe)) n).run' {}
   let checks : Array (String × Bool) := #[
     ("internal name with a source range is foldable",
       cls `AuxFoldEnv.host._proof_9 == .foldable),
@@ -4018,7 +4014,12 @@ run_cmd do
       [`AuxFoldEnv.trustMe, `AuxFoldEnv.Color, `AuxFoldEnv.Pair, `AuxFoldEnv.Marked].all
         fun n => (closure `AuxFoldEnv.kindsAux).contains n),
     ("restricted project set keeps only its own targets",
-      closureNarrow `AuxFoldEnv.kindsAux == #[`AuxFoldEnv.trustMe])]
+      closureNarrow `AuxFoldEnv.kindsAux == #[`AuxFoldEnv.trustMe]),
+    -- An auxiliary's *value* reach is recovered (into the term bucket, see
+    -- `testFoldBucketRouting`): `noRangeThm`'s only project reference is
+    -- `viaBase`, in its value.
+    ("an auxiliary's value dependency is recovered",
+      closure `AuxFoldEnv.noRangeThm == #[`AuxFoldEnv.viaBase])]
   -- `mkIdent`, not a plain quotation: a quoted binder name picks up macro
   -- scopes and the generated definition would be unreferenceable.
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
@@ -4031,9 +4032,48 @@ def testFoldClassifierEnv (result : TestResult) : IO TestResult := do
   IO.println "Testing classifyFoldCandidate against a real environment..."
   -- Guard against the whole block silently vanishing.
   result ← test "environment-backed checks were generated"
-    (auxFoldEnvChecks.size ≥ 17) result
+    (auxFoldEnvChecks.size ≥ 18) result
   for (name, ok) in auxFoldEnvChecks do
     result ← test name ok result
+  return result
+
+/-- Bucket routing: every recovered edge lands in `term-dependencies`, including
+one found under an auxiliary the *type* named. `type-dependencies` is left exactly
+as `partitionDeps` produced it, so the fold cannot perturb `specs` /
+`primary-spec` — `computeSpecs` walks that array to decide what a theorem
+specifies, and a constant reached only through an instance's implementation is
+not something the statement specifies. -/
+def testFoldBucketRouting (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing fold bucket routing (recovered edges are term edges)..."
+  -- `aux` is named in the host's type and hides `hidden`.
+  let g := foldGraph [(`aux, [`hidden])] [`hidden, `stated] [`aux]
+  let routed := runFold (do
+    let fromType ← foldOccurrences g #[`aux, `stated]
+    let fromTerm ← foldOccurrences g #[]
+    let tm ← mergeFolded `host #[] (fromType ++ fromTerm)
+    return tm)
+  result ← test "a type-position auxiliary's target lands in the term bucket"
+    (routed == #[`hidden]) result
+  -- The type bucket is passed through untouched, so the union is type ++ term.
+  let projType : Array Lean.Name := #[`stated]
+  result ← test "type bucket is passed through unchanged" (projType == #[`stated]) result
+  result ← test "union carries both buckets"
+    (sortDedupNames (projType ++ routed) == #[`hidden, `stated]) result
+  -- Nothing foldable: the term bucket is returned untouched, no churn.
+  let g0 := foldGraph [] [`stated] []
+  result ← test "no foldable occurrence leaves the bucket untouched"
+    (runFold (do mergeFolded `host #[`stated] (← foldOccurrences g0 #[`stated]))
+      == #[`stated]) result
+  -- Cycle instrumentation: the counter must move when a back-edge actually fires,
+  -- and stay at zero otherwise — a real run reporting 0 has not exercised the
+  -- cycle rules at all.
+  let cyc := foldGraph [(`A, [`B, `L]), (`B, [`A])] [`L] [`A, `B]
+  result ← test "cycle suppression is counted"
+    ((runFoldSt (foldedDepsFrom cyc `A)).2.nonCacheable > 0) result
+  result ← test "acyclic traversal counts no suppression"
+    ((runFoldSt (foldedDepsFrom g `aux)).2.nonCacheable == 0) result
   return result
 
 /-- The `@[primary_spec]` fallback walks the union `dependencies`, so a folded
@@ -4148,6 +4188,7 @@ def main : IO UInt32 := do
   result ← testFoldedDepsCycles result
   result ← testFoldDepList result
   result ← testFoldedDepsSharing result
+  result ← testFoldBucketRouting result
   result ← testFoldClassifierEnv result
   result ← testPrimarySpecFoldFallback result
 

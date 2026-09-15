@@ -383,9 +383,12 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
   -- resolve is a diagnostic, not something to drop by suffix.
   let fold ← auxCache.get
   let cachedNames := fold.cache.fold (init := 0) fun n _ v => n + v.size
+  -- `nonCacheable` is reported because a run where it stays 0 never hit a
+  -- back-edge, i.e. the cycle rules were not exercised at all on that project.
   IO.println s!"Auxiliary fold: recovered {fold.addedEdges} dependency edge(s) \
     ({fold.expansions} expansions, {fold.edgesScanned} edges scanned, \
-    cache {fold.cache.size} node(s) / {cachedNames} name(s))"
+    {fold.nonCacheable} cycle suppression(s), \
+    cache {fold.cache.size} entr(ies) / {cachedNames} name(s))"
   if !fold.unresolved.isEmpty then
     let names := (fold.unresolved.toArray.map (·.toString)).qsort (· < ·)
     IO.eprintln s!"Warning: {names.size} dependency name(s) could not be resolved \

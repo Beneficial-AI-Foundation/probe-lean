@@ -9,10 +9,15 @@ after — and asserts the governing invariant:
     dependency arrays, never adds to the `*-external` arrays, and never changes
     the atom set.
 
-This is the primary gate, not the edge counts: recovering the *wrong* 565 edges
-would pass any numeric test. Pass `--oracle` (output of `tools/audit/Audit6.lean`
-on the same project, commit and module filter) to additionally require that the
-added edges are exactly the ones an independent traversal predicts.
+What matters here is the invariants, not the edge counts: recovering the *wrong*
+565 edges would pass any numeric test. Pass `--oracle` (output of
+`tools/audit/Audit6.lean` on the same project, commit and module filter) to
+additionally require that the added edges are exactly the ones an independent
+traversal predicts.
+
+This is a manual recipe, not a CI gate — it needs a built target project. Note
+also that field values are compared *normalized*: absent, `null` and `[]` are
+all read as `[]`, so this checks value identity, not field presence.
 
 Usage:
 
@@ -64,14 +69,17 @@ def main():
     failures = []
     notes = []
 
-    def fail(check, examples):
-        examples = list(examples)
-        if examples:
-            failures.append((check, examples))
+    def fail(check, violations):
+        """Record a failed check. Takes the FULL violation list — truncation is a
+        printing concern. Passing a pre-truncated list made `--report 0` slice
+        every list to empty and turned the whole gate into a no-op."""
+        violations = list(violations)
+        if violations:
+            failures.append((check, violations))
 
     # --- atom set unchanged -------------------------------------------------
-    fail("atoms removed", sorted(set(before) - set(after))[:args.report])
-    fail("atoms added", sorted(set(after) - set(before))[:args.report])
+    fail("atoms removed", sorted(set(before) - set(after)))
+    fail("atoms added", sorted(set(after) - set(before)))
     common = sorted(set(before) & set(after))
 
     # --- nothing removed from any dependency array --------------------------
@@ -81,13 +89,13 @@ def main():
             lost = set(deps(before[name], field)) - set(deps(after[name], field))
             if lost:
                 removed.append(f"{name}: {sorted(lost)[:5]}")
-        fail(f"entries removed from {field}", removed[:args.report])
+        fail(f"entries removed from {field}", removed)
 
     # --- the external arrays are byte-identical -----------------------------
     for field in ("type-dependencies-external", "term-dependencies-external"):
         changed = [name for name in common
                    if deps(before[name], field) != deps(after[name], field)]
-        fail(f"{field} changed", changed[:args.report])
+        fail(f"{field} changed", changed)
 
     # --- `dependencies` is the deduplicated union of the two buckets --------
     # Checked on the *after* artifact: the fold replaces the old independent
@@ -98,10 +106,22 @@ def main():
         a = after[name]
         union = set(deps(a, "type-dependencies")) | set(deps(a, "term-dependencies"))
         listed = deps(a, "dependencies")
-        if sorted(union) != sorted(set(listed)) or len(listed) != len(set(listed)):
+        if sorted(union) != sorted(set(listed)):
             bad_union.append(name)
-    fail("dependencies is not the deduplicated union of type+term",
-         bad_union[:args.report])
+    fail("dependencies is not the union of type+term", bad_union)
+
+    # Deduplication is by *declaration identity* (raw `Lean.Name`), but the
+    # artifact prints names through `privateToUserName`, so two private
+    # declarations that recover to one user-facing name serialize identically.
+    # Checked on all four arrays, not just `dependencies`.
+    dup = []
+    for name in common:
+        for field in DEP_FIELDS:
+            values = deps(after[name], field)
+            if len(values) != len(set(values)):
+                dup.append(f"{name}/{field}")
+    fail("serialized dependency array contains a duplicate name "
+         "(private-name collision — see docs/SCHEMA.md)", dup)
 
     # --- sorted output (P14) ------------------------------------------------
     # Only *regressions* are failures. Some arrays are already unsorted with
@@ -133,8 +153,7 @@ def main():
             it = iter(new)
             if not all(any(x == y for y in it) for x in old):
                 not_subseq.append(f"{name}/{field}")
-    fail("old dependency array is not a subsequence of the new one",
-         not_subseq[:args.report])
+    fail("old dependency array is not a subsequence of the new one", not_subseq)
 
     # --- what the fold actually added ---------------------------------------
     added = defaultdict(set)   # (atom, bucket) -> targets
@@ -180,8 +199,7 @@ def main():
         else:
             bad_status.append(f"{name}: {b} -> {a}")
     notes.append(f"transitively-verified -> verified: {downgrades}")
-    fail("verification-status moved in a direction the fold cannot cause",
-         bad_status[:args.report])
+    fail("verification-status moved in a direction the fold cannot cause", bad_status)
 
     # --- specs / primary-spec blast radius ----------------------------------
     # Not an invariant: `computeSpecs`' `@[primary_spec]` fallback walks the
@@ -220,8 +238,8 @@ def main():
             if got - exp:
                 extra.append(f"{key[0]}/{key[1]}: {sorted(got - exp)[:5]}")
         notes.append(f"oracle expects {sum(len(v) for v in expected.values())} edge(s)")
-        fail("oracle edge predicted but not added", missing[:args.report])
-        fail("edge added but not predicted by the oracle", extra[:args.report])
+        fail("oracle edge predicted but not added", missing)
+        fail("edge added but not predicted by the oracle", extra)
 
     for note in notes:
         print(f"  {note}")
@@ -238,10 +256,14 @@ def main():
         print("\nAll invariants hold.")
         return 0
     print(f"\n{len(failures)} invariant check(s) FAILED:")
-    for check, examples in failures:
-        print(f"  ✗ {check}")
-        for example in examples:
-            print(f"      {example}")
+    for check, violations in failures:
+        print(f"  ✗ {check} ({len(violations)})")
+        shown = violations[:args.report] if args.report > 0 else []
+        for violation in shown:
+            print(f"      {violation}")
+        hidden = len(violations) - len(shown)
+        if hidden:
+            print(f"      ({hidden} not shown; raise --report)")
     return 1
 
 

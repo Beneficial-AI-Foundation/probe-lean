@@ -83,8 +83,8 @@ Before importing, `extract` runs a **co-importability preflight**: it reads each
 Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not
 emit as atoms (`X._proof_N`, `X.match_N`, …); before this, a dependency reached only through
 one of them disappeared from the graph, so a `sorry`-carrying lemma used inside a tactic
-block left its caller looking clean. The pass is strictly additive (only project names, only
-`type-dependencies`/`term-dependencies`) — see
+block left its caller looking clean. The pass is strictly additive, and adds only to
+`term-dependencies` — see
 [SCHEMA.md](SCHEMA.md#auxiliary-dependency-folding) for what is and is not folded, and for
 the two limits worth repeating: folding fixes edges, not `verification-status` soundness, and
 a zero in-degree is still not a licence to delete a declaration.
@@ -92,8 +92,11 @@ a zero in-degree is still not a licence to delete a declaration.
 The step reports its accounting on stdout, e.g.
 
 ```
-Auxiliary fold: recovered 2 dependency edge(s) (1 expansions, 12 edges scanned, cache 1 node(s) / 1 name(s))
+Auxiliary fold: recovered 2 dependency edge(s) (2 expansions, 22 edges scanned, 0 cycle suppression(s), cache 2 entr(ies) / 1 name(s))
 ```
+
+`cycle suppression(s)` counts how often the traversal hit a back-edge. A run reporting 0 —
+as curve25519-dalek-lean-verify does — never exercised the cycle-handling rules at all.
 
 If a dependency name cannot be resolved in the imported environment, `extract` lists it on
 stderr rather than dropping it silently: edges underneath such a name are not recovered.

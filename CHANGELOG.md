@@ -28,8 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is strictly **additive**: it never removes an entry from any of the four dependency
   arrays, never adds to the `*-external` arrays, and never changes the atom set. Edges to
   emitted project axioms, inductives, structures and classes, and direct external anchors,
-  are therefore untouched by construction. `dependencies` is now derived as the deduplicated
-  union of the two folded arrays, which is what keeps its documented contract true.
+  are therefore untouched by construction. `dependencies` is now derived as the union of the
+  two folded arrays, which is what keeps its documented contract true.
+
+  Every recovered edge lands in **`term-dependencies`**, including one found under an
+  auxiliary named in the declaration's *type*. `type-dependencies` is left exactly as it
+  was, so the fold provably cannot change `specs` or `primary-spec`: those are computed from
+  `type-dependencies`, and a constant reached only through an instance's implementation is
+  not something a statement specifies. (An earlier revision routed type-position reach into
+  the type bucket; on dalek it pushed 14 implementation constants into four theorems'
+  `type-dependencies` and detached one atom's `primary-spec`.) Since `dependencies` is the
+  union of the two buckets, verification-status propagation still sees every recovered edge.
+  The trade-off, stated in `docs/SCHEMA.md`: a folded entry in `term-dependencies` is
+  *indirect* — the array holds what the body reaches, not only what it names.
 
   Deliberately out of scope, each a follow-up: structural members of a type (`.mk`,
   `.injEq`, `.casesOn`, `.eq_N`) are not folded through; external targets are not folded
@@ -46,23 +57,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   **Output impact**, measured on curve25519-dalek-lean-verify (2354 atoms, Lean 4.31.0)
   against the immediately preceding build:
 
-  - 593 dependency edges recovered across 157 atoms (575 in `term-dependencies`, 18 in
-    `type-dependencies`);
+  - 575 dependency edges recovered across 157 atoms, all in `term-dependencies`;
   - 65 atoms went from in-degree 0 to non-zero — the class the reporter pruned;
-  - 6 atoms moved from `transitively-verified` to `verified`, exactly the 6 the audit
-    predicted;
-  - 6 `specs`/`primary-spec` field changes. Because `computeSpecs` walks
-    `type-dependencies`, the 18 type-bucket edges attach new specs, and one atom
-    (`ProjectiveNielsPoint.Insts.CoreMarkerCopy`) **loses** its `primary-spec`: it had
-    exactly one spec and now has two (`LookupTable.select_spec` plus the recovered
-    `select_loop_spec`), so the sole-spec signal no longer applies. The
-    `@[primary_spec]` fallback can detach a tag the same way through the union
-    `dependencies` with no type-dependency change at all; there is a unit regression for
-    that path.
+  - 6 atoms moved from `transitively-verified` to `verified`, and they are exactly the 6
+    the independent taint audit (`tools/audit/Audit2.lean`) names, by identity: the
+    `select_loop_spec`, `from_loop_spec` and `mul_loop_spec` trio plus their
+    `.mvcgen_spec` companions;
+  - **zero** `specs` / `primary-spec` changes, and `type-dependencies` byte-identical on
+    every atom — by construction, not by luck. The `@[primary_spec]` fallback can still
+    detach a tag through the union `dependencies` if a project ever relies on it, so there
+    is a unit regression for that path.
 
-  Cost on the same project: extract wall-clock 8.87 s → 10.07 s (+1.20 s, steady-state mean
-  of three runs), peak RSS +0.03%, clean `lake build` 23.8 s → 25.5 s. The traversal made
-  4653 node expansions, scanned 349k edges, and cached 4653 closures holding 6208 names.
+  Cost on the same project: extract wall-clock 8.87 s → 8.69 s (steady-state means of three
+  runs — within noise; the agreed gate was ≤5% or ≤2 s), peak RSS +0.03%, clean `lake build`
+  23.8 s → 25.5 s. The traversal made 4653 node expansions, scanned 349k edges, and cached
+  4653 closures holding 6208 names — and **0 cycle suppressions**, i.e. this corpus never
+  exercised the cycle rules, which are covered by unit tests only. The `Auxiliary fold:`
+  line reports that counter so a future target project shows whether the cyclic path is
+  live.
 
 ### Added
 

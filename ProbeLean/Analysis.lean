@@ -612,7 +612,9 @@ immutable `Environment` and one classification policy. Extraction is sequential
 and builds one state per run — that is the cache's stated invariant, not a
 silent assumption. Cached closures are project-filtered but **not**
 host-filtered: self-edge suppression happens at the host merge, so a closure
-shared by two hosts stays correct for both. -/
+shared by two hosts stays correct for both.
+
+-/
 structure FoldState where
   /-- Complete, project-filtered, deduplicated closures, by node. -/
   cache : Std.HashMap Name (Array Name) := {}
@@ -624,8 +626,26 @@ structure FoldState where
   expansions : Nat := 0
   /-- Edges scanned (performance gate). -/
   edgesScanned : Nat := 0
+  /-- Expansions whose result was incomplete because a back-edge was skipped, so
+      the cycle rules actually fired. Reported, because a run where this stays 0
+      has not exercised them at all. -/
+  nonCacheable : Nat := 0
   /-- Dependency entries the fold added (the recovered edges). -/
   addedEdges : Nat := 0
+
+/-- A traversal policy: the out-edges to follow and how to classify what they
+reach. Bundled so a `FoldState`'s cache cannot be shared between two different
+policies by accident — a cached closure is only valid for the walk that built
+it. -/
+structure FoldWalk where
+  children : Name → Array Name
+  classify : Name → DepClass
+
+/-- The production traversal policy: full reachability (`constChildren`, i.e. a
+node's type *and* value constants) under the project filter. -/
+def FoldWalk.ofEnv (env : Environment) (isProjectMember : Name → Bool) : FoldWalk :=
+  { children := constChildren env
+    classify := classifyFoldCandidate env isProjectMember }
 
 /-- Deduplicate and sort names by their string form, the project's determinism
 convention (P14). -/
@@ -663,13 +683,14 @@ Four rules:
 Generic over `children`/`classify` so the traversal is unit-testable without an
 `Environment`. `Foo → Foo.mk → Foo` cycles genuinely exist in `constChildren`'s
 graph, so none of this is hypothetical. -/
-partial def foldedDeps (children : Name → Array Name) (classify : Name → DepClass)
-    (n : Name) : StateM FoldState (Array Name × Bool) := do
+private partial def foldedDepsCore (w : FoldWalk) (n : Name) :
+    StateM FoldState (Array Name × Bool) := do
   if let some hit := (← get).cache[n]? then
     return (hit, true)
   if (← get).visited.contains n then
+    modify fun s => { s with nonCacheable := s.nonCacheable + 1 }
     return (#[], false)
-  let kids := children n
+  let kids := w.children n
   modify fun s => { s with
     visited := s.visited.insert n
     expansions := s.expansions + 1
@@ -677,10 +698,10 @@ partial def foldedDeps (children : Name → Array Name) (classify : Name → Dep
   let mut acc : Array Name := #[]
   let mut cacheable := true
   for ch in kids do
-    match classify ch with
+    match w.classify ch with
     | .emitted => acc := acc.push ch
     | .foldable =>
-      let (sub, subCacheable) ← foldedDeps children classify ch
+      let (sub, subCacheable) ← foldedDepsCore w ch
       acc := acc ++ sub
       unless subCacheable do cacheable := false
     | .unresolved => modify fun s => { s with unresolved := s.unresolved.insert ch }
@@ -690,14 +711,28 @@ partial def foldedDeps (children : Name → Array Name) (classify : Name → Dep
     modify fun s => { s with cache := s.cache.insert n targets }
   return (targets, cacheable)
 
-/-- One independent closure query: `foldedDeps` with a fresh per-root visited
-set (rule 1). The cacheability flag is internal bookkeeping; a root's result is
-always complete, so only the names are returned. -/
-def foldedDepsFrom (children : Name → Array Name) (classify : Name → DepClass)
-    (n : Name) : StateM FoldState (Array Name) := do
+/-- One independent closure query: `foldedDepsCore` with a fresh per-root visited
+set (rule 1). This is the **only** entry point — the recursive worker is private
+because calling it on an already-used state silently truncates any
+visited-but-uncached node, and that is exactly the cyclic case.
+
+A root's result is always complete, so the cacheability flag (internal
+bookkeeping) is not returned. -/
+def foldedDepsFrom (w : FoldWalk) (n : Name) : StateM FoldState (Array Name) := do
   modify fun s => { s with visited := {} }
-  let (targets, _) ← foldedDeps children classify n
+  let (targets, _) ← foldedDepsCore w n
   return targets
+
+/-- Union of the closures of every foldable occurrence in `raw`. Unresolved
+occurrences are recorded rather than dropped. -/
+def foldOccurrences (w : FoldWalk) (raw : Array Name) : StateM FoldState (Array Name) := do
+  let mut acc : Array Name := #[]
+  for d in raw do
+    match w.classify d with
+    | .foldable => acc := acc ++ (← foldedDepsFrom w d)
+    | .unresolved => modify fun s => { s with unresolved := s.unresolved.insert d }
+    | _ => pure ()
+  return acc
 
 /-- Additive fold of one dependency list.
 
@@ -711,18 +746,18 @@ still fires.
 
 `host` is dropped from the folded targets (`H → aux → H` is not a self-loop the
 graph needs); suppression is per-host and never enters the cache. -/
-def foldDepList (children : Name → Array Name) (classify : Name → DepClass)
-    (host : Name) (raw : Array Name) (proj : Array Name) : StateM FoldState (Array Name) := do
-  let mut extra : Array Name := #[]
-  for d in raw do
-    match classify d with
-    | .foldable => extra := extra ++ (← foldedDepsFrom children classify d)
-    | .unresolved => modify fun s => { s with unresolved := s.unresolved.insert d }
-    | _ => pure ()
+def mergeFolded (host : Name) (proj extra : Array Name) :
+    StateM FoldState (Array Name) := do
   if extra.isEmpty then return proj
   let merged := sortDedupNames (proj ++ extra.filter (· != host))
   modify fun s => { s with addedEdges := s.addedEdges + (merged.size - proj.size) }
   return merged
+
+/-- `foldOccurrences` followed by `mergeFolded`: the whole additive fold of one
+dependency list under a single scope. -/
+def foldDepList (w : FoldWalk) (host : Name) (raw : Array Name) (proj : Array Name) :
+    StateM FoldState (Array Name) := do
+  mergeFolded host proj (← foldOccurrences w raw)
 
 /-- The fold state, shared across one extraction run. -/
 abbrev AuxDepCache := IO.Ref FoldState
@@ -742,15 +777,30 @@ def foldAtomDeps (env : Environment) (isProjectMember : Name → Bool)
     (auxCache : AuxDepCache) (info : DeclInfo)
     (projTypeDeps projTermDeps : Array Name) :
     IO (Array Name × Array Name × Array Name) := do
-  let classify := classifyFoldCandidate env isProjectMember
-  let children := constChildren env
+  let walk := FoldWalk.ofEnv env isProjectMember
+  let act : StateM FoldState (Array Name × Array Name × Array Name) := do
+    -- Recovered edges all land in `term-dependencies`, including those found
+    -- under an auxiliary the *type* named. `type-dependencies` therefore stays
+    -- exactly what `partitionDeps` produced — syntactically what the signature
+    -- mentions — and the fold cannot perturb `specs` / `primary-spec` at all,
+    -- since `computeSpecs` walks that array to decide what a theorem specifies.
+    --
+    -- The alternative (route a type-position auxiliary's *type* reach into the
+    -- type bucket, its *value* reach into the term bucket) was implemented and
+    -- measured: it needs a third traversal per declaration under a second cache
+    -- partition, and cost +54% extract wall-clock on a 2354-atom project against
+    -- a +2 s budget, to move 4 edges. A folded edge is indirect by construction,
+    -- so the bucket whose consumers tolerate indirection is the right home for
+    -- all of them; `dependencies` (the union) carries them either way, which is
+    -- what verification-status propagation reads.
+    let fromType ← foldOccurrences walk info.typeDependencies
+    let fromTerm ← foldOccurrences walk info.termDependencies
+    let foldedTerm ← mergeFolded info.name projTermDeps (fromType ++ fromTerm)
+    return (sortDedupNames (projTypeDeps ++ foldedTerm), projTypeDeps, foldedTerm)
   let st ← auxCache.get
-  let (foldedType, st) := (foldDepList children classify info.name
-    info.typeDependencies projTypeDeps).run st
-  let (foldedTerm, st) := (foldDepList children classify info.name
-    info.termDependencies projTermDeps).run st
+  let (result, st) := act.run st
   auxCache.set st
-  return (sortDedupNames (foldedType ++ foldedTerm), foldedType, foldedTerm)
+  return result
 
 /-- Convert a DeclInfo to an Atom -/
 def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilter : ProjectFilter) (crate : String) (fileCache : FileCache) (auxCache : AuxDepCache) (info : DeclInfo) : IO Atom := do
