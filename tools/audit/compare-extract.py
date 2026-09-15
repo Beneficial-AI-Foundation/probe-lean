@@ -15,9 +15,21 @@ What matters here is the invariants, not the edge counts: recovering the *wrong*
 additionally require that the added edges are exactly the ones an independent
 traversal predicts.
 
-This is a manual recipe, not a CI gate — it needs a built target project. Note
-also that field values are compared *normalized*: absent, `null` and `[]` are
-all read as `[]`, so this checks value identity, not field presence.
+This is a manual recipe, not a CI gate — it needs a built target project. Two
+limits worth knowing when reading its output:
+
+- field values are compared *normalized*: absent, `null` and `[]` are all read as
+  `[]`, so this checks value identity, not field presence;
+- **private-name collisions are outside what it can verify.** The artifact prints
+  names through `privateToUserName`, so two distinct declarations can serialize
+  identically. This script only ever sees the printed form, which costs it two
+  things: a repeated name is reported as a diagnostic rather than checked (see
+  the `collisions` note below), and the added-edge diff below is a set difference
+  over printed strings, whereas `Audit6.lean` subtracts direct dependencies by
+  raw `Name` and renders afterwards. On a colliding pair the two disagree — the
+  oracle can predict an edge this diff cannot see — and `--oracle` then reports a
+  spurious "predicted but not added". Verifying those cases needs identity in the
+  artifact, which it does not carry.
 
 Usage:
 
@@ -30,7 +42,7 @@ Exit status is 0 only if every invariant holds.
 import argparse
 import json
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 DEP_FIELDS = [
     "dependencies",
@@ -120,15 +132,41 @@ def main():
     # Deduplication is by *declaration identity* (raw `Lean.Name`), but the
     # artifact prints names through `privateToUserName`, so two private
     # declarations that recover to one user-facing name serialize identically.
-    # Checked on all four arrays, not just `dependencies`.
-    dup = []
-    for name in common:
-        for field in DEP_FIELDS:
-            values = deps(after[name], field)
-            if len(values) != len(set(values)):
-                dup.append(f"{name}/{field}")
-    fail("serialized dependency array contains a duplicate name "
-         "(private-name collision — see docs/SCHEMA.md)", dup)
+    #
+    # Reported, NOT failed. `docs/SCHEMA.md` permits this duplicate, so failing
+    # on it rejected artifacts the fold had not touched at all: a before/after
+    # pair that differed in nothing still exited 1 whenever either side carried a
+    # collision, making the recipe unusable on such a project. Nor is "fail only
+    # on new ones" right — an additive fold can legitimately reach a second,
+    # distinct declaration whose printed name already occurs. Since the artifact
+    # prints names only, this script cannot tell that case from a real double
+    # entry, so it surfaces the ambiguity and leaves the judgement to the reader.
+    # Multiplicity is tracked per (atom, field, name) so a second collision
+    # inside an already-duplicated field is not masked by the first.
+    def collisions(data):
+        out = Counter()
+        for name in common:
+            for field in DEP_FIELDS:
+                counts = Counter(deps(data[name], field))
+                for value, n in counts.items():
+                    if n > 1:
+                        out[(name, field, value)] = n
+        return out
+
+    dup_before, dup_after = collisions(before), collisions(after)
+    if dup_after:
+        # Counted as distinct (atom, field, name) sites, not as occurrences: a
+        # name appearing 3x is one site, and "2 sites" is readable where "5
+        # occurrences" is not. `Counter` subtraction still catches a site whose
+        # multiplicity merely *grew*.
+        new_sites = dup_after - dup_before
+        notes.append(
+            f"repeated serialized dependency names (private-name collisions, "
+            f"permitted by docs/SCHEMA.md — not an invariant): "
+            f"{len(dup_before)} site(s) before, {len(dup_after)} after"
+            + (f", {len(new_sites)} newly repeated — CHECK THESE" if new_sites else ""))
+        for (atom, field, value), n in sorted(new_sites.items())[:args.report]:
+            notes.append(f"  newly repeated: {atom}/{field} -> {value} (x{n})")
 
     # --- sorted output (P14) ------------------------------------------------
     # Only *regressions* are failures. Some arrays are already unsorted with

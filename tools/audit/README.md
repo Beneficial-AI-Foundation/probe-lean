@@ -45,7 +45,7 @@ what makes it independent of the shipped cache. It is not hung; let it finish.
 | `Audit4.lean` | Histogram by auxiliary *shape* (`_proof_N`, `match_N`, `.mk`, `.injEq`, …) of how many project and external edges each shape hides, and how many distinct hosts it affects. This is what sized the structural-member follow-up. |
 | `Audit5.lean` | Type-vs-value split: are the hidden auxiliaries in a declaration's type or its body? Type-position folding changes `typeDependencies`, which `computeSpecs` walks, so it has a `specs`/`primary-spec` blast radius. |
 | `Audit6.lean` | **Oracle for the shipped fold.** Re-derives, per atom and per bucket, exactly which targets the shipped predicate should add, and prints them as `<atom>\t(type\|term)\t<target>` TSV. Independent implementation: the classification is written out by hand and the traversal has **no cross-root cache**, which is the machinery most likely to be wrong in the shipped version. |
-| `compare-extract.py` | **Invariant check.** Diffs a before/after pair of `extract` artifacts and asserts the invariant stated in `docs/SCHEMA.md`: the fold added entries to `term-dependencies` only, left `type-dependencies` and both `*-external` arrays unchanged, did not change the atom set, kept `dependencies` the union of the two buckets with no duplicate serialized names, left every old array a *subsequence* of its new one, and moved `verification-status` only in the one direction adding edges can cause. With `--oracle` it also requires the added edges to be exactly what `Audit6.lean` predicts. |
+| `compare-extract.py` | **Invariant check.** Diffs a before/after pair of `extract` artifacts and asserts the invariant stated in `docs/SCHEMA.md`: the fold added entries to `term-dependencies` only, left `type-dependencies` and both `*-external` arrays unchanged, did not change the atom set, kept `dependencies` the union of the two buckets, left every old array a *subsequence* of its new one, and moved `verification-status` only in the one direction adding edges can cause. With `--oracle` it also requires the added edges to be exactly what `Audit6.lean` predicts. Repeated serialized names are *reported*, not asserted — see the limitation below. |
 
 `Audit.lean`–`Audit5.lean` fold **every** filtered class, including structural
 members. They measure the size of the problem, not the shipped behaviour. Only
@@ -76,11 +76,25 @@ counts are context for reviewers rather than an acceptance criterion.
 
 This is a **manual verification recipe, not a CI gate.** Nothing runs it
 automatically — it needs a built target project. The automated coverage is the
-unit suite and the `tests/fixtures/aux-fold` end-to-end step. Two limits worth
+unit suite and the `tests/fixtures/aux-fold` end-to-end step. Three limits worth
 knowing when reading its output: it compares *normalized* field values (absent,
-`null` and `[]` are the same to it), and its oracle agreement shows the two
+`null` and `[]` are the same to it); its oracle agreement shows the two
 implementations agree under a shared reading of the contract, not that the
-contract is right.
+contract is right; and **private-name collisions are outside what it can
+verify.**
+
+That last one is worth spelling out, because it is the case where the recipe
+cannot give a verdict rather than one where it gives a wrong one. Artifacts print
+names through `privateToUserName`, so two distinct declarations can serialize to
+one string. `compare-extract.py` sees only the printed form, while `Audit6.lean`
+subtracts direct dependencies by raw `Name` and renders afterwards. On a
+colliding pair they disagree: the oracle can predict an edge the artifact diff
+cannot distinguish from an existing one, and `--oracle` reports a spurious
+"predicted but not added". A repeated name is therefore reported as a diagnostic
+(with before/after multiplicity, flagging newly repeated entries) instead of
+failed — `docs/SCHEMA.md` permits the duplicate, and failing on it rejected
+before/after pairs that differed in nothing at all. Settling such a case needs
+declaration identity in the artifact, which it does not carry.
 
 ## Baseline numbers
 
