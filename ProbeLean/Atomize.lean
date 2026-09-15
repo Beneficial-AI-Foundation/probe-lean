@@ -354,9 +354,12 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
     (externalParentKind := fun n => (env.find? n).map (getDeclKind env n))
 
   let fileCache : FileCache ← IO.mkRef {}
+  -- One fold state per run: its closure cache is keyed to this `Environment`
+  -- and this project filter, and extraction is sequential (see `FoldState`).
+  let auxCache : AuxDepCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
-    let atom ← declInfoToAtom env projectPath projFilter crate fileCache decl
+    let atom ← declInfoToAtom env projectPath projFilter crate fileCache auxCache decl
     -- Generated code is flagged hidden + generated so viewify and the web UI
     -- omit it from the presented graph, split by origin: deriving clusters and
     -- structure/class projections are core-Lean output (`is-lean-generated`),
@@ -372,6 +375,26 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
       else if isAeneasGen then { atom with isHidden := true, isAeneasGenerated := true }
       else atom
     atoms := atoms.push atom
+
+  -- Auxiliary-fold accounting. The counters are the performance gate's inputs
+  -- (node expansions, edges scanned, materialised closure entries, peak cache
+  -- size); the unresolved report is why `classifyFoldCandidate` consults
+  -- `env.find?` before any name test — a dependency the environment cannot
+  -- resolve is a diagnostic, not something to drop by suffix.
+  let fold ← auxCache.get
+  let cachedNames := fold.cache.fold (init := 0) fun n _ v => n + v.size
+  -- `nonCacheable` is reported because a run where it stays 0 never hit a
+  -- back-edge, i.e. the cycle rules were not exercised at all on that project.
+  IO.println s!"Auxiliary fold: recovered {fold.addedEdges} dependency edge(s) \
+    ({fold.expansions} expansions, {fold.edgesScanned} edges scanned, \
+    {fold.nonCacheable} cycle suppression(s), \
+    cache {fold.cache.size} entr(ies) / {cachedNames} name(s))"
+  if !fold.unresolved.isEmpty then
+    let names := (fold.unresolved.toArray.map (·.toString)).qsort (· < ·)
+    IO.eprintln s!"Warning: {names.size} dependency name(s) could not be resolved \
+      in the environment during the auxiliary fold (edges under them are not recovered):"
+    for n in names do
+      IO.eprintln s!"  {n}"
 
   return .ok atoms
 

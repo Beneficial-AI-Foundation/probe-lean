@@ -79,6 +79,29 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 
 Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
 
+`extract` folds **auxiliary dependency edges** into the declaration that references them.
+Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not
+emit as atoms (`X._proof_N`, `X.match_N`, …); before this, a dependency reached only through
+one of them disappeared from the graph, so a `sorry`-carrying lemma used inside a tactic
+block left its caller looking clean. The pass is strictly additive, and adds only to
+`term-dependencies` — see
+[SCHEMA.md](SCHEMA.md#auxiliary-dependency-folding) for what is and is not folded, and for
+the two limits worth repeating: folding fixes edges, not `verification-status` soundness, and
+a zero in-degree is still not a licence to delete a declaration.
+
+The step reports its accounting on stdout, e.g.
+
+```
+Auxiliary fold: recovered 2 dependency edge(s) (2 expansions, 22 edges scanned, 0 cycle suppression(s), cache 2 entr(ies) / 1 name(s))
+```
+
+`cycle suppression(s)` counts revisits the traversal skipped because the node was already
+visited in the same query and had no cached complete closure. A run reporting 0 — as
+curve25519-dalek-lean-verify does — never exercised the cycle-handling rules at all.
+
+If a dependency name cannot be resolved in the imported environment, `extract` lists it on
+stderr rather than dropping it silently: edges underneath such a name are not recovered.
+
 Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
 facts about its result type (see [SCHEMA.md](SCHEMA.md)). These are domain-agnostic primitives;
 probe-lean does not classify declarations itself, but a downstream tool can reconstruct a

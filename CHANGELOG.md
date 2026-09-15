@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-15
+
+### Fixed
+
+- **Dependency edges hidden under auxiliary constants are now recovered** (#99). Lean
+  abstracts non-atomic embedded proofs and match arms into constants probe-lean filters out
+  of its output (`X._proof_N`, `X.match_N`, tactic-generated helpers), and nothing folded
+  their dependencies back into the declaration that referenced them — so every edge
+  underneath an auxiliary was lost. A `sorry`-carrying lemma discharged inside a `by` block
+  left its caller with no edge to it and a clean `transitively-verified` status; a reporter
+  who trusted an in-degree of 0 to prune unreferenced `Math` declarations from a bundle
+  broke `lake build`. Measured on a freshly built curve25519-dalek-lean-verify (2354 atoms):
+  191 atoms lost at least one project-internal edge, 565 project edges were dropped, 62
+  project theorems looked unreferenced while being used, and 6 atoms carried a wrong clean
+  `verification-status`.
+
+  `extract` now traverses each non-emitted auxiliary and appends the project constants it
+  reaches to the referencing declaration's `term-dependencies`. The pass is strictly
+  **additive**: it never adds to `type-dependencies`, never removes an entry from any of the
+  four dependency arrays, never adds to the `*-external` arrays, and never changes the atom
+  set. Edges to emitted project axioms, inductives, structures and classes, and direct
+  external anchors, are therefore untouched by construction. `dependencies` is now derived as
+  the union of the two arrays, which is what keeps its documented contract true.
+  `docs/SCHEMA.md#auxiliary-dependency-folding` is the single statement of the contract.
+
+  Every recovered edge lands in **`term-dependencies`**, including one found under an
+  auxiliary named in the declaration's *type*. `type-dependencies` is left exactly as it
+  was, so *type-driven* spec selection cannot move: `specs` / `primary-spec` are normally
+  computed from `type-dependencies`, and a constant reached only through an instance's
+  implementation is not something a statement specifies. (An earlier revision routed
+  type-position reach into the type bucket; on dalek it pushed 14 implementation constants
+  into four theorems' `type-dependencies` and detached one atom's `primary-spec`.) It is not
+  a blanket "`specs` cannot change" guarantee: the `@[primary_spec]` fallback for a theorem
+  whose statement names nothing specifiable walks the union `dependencies`, so a folded term
+  edge can still detach such a tag — covered by a unit regression. Since `dependencies` is
+  the union of the two buckets, verification-status propagation sees every recovered edge.
+  The trade-off, stated in `docs/SCHEMA.md`: a folded entry in `term-dependencies` is
+  *indirect* — the array holds what the declaration reaches through eligible auxiliaries in
+  either the type or the body, not only what the body names.
+
+  Deliberately out of scope, each a follow-up: structural members of a type (`.mk`,
+  `.injEq`, `.casesOn`, and the equation lemmas `.eq_1`–`.eq_3`/`.eq_def` the suffix list
+  actually names) are not folded through; external targets are not folded
+  (a single `by omega` drags in ~50 `Lean.Omega.*` constants, and folding all external
+  targets would add ~49k entries on a dalek-sized project), which makes the `*-external`
+  arrays abstraction-sensitive — `host → anchor` is listed, `host → aux → anchor` is not.
+
+  This fixes **edges, not status soundness**: propagation still has no "unknown" state, so a
+  dependency the graph is missing for any other reason is still treated as trusted. And it
+  is compiled-environment reachability only — a zero in-degree remains no licence to delete
+  a declaration, since notation, macros and elaboration-time instances leave no surviving
+  constant reference. See `docs/SCHEMA.md#auxiliary-dependency-folding`.
+
+  **Output impact**, measured on curve25519-dalek-lean-verify (2354 atoms, Lean 4.31.0)
+  against the immediately preceding build:
+
+  - 575 dependency edges recovered across 157 atoms, all in `term-dependencies`. This is
+    **not** comparable with the 565 above: that baseline traverses only name-filtered
+    auxiliaries, while the shipped fold excludes structural members but additionally folds
+    through project members with no declaration range (Aeneas's `*_loop.mutual` helpers, for
+    instance), which the baseline never visited. Neither number is a subset of the other —
+    see `tools/audit/README.md`;
+  - 65 atoms went from in-degree 0 to non-zero — the class the reporter pruned;
+  - 6 atoms moved from `transitively-verified` to `verified`, and they are exactly the 6
+    the independent taint audit (`tools/audit/Audit2.lean`) names, by identity: the
+    `select_loop_spec`, `from_loop_spec` and `mul_loop_spec` trio plus their
+    `.mvcgen_spec` companions;
+  - **zero** `specs` / `primary-spec` changes, and `type-dependencies` byte-identical on
+    every atom. The type bucket is unchanged by construction; the absence of `specs` changes
+    is a property of this corpus, because the `@[primary_spec]` fallback walks the union
+    `dependencies` and can detach a tag on a project that relies on it — there is a unit
+    regression for that path, and `tools/audit/compare-extract.py` now asserts the
+    type-bucket invariant rather than only reporting it.
+
+  Cost on the same project: extract wall-clock 8.87 s → 8.69 s (steady-state means of three
+  runs — within noise; the agreed gate was ≤5% or ≤2 s), peak RSS +0.03%, clean `lake build`
+  23.8 s → 25.5 s. The traversal made 4653 node expansions, scanned 349k edges, and cached
+  4653 closures holding 6208 names — and **0 cycle suppressions**, i.e. this corpus never
+  exercised the cycle rules, which are covered by unit tests only. The `Auxiliary fold:`
+  line reports that counter so a future target project shows whether the cyclic path is
+  live.
+
+### Added
+
+- **`tools/audit/`** — the measurement scripts behind the #99 numbers, with a README
+  covering what each one measures, how to run it against a target project, and the baseline
+  figures it produced. They run under the *target* project's toolchain, duplicate five
+  helpers on purpose so the oracle stays independent of the code it checks, and are reusable
+  on any project.
+
+- **`tests/fixtures/aux-fold/`** and a CI step that extracts it. The check asserts the
+  *precondition* — that the auxiliary exists and the edge really is hidden behind it —
+  because whether Lean abstracts a proof obligation is elaborator-dependent, and without
+  that assertion the test silently degrades into checking a direct dependency that was never
+  lost.
+
 ## [0.13.0] - 2026-09-10
 
 ### Added
