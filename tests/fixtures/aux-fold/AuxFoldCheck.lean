@@ -64,6 +64,17 @@ partial def reachesViaAux (env : Environment) (seen : Std.HashSet Name) (n : Nam
   | some ci => (usedConsts ci).any fun d =>
       d == `sorried_bound || (looksAuxiliary d && reachesViaAux env seen d)
 
+/-- The auxiliaries `host` references directly that reach `sorried_bound`.
+
+Returned as a list rather than collapsed to a `Bool` so the shared-auxiliary
+precondition below can compare two hosts' sets. `#[]` for a name the environment
+does not have, which the `exists` check reports separately. -/
+def hidingAuxes (env : Environment) (host : Name) : Array Name :=
+  match env.find? host with
+  | none => #[]
+  | some ci => (usedConsts ci).filter fun d =>
+      looksAuxiliary d && reachesViaAux env {} d
+
 def checkPrecondition (fs : Failures) : IO Unit := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{ module := `Demo }] {} (level := OLeanLevel.private)
@@ -76,7 +87,21 @@ def checkPrecondition (fs : Failures) : IO Unit := do
       check fs s!"{host} has no direct edge to sorried_bound"
         (!direct.contains `sorried_bound)
       check fs s!"{host} references an auxiliary that reaches sorried_bound"
-        (direct.any fun d => looksAuxiliary d && reachesViaAux env {} d)
+        (!(hidingAuxes env host).isEmpty)
+  -- The shared-auxiliary case, which `Demo/Basic.lean` documents as the reason
+  -- `atomicUse` exists: both hosts must hide the edge behind the *same*
+  -- auxiliary, so the fold has to attribute one auxiliary to two hosts by who
+  -- references it rather than by its name prefix. Asserting only that each host
+  -- has *some* hiding auxiliary passes just as happily when Lean emits two
+  -- separate ones — and then the fixture silently stops covering sharing, the
+  -- same way it would silently stop covering abstraction without the checks
+  -- above. Whether the proof terms stay identical enough to share is an
+  -- elaborator decision, so it needs asserting, not assuming.
+  let tacticAuxes := hidingAuxes env `tacticUse
+  let atomicAuxes := hidingAuxes env `atomicUse
+  IO.println s!"  (hiding auxiliaries: tacticUse {tacticAuxes}, atomicUse {atomicAuxes})"
+  check fs "tacticUse and atomicUse hide the edge behind the same auxiliary"
+    (tacticAuxes.any atomicAuxes.contains)
   match env.find? `theoremUse with
   | none => check fs "theoremUse exists" false
   | some ci =>

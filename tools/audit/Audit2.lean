@@ -55,10 +55,22 @@ partial def auxClosure (c : Ctx) (n : Name) (acc : Std.HashSet Name) (seen : Std
     (usedConsts ci).foldl (init := (acc, seen)) fun (acc, seen) d =>
       if isInternalName d then auxClosure c d acc seen else (acc.insert d, seen)
 
-/-- Does this declaration's own type/value mention `sorryAx` directly? Stands in
-for probe-lean's build-warning-based "unverified" root set. -/
-def locallySorried (ci : ConstantInfo) : Bool :=
-  (usedConsts ci).any fun d => d == ``sorryAx
+/-- Does this declaration's own proof mention `sorryAx`, directly or through an
+auxiliary Lean abstracted out of it?
+
+Stands in for probe-lean's build-warning-based "unverified" root set, and the
+auxiliaries are why: Lean reports `declaration uses 'sorry'` against the *host*,
+so `def h := ⟨3, by sorry⟩` is `unverified` in probe-lean's output even though
+`sorryAx` occurs only under `h._proof_N`. Testing `usedConsts` alone made this
+root set a strict subset of probe-lean's, and an oracle that under-reports roots
+under-reports missed taint — in an audit whose whole subject is edges hidden
+under auxiliaries.
+
+`auxClosure` stops at non-internal constants, so this stays *local*
+sorriedness: `h → someLemma → sorryAx` is not a root here, it is contamination,
+which the fixpoint in `main` propagates. -/
+def locallySorried (c : Ctx) (n : Name) : Bool :=
+  (auxClosure c n {} {}).1.contains ``sorryAx
 
 def main (args : List String) : IO Unit := do
   let prefixes := (args.map fun s => s.toName).toArray
@@ -79,7 +91,7 @@ def main (args : List String) : IO Unit := do
     | _ => pure ()
     unless (declRangeExt.find? env name).isSome do continue
     atoms := atoms.push name
-    if locallySorried ci then sorryRoots := sorryRoots.push name
+    if locallySorried c name then sorryRoots := sorryRoots.push name
     let direct := usedConsts ci
     let visible := (direct.filter fun d => !isInternalName d && c.inTarget d && d != name)
     visibleDeps := visibleDeps.insert name visible
