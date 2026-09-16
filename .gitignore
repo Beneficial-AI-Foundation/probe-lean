@@ -22,3 +22,9 @@ atoms.json
 # Python artifacts (tools/python)
 __pycache__/
 *.pyc
+
+# probe-lean output written into the aux-fold fixture by its CI check. Anchored
+# to the fixture rather than a bare `.verilib/`, so a hand-authored
+# `.verilib/probes/config.json` in some future fixture stays addable.
+tests/fixtures/aux-fold/.verilib/
+tests/fixtures/aux-fold/lake-manifest.json
