@@ -64,14 +64,21 @@ jobs:
       # project), so the pin is duplicated. The `diff` keeps the copies in step:
       # without it, bumping the root pin would leave this check silently running
       # on the old elaborator — exactly the drift the precondition exists for.
-      - name: End-to-end aux-fold extract check
+      #
+      # The same fixture also carries the sorry-taint end-to-end check
+      # (`TaintCheck.lean`): the trusted base, a range-less carrier, a generated
+      # companion, the `Divergence:` line on stderr and the `check-axioms` report.
+      - name: End-to-end aux-fold and sorry-taint extract checks
         run: |
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           lake build probe-lean
           cd tests/fixtures/aux-fold
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
+          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
+          lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
 
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
@@ -153,13 +160,16 @@ jobs:
       # dependent, and only a real `extract` run carries that through to
       # `verification-status`. `rm -rf .lake` above cleared the fixture's build
       # dir too, so this is a cold build of five declarations.
-      - name: End-to-end aux-fold extract check
+      - name: End-to-end aux-fold and sorry-taint extract checks
         run: |
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/aux-fold
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
+          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
+          lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
 
   check-version:
     name: Version consistency
