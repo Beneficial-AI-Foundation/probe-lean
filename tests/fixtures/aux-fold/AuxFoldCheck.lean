@@ -119,16 +119,22 @@ def checkPrecondition (fs : Failures) : IO Unit := do
 /-- The extract artifact under `.verilib/probes/`, and only if there is exactly
 one. The filename embeds the git commit (`lean_demo_<sha>.json`), so a leftover
 artifact from an earlier run would otherwise be picked silently and the check
-would assert on the wrong output. -/
+would assert on the wrong output.
+
+Matched on the `lean_` prefix, not just the `.json` extension: `.verilib/probes/`
+is also where a project's own `config.json` lives (`ProbeLean/Atomize.lean`), so
+giving this fixture a config — the way a test for the `is-hidden` / `is-ignored`
+filtering would — must not make the directory look like it holds two artifacts. -/
 def findArtifact (fs : Failures) : IO (Option System.FilePath) := do
   let dir : System.FilePath := ".verilib/probes"
   if !(← dir.pathExists) then
     check fs s!"{dir} exists (run `probe-lean extract .` first)" false
     return none
   let entries ← dir.readDir
-  let jsons := (entries.filter fun e => e.fileName.endsWith ".json").map (·.path)
+  let jsons := (entries.filter fun e =>
+    e.fileName.startsWith "lean_" && e.fileName.endsWith ".json").map (·.path)
   if jsons.size == 1 then return jsons[0]?
-  check fs s!"exactly one artifact under {dir} (found {jsons.size}: \
+  check fs s!"exactly one lean_*.json artifact under {dir} (found {jsons.size}: \
     {jsons.map (·.fileName)}) — remove stale ones" false
   return none
 

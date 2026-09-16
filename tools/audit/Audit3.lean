@@ -23,6 +23,32 @@ def isMatcherAux (n : Name) : Bool :=
   | .str _ s => s.startsWith "match_" || s.startsWith "_match_"
   | _ => false
 
+def valueOf : ConstantInfo → Option Expr
+  | .defnInfo v   => some v.value
+  | .thmInfo v    => some v.value
+  | .opaqueInfo v => some v.value
+  | _             => none
+
+/-- Whether this declaration's own type or value names an abstracted-proof
+auxiliary — i.e. whether *it* carries an embedded proof, as opposed to merely
+lending its name to one.
+
+This is the honest test for the headline metric. Counting distinct
+`name.getPrefix` values over the auxiliaries instead reads ownership off the
+name, which misses exactly the case this PR is about: a *shared* auxiliary
+(`atomicUse` referencing `tacticUse._proof_1` in `tests/fixtures/aux-fold`) has
+one apparent owner and any number of real hosts, so the prefix count undercounts.
+
+Applied only to non-theorem declarations, which is what the reported percentage
+needs. Traversing theorem values too would mean walking every Mathlib proof term
+— the cost that makes `Audit6.lean` take ten minutes on one project — and
+Audit3's job is a cheap prevalence sweep across five corpora. -/
+def referencesProofAux (ci : ConstantInfo) : Bool :=
+  ci.type.getUsedConstants.any isProofAux ||
+    match valueOf ci with
+    | some v => v.getUsedConstants.any isProofAux
+    | none   => false
+
 inductive Kind | thm | defn | other deriving BEq, Hashable
 
 def kindOf : ConstantInfo → Kind
@@ -36,9 +62,12 @@ structure Stats where
   thms       : Nat := 0
   proofAux   : Nat := 0   -- X._proof_N constants
   matchAux   : Nat := 0
-  hostDefs   : Nat := 0   -- distinct non-theorem hosts of a _proof_N
+  hostDefs   : Nat := 0   -- distinct non-theorem prefixes of a _proof_N
   hostThms   : Nat := 0
   hostOther  : Nat := 0
+  -- Non-theorem decls that *reference* a _proof_N. The metric; see
+  -- `referencesProofAux` for why the prefix counts above are not it.
+  refDefs    : Nat := 0
   deriving Inhabited
 
 def main (args : List String) : IO Unit := do
@@ -76,7 +105,9 @@ def main (args : List String) : IO Unit := do
         s := { s with decls := s.decls + 1 }
         match kindOf ci' with
         | .thm => s := { s with thms := s.thms + 1 }
-        | _    => s := { s with defs := s.defs + 1 }
+        | _    =>
+          s := { s with defs := s.defs + 1 }
+          if referencesProofAux ci' then s := { s with refDefs := s.refDefs + 1 }
     stats := stats.set! i s
 
   for i in [:corpora.size] do
@@ -95,5 +126,6 @@ def main (args : List String) : IO Unit := do
     IO.println s!"── {corpora[i]!.1}"
     IO.println s!"   decls w/ source range : {s.decls}  ({s.defs} non-theorem, {s.thms} theorem)"
     IO.println s!"   _proof_N constants    : {s.proofAux}   match_N: {s.matchAux}"
-    IO.println s!"   distinct hosts        : {hosts[i]!.size}  (non-theorem {s.hostDefs}, theorem {s.hostThms}, other {s.hostOther})"
-    IO.println s!"   non-theorem decls carrying an embedded proof: {pct s.hostDefs s.defs}"
+    IO.println s!"   distinct aux prefixes : {hosts[i]!.size}  (non-theorem {s.hostDefs}, theorem {s.hostThms}, other {s.hostOther})"
+    IO.println s!"   non-theorem decls carrying an embedded proof: {s.refDefs}/{s.defs} = {pct s.refDefs s.defs}"
+    IO.println s!"     (by auxiliary name prefix, which undercounts shared auxiliaries: {pct s.hostDefs s.defs})"

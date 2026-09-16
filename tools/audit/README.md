@@ -30,7 +30,10 @@ env -u LEAN_PATH bash -lc 'source ~/.elan/env; \
 analyzes (e.g. `Curve25519Dalek`).
 
 `Audit.lean`–`Audit5.lean` cost a few minutes each, dominated by importing the
-project's transitive `.olean` closure (Mathlib, if present). **`Audit6.lean` is
+project's transitive `.olean` closure (Mathlib, if present). `Audit3.lean` is
+nearer seven, because reference-based host counting walks every non-theorem
+declaration's value across all five corpora; it deliberately does not walk
+theorem values, which is what keeps that affordable. **`Audit6.lean` is
 much slower** — well over ten minutes on curve25519-dalek-lean-verify — because
 it deliberately has no cross-root memo: a fresh visited set per closure query is
 what makes it independent of the shipped cache. It is not hung; let it finish.
@@ -41,7 +44,7 @@ what makes it independent of the shipped cache. It is not hung; let it finish.
 |---|---|
 | `Audit.lean` | Per-project totals: how many emitted atoms reference an auxiliary, how many project-internal edges are hidden underneath, how many atoms gain in-edges, and how many go from in-degree 0 to non-zero. |
 | `Audit2.lean` | Taint divergence: run `sorry` contamination over the emitted graph and over the aux-folded graph, and report the atoms whose `verification-status` is therefore wrong today. |
-| `Audit3.lean` | Prevalence of embedded proofs per corpus (core, Batteries, Mathlib, Aeneas, the project): what fraction of non-theorem declarations carry one. Answers "is this an edge case?". |
+| `Audit3.lean` | Prevalence of embedded proofs per corpus (core, Batteries, Mathlib, Aeneas, the project): what fraction of non-theorem declarations carry one. Answers "is this an edge case?". Counts a host by whether it *references* a `_proof_N`, not by whether one is named after it — see `referencesProofAux`; the older prefix-based figure is still printed underneath for comparison, and on dalek it understated the share by about half. |
 | `Audit4.lean` | Histogram by auxiliary *shape* (`_proof_N`, `match_N`, `.mk`, `.injEq`, …) of how many project and external edges each shape hides, and how many distinct hosts it affects. This is what sized the structural-member follow-up. |
 | `Audit5.lean` | Type-vs-value split: are the hidden auxiliaries in a declaration's type or its body? Type-position folding changes `typeDependencies`, which `computeSpecs` walks, so it has a `specs`/`primary-spec` blast radius. |
 | `Audit6.lean` | **Oracle for the shipped fold.** Re-derives, per atom and per bucket, exactly which targets the shipped predicate should add, and prints them as `<atom>\t(type\|term)\t<target>` TSV. Independent implementation: the classification is written out by hand and the traversal has **no cross-root cache**, which is the machinery most likely to be wrong in the shipped version. |
@@ -104,7 +107,7 @@ Measured with the "fold everything" scripts (`Audit.lean`–`Audit5.lean`).
 
 | | |
 |---|---|
-| non-theorem decls carrying an embedded proof (`Audit3`) | 164 / 957 (17%); Mathlib itself 41% |
+| non-theorem decls carrying an embedded proof (`Audit3`) | 302 / 957 (31.5%); Mathlib itself 43.8% |
 | atoms losing ≥1 project-internal edge (`Audit`) | 191 |
 | project-internal edges dropped (`Audit`) | 565 |
 | type vs. value position of those edges (`Audit5`) | 2 type / 563 value |
