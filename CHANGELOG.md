@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-16
+
+### Fixed
+
+- **`verification-status` is now decided by the kernel, and is sound with respect to the
+  project's own `sorry`s** (#87, #103). It used to be two heuristics over the *emitted*
+  atom graph: build-log `sorry` warnings seeded `unverified`, and a reverse-BFS over
+  `dependencies` upgraded whatever it did not reach to `transitively-verified`, treating
+  any dependency absent from the atom map as trusted. Three project-internal holes made
+  that unsound: a carrier probe-lean never emits (Aeneas's `impl_def` registers no
+  declaration range — SPQR's `Map.Insts…Iterator` instance, whose `next` is `sorry`) was
+  silently trusted and everything above it read clean; the log is suppressed when a
+  module has errors or `warn.sorry` is off; and auxiliary folding recovers edges only
+  for the classes it knows.
+
+  `extract` now walks the constant graph: `sorry` elaborates to the `sorryAx` axiom, and
+  a memoized reachability walk over **every** constant of **every** built project module
+  — regardless of `--module`/`--library`, and including constants that never become
+  atoms — finds which rest on it. The walk stops at the project boundary (Lean and every
+  dependency package are the trusted base) and at trusted project declarations, so a
+  `sorry` inside or below a trusted declaration does not taint its callers. Trust is one
+  shared rule set (`ProbeLean/Trust.lean`, precedence: `axiom` → `@[externally_verified]`
+  on the declaration's own source range → non-theorem in a `*External` module), used by
+  `trusted-reason`, by the walk and by `check-axioms`. Statuses: `trusted` if trusted;
+  `unverified` if the declaration's own type or value names `sorryAx`; `verified` if an
+  unexcused project `sorry` is reachable; `transitively-verified` otherwise. Companions
+  (`X.mvcgen_spec`) get their own status: a companion of a trusted theorem is
+  `transitively-verified`, not `trusted` (it still *shows* the parent's scanned
+  attributes; those no longer make it trusted). The join to atoms is by Lean `Name`,
+  before names are published as `probe:…`, so private-name collisions cannot swap
+  statuses (partially addresses #88). `docs/SCHEMA.md` states the contract.
+
+  The old graph-BFS still runs, as a **cross-check**: every atom on which it disagrees
+  with the walk is printed as `Divergence: <atom> graph says clean, oracle says tainted`
+  (or the reverse) on stderr and never reconciled — a divergence localises a node or
+  edge the emitted graph is missing. The build log is likewise still parsed and compared
+  with the walk's direct carriers. `--skip-verify` keeps its shape (no status except
+  `trusted`); `--skip-enrich` caps clean atoms at `verified`. If the full module set
+  cannot be co-imported under a selection, the walk falls back to the selected modules
+  and prints `Warning: <n> project module(s) not imported; their declarations are treated
+  as trusted`. A trusted declaration whose *statement* names `sorry` is reported.
+
+  The reachability core (`AxiomCheck.reachingNames`) also fixes #103: the shared memo
+  finalised a frame's answer while a back-edge into it was still suppressed, so
+  `check-axioms` could miss a `sorry` depending on root order. It now uses Tarjan-style
+  SCC finalisation and is validated against `Lean.collectAxioms` in the unit suite.
+
+  **Measured**, before/after, with probe-lean built for Lean 4.31:
+
+  - curve25519-dalek-lean-verify `f6c7fabd` (231 modules, 11,293 project constants,
+    2354 atoms): atom set and all four dependency arrays byte-identical, `attributes`
+    and `primary-spec` unchanged; exactly 2 atoms move `trusted → transitively-verified`
+    (the `.mvcgen_spec` companions of the two `@[externally_verified]` theorems), no other
+    status moves; 0 divergences; 112 tainted constants (4 direct carriers), 152 trusted.
+    `extract` 8.6 s → 9.35 s (three runs each), peak RSS 6.48 GB → 6.44 GB.
+  - SparsePostQuantumRatchet-verify `e3cc4c6` (261 modules, 15,534 project constants,
+    2820 atoms): the walk's 146 tainted constants are **name for name** the 146 entries of
+    SPQR's own `collectAxioms`-based `sorry-manifest.txt`; 31 atoms drop
+    `transitively-verified → verified`, all downstream of the range-less `Map` iterator
+    instance and each printed as a divergence; every `unverified` atom is a direct
+    carrier; nothing moves the other way. `extract` 5.9 s → 7.4 s (two warm runs each),
+    peak RSS unchanged at 2.85 GB.
+
+### Changed
+
+- **`check-axioms`** runs the same pass as `extract` and lists every project constant
+  that rests on an unexcused project `sorry`, atoms and non-atoms alike, marking
+  `[direct]` carriers and `[not emitted]` constants (the SPQR instance above appears as
+  `[direct] [not emitted]`). It no longer walks through dependency packages, so it takes
+  about a second where it used to be `O(declarations × closure)`; `-m`/`-l` now only
+  decide the `[not emitted]` marker.
+- The `*External` trust rule keys on the **module name** (`Pkg.FunsExternal`) instead of
+  the source path, so it also applies when the path lookup fails.
+- The orphan-dependency warning reads `… not found in atom map (graph cross-check only;
+  status comes from the kernel walk)`; "treated as trusted" was no longer true.
+- `extract` prints a `Project constants: … | trusted: … | direct sorry carriers: … |
+  tainted: …` summary; `Verified: n/m` and `Direct sorry carriers (kernel)` come from
+  the walk.
+- `tools/audit/compare-extract.py --status-policy taint` accepts the status moves of this
+  release and reports every move by kind.
+
+### Internal
+
+- `Environment.allImportedModuleNames` builds its array on every call; the per-constant
+  passes now fetch it once (`Analysis.moduleNameOf`). `projectConstants` sorts
+  structurally rather than by `Name.toString`. Together with computing each constant's
+  children once for both the walk and the direct-carrier test, this kept the whole pass
+  under a second on dalek.
+- The aux-fold fixture (`tests/fixtures/aux-fold`) gained a target-registered
+  `externally_verified` tag, a `step_theorem` companion macro, a `*External` module and a
+  range-less `addDecl` carrier; `TaintCheck.lean` asserts the statuses, the
+  `Divergence:` line and the `check-axioms` report on both CI toolchains.
+
 ## [0.14.0] - 2026-09-15
 
 ### Fixed

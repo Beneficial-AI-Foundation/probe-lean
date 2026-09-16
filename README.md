@@ -132,7 +132,7 @@ For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **
 | Command | Description |
 |---------|-------------|
 | `extract` | Analyze a Lean 4 project: extract atoms, detect sorries, compute specs |
-| `check-axioms` | Audit a project: report declarations transitively depending on `sorryAx` |
+| `check-axioms` | Audit a project: list every project constant that rests on an unexcused project `sorry` (same kernel walk as `extract`) |
 
 ### `extract`
 
@@ -145,9 +145,9 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `-o, --output <PATH>` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
 | `-m, --module <PREFIX>` | Filter to specific module prefix |
 | `-l, --library <LIBS>` | Comma-separated library names to build **and** restrict analysis to (by module-name prefix). Omit to build auto-detected targets (`defaultTargets`, falling back to all `[[lean_lib]]` entries) and analyze all built modules |
-| `--skip-verify` | Skip sorry detection (graph structure only) |
-| `--from-file <FILE>` | Use existing build output for sorry detection |
-| `--skip-enrich` | Skip transitive verification enrichment (no `"transitively-verified"` status) |
+| `--skip-verify` | Skip status stamping: no `verification-status` except `"trusted"` |
+| `--from-file <FILE>` | Use existing build output for the build-log cross-check |
+| `--skip-enrich` | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`); the graph-BFS cross-check is not run |
 
 ### `check-axioms`
 
@@ -155,15 +155,26 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 probe-lean check-axioms <PROJECT_PATH> [-m <PREFIX>] [-l <LIBS>]
 ```
 
-Builds and imports the project, then lists every declaration whose *complete*
-transitive closure reaches the `sorryAx` axiom — the kernel ground truth for
-"rests on a `sorry`", independent of the extract dependency graph. Use it to
-cross-check `extract` output: no atom marked `"transitively-verified"` should
-appear here (if one does, the emitted graph lost a contamination path).
+Builds and imports the project and runs the same kernel walk that decides
+`verification-status` in `extract`, then lists every project constant that rests
+on an unexcused project `sorry` — atoms and non-atoms alike:
 
-> Note: the audit walks each declaration's axiom closure independently
-> (`O(declarations × closure size)`), so on very large projects (Mathlib-scale
-> closures) it can be slow. Use `-m`/`-l` to narrow the scope.
+```
+Project constants: 11293 in 231 module(s) | trusted: 151 | direct sorry carriers: 4 | tainted: 112
+112 constant(s) rest on an unexcused project sorry:
+  Edwards.add_assoc_Ed25519 [direct]
+  Montgomery.add_fromEdwards
+  spqr.core.iter.adapters.map.Map.Insts.CoreIterTraitsIteratorIterator [direct] [not emitted]
+  ...
+```
+
+`[direct]`: the constant's own type or value names `sorryAx`. `[not emitted]`: not
+an atom — a constant `extract` never publishes (no declaration range, internal
+name, constructor, unselected module). Because the walk is shared, the listed
+atoms are exactly those `extract` marks `"verified"` or `"unverified"`; a listed
+`[not emitted]` constant is the kind of node the old graph-based status silently
+trusted. The walk stops at the project boundary and at the trusted base, so it
+costs about a second on a 230-module project.
 
 ### Codomain facts & downstream classification
 
@@ -233,8 +244,8 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
     4. Sole spec — if a definition has exactly one spec theorem, it is used as primary spec
 
     Signal 1 can itself be ambiguous: when two or more `@[primary_spec]` theorems resolve to the same target, whichever is inserted last wins — deterministic, but an arbitrary tie-break. `extract` prints one stderr warning per affected target naming the chosen theorem and the rejected candidates. Every atom also carries `is-primary-spec`, which records whether the declaration was *tagged* rather than whether it *won*, so a consumer can recover the candidate set from the artifact as a target's `specs` intersected with that flag.
-5. **Verify** -- parses sorry warnings from build output to determine verification status (shallow: checks only the declaration's own body, not its dependencies); axioms, declarations tagged `@[externally_verified]`, and non-theorem `*External.lean` declarations are marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, or `"external"`) for trust-base classification; theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal verification status; declarations without source location (kernel-synthesized) are filtered from output (skippable via `--skip-verify`)
-6. **Enrich** -- upgrades `"verified"` atoms to `"transitively-verified"` when all transitive dependencies are verified or trusted, using reverse-BFS contamination (matching `probe-verus`/`probe-aeneas`; skippable via `--skip-enrich`)
+5. **Verify** -- decides `verification-status` from the kernel, not the build log: `sorry` elaborates to the `sorryAx` axiom, and a memoized walk over *every* constant of *every* built project module — including the ones probe-lean never emits (auxiliaries, range-less `addDecl`/`impl_def` constants) — finds which rest on it. The walk stops at the project boundary (Lean and all dependency packages are the trusted base) and at trusted project declarations: axioms, declarations tagged `@[externally_verified]` on their own source range, and non-theorems in `*External` modules, marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, `"external"`); a `sorry` inside or below a trusted declaration does not taint its callers. Direct carriers read `"unverified"`; everything else `"verified"`. The build log's `sorry` warnings are still parsed and compared with the walk (`Divergence:` lines on stderr). Skippable via `--skip-verify` (statuses omitted, `"trusted"` kept)
+6. **Enrich** -- upgrades every atom from which no unexcused project `sorry` is reachable to `"transitively-verified"`; the reverse-BFS over the emitted graph (matching `probe-verus`/`probe-aeneas`) still runs, and every atom on which it disagrees with the walk is printed as `Divergence: <atom> graph says clean, oracle says tainted` (or the reverse) — a bug signal for the emitted graph, never reconciled (skippable via `--skip-enrich`)
 7. **Schema 3.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
 
 ## How probe-lean decides what to analyze

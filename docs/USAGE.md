@@ -73,11 +73,33 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
 | `--module <PREFIX>` | `-m` | Filter to specific module prefix |
 | `--library <LIBS>` | `-l` | Comma-separated list of library names to build **and** restrict analysis to (modules are kept only if they belong to one of these library roots). When omitted, the build uses `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and **all** of the project's built modules are analyzed — auto-detected targets are not used as a module filter, since `defaultTargets` may name a `lean_exe` or a library may declare custom `roots`. |
-| `--skip-verify` | | Skip the sorry detection step (graph structure only) |
-| `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
-| `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
+| `--skip-verify` | | Skip status stamping: atoms carry no `verification-status`, except trusted ones (`"trusted"`) |
+| `--from-file <FILE>` | | Use existing build output for the build-log cross-check instead of the captured `lake build` output |
+| `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`); the graph-BFS cross-check is not run |
 
-Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
+Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)). With `--module`/`--library`, `extract` first tries to import **all** built project modules — the kernel walk below needs the whole project — and falls back to the selection with `Warning: <n> project module(s) not imported; their declarations are treated as trusted` if the full set cannot be co-imported.
+
+`verification-status` is decided by a **kernel walk**, not by the build log or the emitted
+dependency graph. `sorry` elaborates to the `sorryAx` axiom; `extract` walks the constant graph
+of every constant of every built project module — including constants it never emits as atoms
+(auxiliaries, constructors, range-less `addDecl`/`impl_def` constants) — stopping at the project
+boundary (Lean and every dependency package are trusted wholesale) and at the **trusted base**:
+axioms, declarations tagged `@[externally_verified]` on their own source range, and non-theorems
+in `*External` modules. A `sorry` inside or below a trusted declaration does not taint its
+callers. See [SCHEMA.md](SCHEMA.md) for the exact meaning of each status value. The pass prints
+its totals:
+
+```
+Project constants: 11293 in 231 module(s) | trusted: 151 | direct sorry carriers: 4 | tainted: 112
+```
+
+Two cross-checks run alongside it and print `Divergence:` lines on stderr, never changing a
+status: the build log's `sorry` warnings against the walk's direct carriers, and the old
+reverse-BFS over the emitted graph against the walk's verdicts. A
+`Divergence: <atom> graph says clean, oracle says tainted` line localises a node or edge the
+emitted graph is missing (typically a carrier with no declaration range, which is never an
+atom). A trusted declaration whose *statement* names `sorry` is reported with
+`Warning: trusted declaration <n> has \`sorry\` in its statement`.
 
 `extract` folds **auxiliary dependency edges** into the declaration that references them.
 Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not
@@ -133,8 +155,8 @@ visible for tracing. Clean (`transitively-verified`) and `trusted` generated ato
 
 ### `check-axioms`
 
-Audit a Lean 4 project: report every declaration (of those `extract` would emit as an atom) whose
-*complete* transitive closure reaches the `sorryAx` axiom.
+Audit a Lean 4 project: run the same kernel walk `extract` uses for `verification-status` and list
+every project constant that rests on an unexcused project `sorry` — atoms and non-atoms alike.
 
 ```
 probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
@@ -142,14 +164,24 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--module <PREFIX>` | `-m` | Filter to specific module prefix |
-| `--library <LIBS>` | `-l` | Comma-separated library names to build **and** restrict analysis to |
+| `--module <PREFIX>` | `-m` | Restrict which constants count as *emitted* (the `[not emitted]` marker); the walk always covers every built module it can import |
+| `--library <LIBS>` | `-l` | Comma-separated library names to build **and** restrict the emitted set to |
 
-This is the kernel ground truth for "rests on a `sorry`", walked via `Lean`'s constant closure
-(generated code included) and therefore independent of probe-lean's own dependency graph. Use it to
-cross-check `extract`: no atom marked `"transitively-verified"` should appear in this list. The audit
-walks each declaration's closure (`O(declarations × closure size)`), so on Mathlib-scale projects use
-`-m`/`-l` to narrow scope.
+```
+Project constants: 19 in 6 module(s) | trusted: 2 | direct sorry carriers: 5 | tainted: 8
+8 constant(s) rest on an unexcused project sorry:
+  extThm [direct]
+  noRangeMid [direct] [not emitted]
+  tacticUse._proof_1 [not emitted]
+  viaNoRange
+  ...
+```
+
+`[direct]`: the constant's own type or value names `sorryAx`. `[not emitted]`: not an atom.
+Because the walk is shared with `extract`, the listed atoms are exactly those `extract` marks
+`"verified"` or `"unverified"`, and nothing `"transitively-verified"` can appear here. The walk is
+memoized and stops at the project boundary and the trusted base, so it costs about a second even on
+a 230-module Mathlib-backed project; `-m`/`-l` no longer narrow it.
 
 ---
 

@@ -1,4 +1,4 @@
-{"tool": {"version": "0.14.0", "name": "probe-lean", "command": "extract"},
+{"tool": {"version": "0.15.0", "name": "probe-lean", "command": "extract"},
  "timestamp": "2026-01-01T00:00:00Z",
  "source":
  {"repo": "https://github.com/Beneficial-AI-Foundation/probe-lean",

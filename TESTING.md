@@ -45,7 +45,13 @@ All tests run without external tools.
 | `testPrimarySpecHeuristic` | `_spec` suffix heuristic, `@[primary_spec]` attribute override, no-match fallback |
 | `testPrimarySpecKnownAttribute` | Known-attribute boost (`@[progress]`, `@[pspec]`, `@[step]`), ambiguity fallthrough, precedence vs `_spec` and `@[primary_spec]` |
 | `testPrimarySpecSoleSpec` | Sole-spec inference, multiple-specs no-match, `_spec` beats sole-spec, invariant check |
-| `testTrustedStatus` | `isTrustedAtom` (axiom, non-theorem `*External.lean`, negatives incl. theorem-in-External), `unifyAtom` trusted override (success/sorries/failure proof entries, no proof entry), theorem-in-External normal verification status |
+| `testTrustedStatus` | `Trust.trustedReason` rules 1–3 and precedence (axiom, `@[externally_verified]` gated on a range of its own, non-theorem in a `*External` module, negatives incl. theorem-in-External and `External` as a non-final component), `isCompanionName`, `isExternalModule` |
+| `testAxiomReachability` | `reaches`/`reachingNames` on a fabricated graph: transitive hit, cycles, diamond; the #103 case `f → {g, SORRY}, g → f` in both root orders |
+| `testReachabilityBlocked` | The blocked set: blocked node not expanded, blocked direct carrier shields its caller, target reached although blocked (target-before-block), target outside P reached through a P chain, cycle with a blocked sibling, root-order independence |
+| `testApplyTaintStatus` | `applyTaintStatus` verdict matrix (trusted / trusted direct carrier / direct / tainted / clean / unknown name), `--skip-enrich` cap, `--skip-verify` shape, `unifyAtom` carries `leanName` and no status, `leanName` not serialised |
+| `testDivergenceLines` | Graph-vs-oracle divergence text in both directions, `demoteTransitive`, `statusCounts` |
+| `testTaintFormatting` | Fallback / type-taint warnings, `check-axioms` report lines, summary line, build-log divergences (aux-carried sorry is agreement; generated atoms skipped) |
+| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `rule2Applies`, `computeTrustBase`, and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
 
@@ -74,6 +80,10 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
 
 1. **Build** -- `leanprover/lean-action@v1` builds the main project
 2. **Test** -- builds `tests` target, then runs `.lake/build/bin/tests`
+3. **End-to-end** -- builds `tests/fixtures/aux-fold`, runs `probe-lean extract` and
+   `probe-lean check-axioms` on it, then `AuxFoldCheck.lean` (recovered auxiliary edges)
+   and `TaintCheck.lean` (kernel-backed statuses, the `Divergence:` line, the
+   `check-axioms` report); repeated on the newest supported Lean by the `test-newest` job
 
 The CI uses `lean-action` which automatically installs elan, sets up the
 Lean toolchain from `lean-toolchain`, and caches the `.lake` directory.
