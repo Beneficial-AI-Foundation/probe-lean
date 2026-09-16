@@ -26,40 +26,13 @@ structure ExtractConfig where
   skipEnrich : Bool := false
   deriving Repr
 
-/-- Map probe-lean VerifyStatus to the web frontend's verification status -/
-def mapVerifyStatus : VerifyStatus → WebVerificationStatus
-  | .success => .verified
-  | .sorries => .unverified
-  | .failure => .failed
-
-/-- Determine why an atom is trusted, if at all. Precedence:
-    1. `axiom` kind — always trusted
-    2. `@[externally_verified]` attribute — proof is discharged outside Lean
-    3. Non-theorem declarations in `*External.lean` — Aeneas trust-base convention
-    Theorems in `*External.lean` without `@[externally_verified]` are *not* trusted;
-    they carry real proofs and receive their normal status from sorry detection. -/
-def trustedReason (atom : Atom) : Option String :=
-  if atom.kind == .axiom then some "axiom"
-  else if atom.attributes.contains "externally_verified" then some "externally_verified"
-  else if atom.codePath.endsWith "External.lean" && atom.kind != .theorem
-    then some "external"
-  else none
-
-/-- Backward-compatible wrapper: `true` when the atom belongs to the trust base. -/
-def isTrustedAtom (atom : Atom) : Bool :=
-  (trustedReason atom).isSome
-
-/-- Combine an Atom with its optional proof entry into a UnifiedAtom,
-    preserving all atom fields. Axioms, declarations carrying
-    `@[externally_verified]`, and non-theorem declarations from `*External.lean`
-    files are overridden to `trusted` regardless of sorry detection. -/
-def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
-    : UnifiedAtom :=
-  let baseStatus := proofEntry.map fun p => mapVerifyStatus p.status
-  let reason := trustedReason atom
-  let status := if reason.isSome then some .trusted else baseStatus
+/-- Lift an `Atom` to a `UnifiedAtom`, preserving all atom fields. No status yet:
+    `applyTaintStatus` stamps `verification-status`/`trusted-reason` from the kernel
+    taint pass, joined on `leanName`. -/
+def unifyAtom (atom : Atom) : UnifiedAtom :=
   {
     name := atom.name
+    leanName := atom.leanName
     displayName := atom.displayName
     dependencies := atom.dependencies
     typeDependencies := atom.typeDependencies
@@ -82,8 +55,8 @@ def unifyAtom (atom : Atom) (proofEntry : Option ProofEntry)
     specs := atom.specs
     isPrimarySpec := atom.isPrimarySpec
     primarySpec := atom.primarySpec
-    verificationStatus := status
-    trustedReason := reason
+    verificationStatus := none
+    trustedReason := none
     codomainHead := atom.codomainHead
     codomainIsProp := atom.codomainIsProp
     codomainLastArgIsBool := atom.codomainLastArgIsBool
@@ -240,12 +213,23 @@ def warnAmbiguousPrimarySpecs (atoms : Array Atom) : IO Unit := do
   for c in ambiguousPrimarySpecs atoms do
     IO.eprintln (formatPrimarySpecWarning c)
 
+/-- What `prepareProject` hands to the pipeline. -/
+structure PreparedProject where
+  /-- Every built project module — P, the taint walk's domain, whatever was selected. -/
+  allModules : Array ProjectModule
+  /-- The `--library`/`--module` selection: which declarations become atoms. -/
+  selectedModules : Array ProjectModule
+  nixMode : Option NixMode
+  /-- Captured `lake build` output (or the cached copy). -/
+  buildOutput : String
+
 /-- Build (honouring the cache) and discover/select the project's modules.
     Shared by `runExtractInProject` and the `check-axioms` command so the audit path
     and the extraction path can't drift on nix detection, build, or module selection.
-    Returns `(selected modules, nix mode, captured build output)`, or an exit code. -/
+    Returns the built and selected modules, nix mode and captured build output, or an
+    exit code. -/
 def prepareProject (projectPath : System.FilePath) (libraries : Option (Array String))
-    (moduleFilter : Option String) : IO (Except UInt32 (Array ProjectModule × Option NixMode × String)) := do
+    (moduleFilter : Option String) : IO (Except UInt32 PreparedProject) := do
   if !(← isLakeProject projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {projectPath}"
     return .error 1
@@ -329,12 +313,88 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     return .error 1
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
-  return .ok (filteredModules, nixMode, buildOutput)
+  return .ok { allModules := modules, selectedModules := filteredModules, nixMode, buildOutput }
 
-/-- Run the combined extract pipeline: build → atomize → markAtomFlags → specs → sorry detection → merge → enrich → envelope → write -/
+/-- Where the build log and the kernel disagree about an atom. The log is matched to
+    atoms by file and line range, so a `sorry` abstracted into an auxiliary
+    (`X._proof_N`) is attributed to `X` by the log while the kernel makes `X` tainted
+    rather than direct — that is agreement, not divergence. Generated atoms share
+    their range with the declaration that produced them (a `.mvcgen_spec` companion
+    with its parent, a derived instance with its type), so the log cannot speak about
+    them and they are skipped. Reported: the log flags an atom the kernel finds clean
+    modulo T, or the kernel finds a direct carrier the log never warned about (a
+    module with errors, `warn.sorry` off). -/
+def logDivergences (warnings : Array SorryWarning) (atoms : Array Atom) (pt : ProjectTaint)
+    : Array String := Id.run do
+  let mut out : Array String := #[]
+  for atom in atoms do
+    if atom.isLeanGenerated || atom.isAeneasGenerated then
+      continue
+    let logSorry := !(findSorriesForAtom warnings atom).isEmpty
+    let direct := pt.taint.direct.contains atom.leanName
+    let restsOnSorry := direct || pt.taint.tainted.contains atom.leanName
+    if logSorry && !restsOnSorry then
+      out := out.push s!"Divergence: {atom.name} build log says sorry, kernel says clean"
+    else if direct && !logSorry then
+      out := out.push s!"Divergence: {atom.name} kernel says sorry, build log says clean"
+  return out
+
+/-- Step 2. The build log decides nothing — the kernel walk does — but it is parsed
+    as before and cross-checked against the walk (`logDivergences`). -/
+private def runVerifyStep (config : ExtractConfig) (buildOutput : String) (atoms : Array Atom)
+    (pt : ProjectTaint) : IO Unit := do
+  IO.println "=== Step 2/3: Verify ==="
+  if config.skipVerify then
+    IO.println "Verification skipped (--skip-verify)"
+    return
+  let verifyOutput ← match config.fromFile with
+    | some file =>
+      IO.println s!"Reading build output from {file}..."
+      IO.FS.readFile file
+    | none => pure buildOutput
+  let warnings := parseSorryWarnings verifyOutput
+  IO.println s!"Found {warnings.size} sorry warnings (build log)"
+  let direct := atoms.filter fun a => pt.taint.direct.contains a.leanName
+  let clean := atoms.filter fun a => !pt.taint.direct.contains a.leanName
+  IO.println s!"Direct sorry carriers (kernel): {direct.size}"
+  IO.println s!"Verified: {clean.size}/{atoms.size} declarations"
+  if warnings.isEmpty && !direct.isEmpty then
+    IO.eprintln s!"Note: the build log carries no sorry warnings (cached build without output, \
+      or warnings suppressed); the kernel finds {direct.size} direct carrier(s)"
+  else
+    for line in logDivergences warnings atoms pt do
+      IO.eprintln line
+
+/-- Enrich. The reverse-BFS over the emitted graph no longer decides status; it runs
+    on the oracle's seeds and every atom on which it disagrees with the walk is
+    printed (`divergenceLines`), never reconciled. -/
+private def runEnrichStep (config : ExtractConfig) (oracle : Array UnifiedAtom) : IO Unit := do
+  if config.skipEnrich then
+    IO.println "Enrichment skipped (--skip-enrich)"
+    return
+  IO.println "=== Enrich ==="
+  let (graph, _, _, missingDeps) := enrichTransitiveVerification (demoteTransitive oracle)
+  -- Only surface genuine orphans. References to constructors/fields of an
+  -- extracted type (inductive/structure/class) are benign and collapsed into
+  -- a single note so real gaps are not lost in the noise.
+  let (orphans, typeMemberCount) := partitionMissingDeps oracle missingDeps
+  for dep in orphans do
+    IO.eprintln s!"Warning: dependency \"{dep}\" not found in atom map (graph cross-check only; status comes from the kernel walk)"
+  if typeMemberCount > 0 then
+    IO.eprintln s!"Note: {typeMemberCount} reference(s) to constructors/fields of extracted types (graph cross-check only)"
+  let divs := divergenceLines oracle graph
+  for d in divs do
+    IO.eprintln d
+  if !divs.isEmpty then
+    IO.eprintln s!"Divergence: {divs.size} atom(s) where the emitted graph disagrees with the kernel walk"
+  let (transitive, local_, notVerified) := statusCounts oracle
+  IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
+
+/-- Run the combined extract pipeline: build → atomize (+ kernel taint pass) →
+    markAtomFlags → specs → verify (log cross-check) → merge (status from the taint
+    pass) → enrich (graph cross-check) → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
-  let (filteredModules, nixMode, buildOutput) ←
-    match ← prepareProject config.projectPath config.libraries config.moduleFilter with
+  let prepared ← match ← prepareProject config.projectPath config.libraries config.moduleFilter with
     | .error code => return code
     | .ok r => pure r
 
@@ -344,7 +404,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let userConfig ← loadUserConfig config.projectPath
   let crate := loadRelevantCrate userConfig
 
-  let atoms ← match ← runAnalysisViaLakeEnv config.projectPath filteredModules crate nixMode with
+  let (atoms, pt) ← match ← runAnalysisViaLakeEnv config.projectPath prepared.allModules
+      prepared.selectedModules crate prepared.nixMode with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1
@@ -366,55 +427,14 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   -- and `primarySpec` are populated.
   warnAmbiguousPrimarySpecs atoms
 
-  -- === Step 2: Sorry detection ===
-  IO.println "=== Step 2/3: Verify ==="
-  let proofEntries : Option (Array ProofEntry) ← if config.skipVerify then
-    IO.println "Verification skipped (--skip-verify)"
-    pure none
-  else do
-    let verifyOutput ← match config.fromFile with
-      | some file =>
-        IO.println s!"Reading build output from {file}..."
-        IO.FS.readFile file
-      | none =>
-        pure buildOutput
+  runVerifyStep config prepared.buildOutput atoms pt
 
-    let warnings := parseSorryWarnings verifyOutput
-    IO.println s!"Found {warnings.size} sorry warnings"
-
-    let entries := atoms.map fun atom =>
-      let sorries := findSorriesForAtom warnings atom
-      atomToProofEntry atom sorries
-
-    let verified := entries.filter fun p => p.verified
-    IO.println s!"Verified: {verified.size}/{entries.size} declarations"
-    pure (some entries)
-
-  -- === Step 3: Merge (parallel arrays, O(n)) ===
+  -- === Step 3: Merge — status from the taint pass, joined on `leanName` ===
   IO.println "=== Step 3/3: Merge ==="
+  let unifiedAtoms := applyTaintStatus (atoms.map unifyAtom) pt
+    (applyTaint := !config.skipVerify) (upgrade := !config.skipEnrich)
 
-  let unifiedAtoms := atoms.mapIdx fun i atom =>
-    let proof := proofEntries.bind fun ps => ps[i]?
-    unifyAtom atom proof
-
-  -- === Enrich: transitive verification via reverse-BFS ===
-  let unifiedAtoms ← if config.skipEnrich then
-    IO.println "Enrichment skipped (--skip-enrich)"
-    pure unifiedAtoms
-  else do
-    IO.println "=== Enrich ==="
-    let (enriched, transitive, local_, missingDeps) := enrichTransitiveVerification unifiedAtoms
-    -- Only surface genuine orphans. References to constructors/fields of an
-    -- extracted type (inductive/structure/class) are benign and collapsed into
-    -- a single note so real gaps are not lost in the noise.
-    let (orphans, typeMemberCount) := partitionMissingDeps unifiedAtoms missingDeps
-    for dep in orphans do
-      IO.eprintln s!"Warning: dependency \"{dep}\" not found in atom map (treated as trusted)"
-    if typeMemberCount > 0 then
-      IO.eprintln s!"Note: {typeMemberCount} reference(s) to constructors/fields of extracted types treated as trusted"
-    let notVerified := enriched.size - transitive - local_
-    IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
-    pure enriched
+  runEnrichStep config unifiedAtoms
 
   -- Contaminated generated atoms (lean- or aeneas-generated) have their isHidden
   -- cleared so the user can trace why downstream atoms aren't fully verified (see
@@ -424,6 +444,10 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let unifiedAtoms :=
     if config.skipEnrich then unifiedAtoms else unhideContaminatedGenerated unifiedAtoms
 
+  writeExtractOutput config unifiedAtoms
+
+where
+  writeExtractOutput (config : ExtractConfig) (unifiedAtoms : Array UnifiedAtom) : IO UInt32 := do
   let source ← collectSourceInfo config.projectPath
   let timestamp ← getCurrentTimestamp
 

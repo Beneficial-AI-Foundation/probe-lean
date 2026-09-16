@@ -202,6 +202,10 @@ instance : Inhabited DeclKind where
 /-- An atom representing a declaration in the dependency graph -/
 structure Atom where
   name : String
+  /-- The original Lean `Name`, before it is published as `probe:…`. Not serialised.
+      The kernel taint walk is joined to atoms on this field, so two private
+      declarations that publish to the same string cannot swap statuses. -/
+  leanName : Lean.Name := .anonymous
   displayName : String
   dependencies : Array String
   typeDependencies : Array String := #[]
@@ -442,6 +446,8 @@ instance : Lean.FromJson WebVerificationStatus where
 /-- A unified atom combining all atom fields with verification and specification status -/
 structure UnifiedAtom where
   name : String
+  /-- Original Lean `Name` (see `Atom.leanName`). Not serialised. -/
+  leanName : Lean.Name := .anonymous
   displayName : String
   dependencies : Array String
   typeDependencies : Array String := #[]

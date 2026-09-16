@@ -7,6 +7,7 @@ import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Coimport
 import ProbeLean.Analysis
+import ProbeLean.Taint
 
 namespace ProbeLean
 
@@ -325,26 +326,39 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
       return .error s!"Failed to import modules: {msg}{hint}"
     return .error s!"Failed to import modules: {msg}"
 
-/-- Run analysis via lake env to get correct search paths. Returns the atoms. -/
-def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array ProjectModule) (crate : String)
-    (nixMode : Option NixMode := none)
-    : IO (Except String (Array Atom)) := do
-  let env ← match ← importProjectEnv projectPath modules nixMode with
-    | .error msg => return .error msg
-    | .ok env => pure env
-  let moduleNames := modules.map (·.name)
-  -- Built once and shared by declaration discovery and per-atom dep partitioning.
-  let projFilter := mkProjectFilter env moduleNames
+/-- Import the project for the taint walk: **all** built project modules (P must
+    cover the whole project, whatever `--module`/`--library` selected for output),
+    falling back to the selected modules when the full set cannot be co-imported.
+    Returns the environment and the module set actually imported.
 
-  IO.println "Extracting declarations..."
+    The full import is attempted only when the cheap olean-header preflight passes,
+    so a project that relies on the selection to dodge a collision pays one
+    preflight, not a failed import. The fallback also catches an import-time
+    duplicate the preflight cannot see, and stale oleans of an unselected library. -/
+def importProjectEnvWithFallback (projectPath : System.FilePath)
+    (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
+    : IO (Except String (Environment × Array ProjectModule)) := do
+  if selected.size == all.size then
+    return (← importProjectEnv projectPath all nixMode).map (·, all)
+  match ← importProjectEnv projectPath all nixMode with
+  | .ok env => return .ok (env, all)
+  | .error msg =>
+    IO.eprintln (formatFallbackWarning (all.size - selected.size))
+    IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
+    return (← importProjectEnv projectPath selected nixMode).map (·, selected)
 
-  let decls := getProjectDecls env moduleNames projFilter
-
-  IO.println s!"Found {decls.size} declarations"
-
+/-- The per-declaration atom loop. Generated code is flagged hidden + generated so
+    viewify and the web UI omit it from the presented graph, split by origin:
+    deriving clusters and structure/class projections are core-Lean output
+    (`is-lean-generated`), while `@[step]`'s mvcgen companion theorems exist only
+    because of Aeneas (`is-aeneas-generated`). Either way the atom is kept in the
+    atom set (not dropped), so the emitted graph still carries it. -/
+private def buildAtoms (env : Environment) (projectPath : System.FilePath)
+    (selFilter : ProjectFilter) (crate : String) (pathCache : ModulePathCache)
+    (auxCache : AuxDepCache) (attrs : Std.HashMap Name (Array String))
+    (decls : Array DeclInfo) : IO (Array Atom) := do
   -- Auto-detected `deriving`-generated instance clusters and attribute-macro
-  -- companion theorems (names only). Flagged below alongside projections; see
-  -- the marking loop for why.
+  -- companion theorems (names only).
   let derivedNames := derivedInstanceClusterNames decls
   -- Companion parents can live outside the emitted declarations (`attribute
   -- [step]` on an external theorem/axiom, or a module-filtered parent); resolve
@@ -352,22 +366,10 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
   -- misflagged.
   let companionNames := generatedCompanionTheoremNames decls
     (externalParentKind := fun n => (env.find? n).map (getDeclKind env n))
-
-  let fileCache : FileCache ← IO.mkRef {}
-  -- One fold state per run: its closure cache is keyed to this `Environment`
-  -- and this project filter, and extraction is sequential (see `FoldState`).
-  let auxCache : AuxDepCache ← IO.mkRef {}
   let mut atoms : Array Atom := #[]
   for decl in decls do
-    let atom ← declInfoToAtom env projectPath projFilter crate fileCache auxCache decl
-    -- Generated code is flagged hidden + generated so viewify and the web UI
-    -- omit it from the presented graph, split by origin: deriving clusters and
-    -- structure/class projections are core-Lean output (`is-lean-generated`),
-    -- while `@[step]`'s mvcgen companion theorems exist only because of Aeneas
-    -- (`is-aeneas-generated`). Either way the atom is kept in the atom set (not
-    -- dropped), so `enrichTransitiveVerification` still traverses it and
-    -- contamination still flows through it — hiding is sound precisely because
-    -- the atom stays in the graph, unlike dropping.
+    let atom ← declInfoToAtom env projectPath selFilter crate pathCache auxCache
+      (attrs.getD decl.name #[]) decl
     let isLeanGen := derivedNames.contains decl.name || decl.kind == .projection
     let isAeneasGen := companionNames.contains decl.name
     let atom :=
@@ -375,12 +377,14 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
       else if isAeneasGen then { atom with isHidden := true, isAeneasGenerated := true }
       else atom
     atoms := atoms.push atom
+  return atoms
 
-  -- Auxiliary-fold accounting. The counters are the performance gate's inputs
-  -- (node expansions, edges scanned, materialised closure entries, peak cache
-  -- size); the unresolved report is why `classifyFoldCandidate` consults
-  -- `env.find?` before any name test — a dependency the environment cannot
-  -- resolve is a diagnostic, not something to drop by suffix.
+/-- Auxiliary-fold accounting. The counters are the performance gate's inputs
+    (node expansions, edges scanned, materialised closure entries, peak cache
+    size); the unresolved report is why `classifyFoldCandidate` consults
+    `env.find?` before any name test — a dependency the environment cannot
+    resolve is a diagnostic, not something to drop by suffix. -/
+private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
   let fold ← auxCache.get
   let cachedNames := fold.cache.fold (init := 0) fun n _ v => n + v.size
   -- `nonCacheable` is reported because a run where it stays 0 never hit a
@@ -396,6 +400,38 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (modules : Array Proje
     for n in names do
       IO.eprintln s!"  {n}"
 
-  return .ok atoms
+/-- Import the project, run the kernel taint pass over all of it, and build the
+    atoms for the selected modules. `all` is every built project module (P), `selected`
+    the `--module`/`--library` selection that decides which declarations become atoms
+    and which dependencies count as project-internal. Atoms carry `leanName`, the
+    join key for `applyTaintStatus`. -/
+def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
+    (crate : String) (nixMode : Option NixMode := none)
+    : IO (Except String (Array Atom × ProjectTaint)) := do
+  let (env, imported) ← match ← importProjectEnvWithFallback projectPath all selected nixMode with
+    | .error msg => return .error msg
+    | .ok r => pure r
+  -- P is decided by the imported project modules; emission by the selection.
+  let pFilter := mkProjectFilter env (imported.map (·.name))
+  let selFilter := mkProjectFilter env (selected.map (·.name))
+
+  IO.println "Extracting declarations..."
+  let consts := projectConstants env pFilter
+  let decls := getProjectDeclsFrom env consts selFilter
+  IO.println s!"Found {decls.size} declarations"
+
+  let fileCache : FileCache ← IO.mkRef {}
+  let pathCache : ModulePathCache ← IO.mkRef {}
+  let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
+    (importedAll := imported.size == all.size) (moduleCount := imported.size)
+  IO.println (formatTaintSummary pt)
+  reportTypeTainted pt
+
+  -- One fold state per run: its closure cache is keyed to this `Environment`
+  -- and this project filter, and extraction is sequential (see `FoldState`).
+  let auxCache : AuxDepCache ← IO.mkRef {}
+  let atoms ← buildAtoms env projectPath selFilter crate pathCache auxCache attrs decls
+  reportFoldStats auxCache
+  return .ok (atoms, pt)
 
 end ProbeLean
