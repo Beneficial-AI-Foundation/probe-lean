@@ -106,6 +106,36 @@ def testAxiomReachability (result : TestResult) : IO TestResult := do
     (mixed.contains `g && mixed.contains `x && !mixed.contains `c && !mixed.contains `h) result
   return result
 
+/-- `reachingNames` on `n` nodes: chains of 50 (`k → k-1` unless `k % 50 == 0`),
+    every node its own SCC, roots in descending order so the memo grows to `n`
+    finalised entries. The memo used to be copied on every finalisation (the state
+    record kept a reference), which made the walk quadratic: ×4.3–4.7 per doubling. -/
+def scalingWalk (n : Nat) : IO Nat := do
+  let children : Lean.Name → Array Lean.Name := fun c => match c with
+    | .num p k => if k % 50 == 0 || k == 0 then #[] else #[.num p (k - 1)]
+    | _ => #[]
+  let roots := (Array.range n).reverse.map fun k => Lean.Name.num `v k
+  let t0 ← IO.monoMsNow
+  let out := reachingNames children (fun _ => false) `SORRY roots
+  -- Force the result before reading the clock: a pure `let` is floated otherwise.
+  if out.size != 0 then throw (IO.userError "scaling walk: unexpected reacher")
+  let t1 ← IO.monoMsNow
+  return t1 - t0
+
+def testReachabilityScaling (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing reachability scaling (linear in the number of finalised nodes)..."
+  let t16 ← scalingWalk 16000
+  let t32 ← scalingWalk 32000
+  IO.println s!"  reachingNames: 16k nodes {t16} ms, 32k nodes {t32} ms"
+  -- Loose bounds: timing is noisy in CI. Quadratic gave ×4.3–4.7 per doubling and
+  -- seconds at 32k; the fixed walk takes tens of milliseconds compiled.
+  result ← test "32k-node walk completes in under 2 s" (t32 < 2000) result
+  result ← test "doubling the graph costs at most ~3× (+100 ms slack)"
+    (t32 < 3 * t16 + 100) result
+  return result
+
 def testReachabilityBlocked (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3627,6 +3657,13 @@ def testProjectModuleMembership (result : TestResult) : IO TestResult := do
   result ← test "name-prefix collision does not match"
     (!isProjectModule mods `SpqrExtra.Foo) result
   result ← test "empty module set matches nothing" (!isProjectModule #[] `Spqr) result
+  -- The predicate is component-wise ancestry (`Name.isPrefixOf`), pinned on the two
+  -- degenerate names where a string-prefix test would answer differently. Neither
+  -- shape arises from a path-derived module name.
+  result ← test "anonymous project module is a structural prefix of everything"
+    (isProjectModule #[.anonymous] `Spqr) result
+  result ← test "a single component whose printed form contains `.` is not a descendant"
+    (!isProjectModule mods (Lean.Name.mkSimple "Spqr.Specs")) result
   return result
 
 /-- Module names are derived from olean paths one atomic component per path

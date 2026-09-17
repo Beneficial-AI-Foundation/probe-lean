@@ -179,13 +179,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `check-axioms` could miss a `sorry` depending on root order. It now uses Tarjan-style
   SCC finalisation and is validated against `Lean.collectAxioms` in the unit suite.
 
-  **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch at the round-3
-  revision (the later round-4 changes — how olean parts are loaded, the orphan abort and
-  walking cross-boundary names from the project's own bodies — were not re-measured: the
-  first two touch neither the walk nor the emitted arrays of a healthy project, and both
-  targets had zero cross-boundary names), both built for Lean 4.31, three warm runs each,
-  `tools/audit/compare-extract.py --status-policy taint` and
-  `check-status-consistency.py` passing on both targets:
+  **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch, both built for
+  Lean 4.31. Output comparison at the round-3 revision with
+  `tools/audit/compare-extract.py --status-policy taint` and `check-status-consistency.py`
+  passing on both targets; the later revisions (olean-part loading, the orphan abort,
+  cross-boundary walking, the three performance fixes below) were checked to produce
+  byte-identical `extract` JSON (timestamp aside) and identical `check-axioms` tainted
+  lists against the round-4 head on both targets. Wall-clock at the final revision with a
+  valid build cache, 10 pairs per target, the two binaries alternated run by run so machine
+  drift hits both equally, paired difference with a 95% confidence interval (the round-4
+  head, before the performance fixes, was +1.57 s ± 0.04 on SPQR and +0.58 s ± 0.11 on
+  dalek against `main` by the same method; absolute means move by up to 0.4 s between
+  sessions, so the paired delta is the number to quote):
 
   - curve25519-dalek-lean-verify `f6c7fabd` (231 modules, 11,293 project constants,
     2352 atoms): atom set and all four dependency arrays byte-identical, `primary-spec`
@@ -200,8 +205,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     `externally_verified` quoted in `externallyVerifiedAttr`'s docstring, junk tokens
     split out of string arguments (`@[rust_fun "…<u8>}::from"]`, 6 atoms), and `mk_iff`
     on 5 `IsValid.toOnCurve` projections — the structure's attribute two lines above,
-    which only the dropped look-back ever contributed. `extract` 10.2 s → 9.6 s, peak RSS
-    6.45 GB → 6.44 GB.
+    which only the dropped look-back ever contributed. `extract` 8.75 s → 6.68 s (−2.08 s
+    ± 0.05, −23.7%, faster in 10 of 10 pairs), peak RSS 6.45 GB → 6.44 GB.
   - SparsePostQuantumRatchet-verify `66939b9` (261 modules, 15,534 project constants,
     2819 atoms; one module-system file, so the `.olean.private` preflight path runs):
     the walk's 146 tainted constants are **name for name** the 146 entries of SPQR's own
@@ -210,15 +215,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     as a divergence; every `unverified` atom is a direct carrier; nothing moves the other
     way; no `externally_verified` registration exists, so the tag set is empty and rule 2
     never fires. `attributes` change on 10 atoms (the three Lint helpers, junk tokens).
-    `extract` 6.4 s → 7.6 s, peak RSS unchanged at 2.85 GB.
+    `extract` 5.50 s → 4.90 s (−0.60 s ± 0.03, −10.9%, faster in 10 of 10 pairs), peak RSS
+    unchanged at 2.85 GB.
 
 ### Changed
 
 - **`check-axioms`** runs the same pass as `extract` and lists every project constant
   that rests on an unexcused project `sorry`, atoms and non-atoms alike, marking
   `[direct]` carriers and `[not emitted]` constants (the SPQR instance above appears as
-  `[direct] [not emitted]`). It no longer walks through dependency packages, so it takes
-  about a second where it used to be `O(declarations × closure)`; `-m`/`-l` now only
+  `[direct] [not emitted]`), then the trusted base T (reason, module, and the statement of
+  each rule-3 model). It no longer walks through dependency packages, so it takes
+  well under a second where it used to be `O(declarations × closure)`; `-m`/`-l` now only
   decide the `[not emitted]` marker.
 - The `*External` trust rule keys on the **module name** (`Pkg.FunsExternal`) instead of
   the source path, so it also applies when the path lookup fails.
@@ -256,6 +263,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   structurally rather than by `Name.toString`. Together with computing each constant's
   children once for both the walk and the direct-carrier test, this kept the whole pass
   under a second on dalek.
+- Three costs found in the round-5 review, each measured before and after with the phase
+  isolated: the walk's `finalizeFrom` kept the state record referenced while mutating its
+  maps, so every SCC finalisation copied the memo — quadratic in |P|, 964 ms on SPQR and
+  463 ms on dalek; the fields are now taken out of the record before the loop (12 ms /
+  9 ms, identical tainted sets; a scaling test pins linear growth). `isProjectModule`
+  compared `toString` forms, two allocations per (environment module × project module)
+  pair, 0.4–0.9 s per `mkProjectFilter` with two filters built per run; it now uses
+  `Name.isPrefixOf` (component-wise ancestry, pinned on the two degenerate names where the
+  predicates differ). `projectConstants` scanned the whole imported constant map (Mathlib
+  included) for the project's constants, 0.5–1.2 s; it now enumerates the project modules'
+  own `constNames`, keeping the environment's attribution and body for each name (a
+  unit test asserts both formulations agree on a real environment; the merge fixtures
+  give identical reports).
+- The aux-fold `TaintCheck.lean` fixture called the internal `CollectAxioms.collect`,
+  private with a different interface since Lean 4.33, so the newest-toolchain CI job
+  failed to compile it; it uses the public `Lean.collectAxioms`.
 - The aux-fold fixture (`tests/fixtures/aux-fold`) gained a target-registered
   `externally_verified` tag, a `step_theorem` companion macro, a `*External` module (with
   a Prop-typed `def` and a Prop-valued `def`), a range-less `addDecl` carrier, a tagged

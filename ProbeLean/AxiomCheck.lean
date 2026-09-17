@@ -45,10 +45,17 @@ structure ReachState where
     shares `c`'s answer: if `c` reaches the target so does everything above it; if
     `c` is an SCC root that does not, neither does its component. -/
 private def finalizeFrom (c : Name) (res : Bool) : StateM ReachState Unit := do
-  let s ← get
-  let mut stack := s.stack
-  let mut memo := s.memo
-  let mut onStack := s.onStack
+  -- Take the fields out and release the record before mutating. With the record
+  -- `s` still referenced (and the state monad holding its own copy), the first
+  -- `insert`/`erase`/`pop` of every finalisation detached the whole container —
+  -- one copy per SCC, so the walk was quadratic in |P| (964 ms → 12 ms on a
+  -- 15k-constant project). The `set {}` is material: destructuring alone keeps
+  -- the monad's reference alive.
+  let ⟨memo₀, onStack₀, stack₀, next⟩ ← get
+  set ({} : ReachState)
+  let mut stack := stack₀
+  let mut memo := memo₀
+  let mut onStack := onStack₀
   let mut go := true
   while go do
     match stack.back? with
@@ -58,7 +65,7 @@ private def finalizeFrom (c : Name) (res : Bool) : StateM ReachState Unit := do
       memo := memo.insert top res
       onStack := onStack.erase top
       if top == c then go := false
-  set { s with stack, memo, onStack }
+  set ({ memo, onStack, stack, next } : ReachState)
 
 /-- Memoized reachability with Tarjan-style SCC finalisation.
 
@@ -76,7 +83,11 @@ private def finalizeFrom (c : Name) (res : Bool) : StateM ReachState Unit := do
     A frame that found the target finalises its whole stack segment as `true`. A
     frame that is its own SCC root (`lowlink == index`) finalises the component as
     `false`. Any other frame stays on the stack for its SCC root to decide, so no
-    answer computed across a suppressed back-edge is ever memoised. -/
+    answer computed across a suppressed back-edge is ever memoised.
+
+    The DFS is recursive: a single dependency chain of ~8k constants overflowed the
+    *interpreter* stack in a `lake env lean --run` harness; the compiled binary has a
+    larger stack and real dependency chains are far shallower. -/
 private partial def visit (children : Name → Array Name) (blocked : Name → Bool)
     (target c : Name) : StateM ReachState (Bool × Option Nat) := do
   if let some b := (← get).memo[c]? then

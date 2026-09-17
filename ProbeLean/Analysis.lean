@@ -60,8 +60,14 @@ def moduleNameOf (modNames : Array Name) (env : Environment) (name : Name) : Opt
 /-- Whether a module belongs to the project: it is one of `projectModules`, or a
 descendant of one. The one place project membership is decided. -/
 def isProjectModule (projectModules : Array Name) (modName : Name) : Bool :=
-  projectModules.any fun projMod =>
-    modName == projMod || modName.toString.startsWith (projMod.toString ++ ".")
+  -- Component-wise ancestry (`Name.isPrefixOf`): equal, or a descendant. No
+  -- allocation per pair — the string form (`toString.startsWith (toString ++ ".")`)
+  -- cost two allocations for each of the ~3000 × 260 (environment module × project
+  -- module) pairs, 0.4–0.9 s per `mkProjectFilter`. On degenerate names the two
+  -- differ: `.anonymous` is a structural prefix of every module, and a single
+  -- component whose printed form contains `.` (through `«…»` escaping) is not a
+  -- structural descendant. Path-derived module names hit neither.
+  projectModules.any fun projMod => projMod.isPrefixOf modName
 
 /-- Whether a declaration belongs to the project, as a set of module *indices*.
 
@@ -71,7 +77,9 @@ but it is the dominant cost of extraction in bulk: `projectConstants` tests ever
 constant in the environment (Mathlib included), and `declInfoToAtom` every
 dependency occurrence, which on a 190-module project with proof-term dependencies
 included runs to tens of thousands. Deciding membership per *module* up front turns
-each test into a hash lookup, and made `extract` on SPQR 8× faster. -/
+each test into a hash lookup, and made `extract` on SPQR 8× faster. The per-module
+test itself (`isProjectModule`) is allocation-free too, so building a filter costs
+milliseconds. -/
 structure ProjectFilter where
   moduleIdxs : Std.HashSet Nat
 
@@ -439,13 +447,27 @@ def generatedCompanionTheoremNames (decls : Array DeclInfo)
     kind or declaration-range filtering. This is the root set of the kernel taint
     walk; `getProjectDeclsFrom` carves the emitted declarations out of it. Sorted by
     name (P14). -/
-def projectConstants (env : Environment) (pf : ProjectFilter) : Array (Name × ConstantInfo) :=
-  let consts := env.constants.map₁.fold (init := #[]) fun acc name info =>
-    if pf.contains env name then acc.push (name, info) else acc
+def projectConstants (env : Environment) (pf : ProjectFilter) : Array (Name × ConstantInfo) := Id.run do
+  -- Enumerate the project modules' own `constNames` instead of scanning the whole
+  -- imported constant map (`env.constants.map₁`, Mathlib included: ~0.5–1.2 s per
+  -- run for 11–15k project constants; this takes ~15 ms). Membership is still
+  -- decided by the environment's attribution (`pf.contains`), and the body is the
+  -- one the environment kept (`env.find?`), never a module's own copy, so merged
+  -- names and `computeProjectTaint`'s cross-merge augmentation are unchanged.
+  let mods := env.header.moduleData
+  let mut seen : Std.HashSet Name := {}
+  let mut consts : Array (Name × ConstantInfo) := #[]
+  for i in [:mods.size] do
+    if pf.moduleIdxs.contains i then
+      for n in mods[i]!.constNames do
+        if seen.contains n then continue
+        seen := seen.insert n
+        if pf.contains env n then
+          if let some ci := env.find? n then consts := consts.push (n, ci)
   -- Structural `Name.lt`, not `toString`: sorting 11k names by their printed form
   -- costs about two seconds on dalek, and nothing downstream needs string order
   -- (`getProjectDeclsFrom` re-sorts the emitted subset the P14 way).
-  consts.qsort fun a b => Name.lt a.1 b.1
+  return consts.qsort fun a b => Name.lt a.1 b.1
 
 /-- Whether a project constant is a *source-visible declaration*: it has a
     declaration range of its own and is neither an internal auxiliary
