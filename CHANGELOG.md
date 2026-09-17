@@ -60,6 +60,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   docstring or body comment, or a tagged one-liner on the line above, no longer makes a
   declaration trusted.
 
+  **Merged declarations fail closed.** Lean's importer accepts two project modules that
+  restate a theorem with the same name and statement and keeps *one* proof without
+  comparing the bodies (the co-import preflight tolerates the same pair on purpose), so
+  after import the name no longer identifies one project proof: a sorried problem-file
+  `theorem shared` and a proved solution-file `theorem shared` collapse to whichever
+  survived, and a caller built against the sorried one could read clean. The preflight
+  now returns these names with every version it read (`Coimport.MergedDecl`); the walk
+  follows the union of all versions' dependencies, so a `sorry` in any version makes the
+  name `unverified` and every caller `verified`; rule 2 never applies to them (a tag sits
+  in one file); and `Warning: <n> declaration name(s) are declared by more than one project
+  module with the same statement, and Lean kept one proof: …` is printed by `extract` and
+  `check-axioms`. New fixture `tests/fixtures/merge` pins it in CI.
+
   The reachability core (`AxiomCheck.reachingNames`) also fixes #103: the shared memo
   finalised a frame's answer while a back-edge into it was still suppressed, so
   `check-axioms` could miss a `sorry` depending on root order. It now uses Tarjan-style

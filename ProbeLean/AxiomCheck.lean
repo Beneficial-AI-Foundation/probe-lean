@@ -131,18 +131,24 @@ def reaches (children : Name → Array Name) (blocked : Name → Bool) (target r
     over `ConstantInfo` on purpose: if Lean ever adds a constructor, this fails to
     compile rather than silently under-reporting axioms. Reads the value fields
     directly, so the Lean 4.30 `ConstantInfo.value?` default change does not apply.
-    Mirrors `Lean.collectAxioms`. -/
+    Mirrors `Lean.collectAxioms`. Takes the `ConstantInfo` itself so a version of
+    a constant the environment did *not* keep (a co-import duplicate read from its
+    module's olean) can be walked too. -/
+def constInfoChildren : ConstantInfo → Array Name
+  | .axiomInfo v  => v.type.getUsedConstants
+  | .defnInfo v   => v.type.getUsedConstants ++ v.value.getUsedConstants
+  | .thmInfo v    => v.type.getUsedConstants ++ v.value.getUsedConstants
+  | .opaqueInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
+  | .ctorInfo v   => v.type.getUsedConstants
+  | .recInfo v    => v.type.getUsedConstants
+  | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
+  | .quotInfo _   => #[]
+
+/-- `constInfoChildren` of the constant the environment holds under `c`. -/
 def constChildren (env : Environment) (c : Name) : Array Name :=
   match env.find? c with
-  | some (.axiomInfo v)  => v.type.getUsedConstants
-  | some (.defnInfo v)   => v.type.getUsedConstants ++ v.value.getUsedConstants
-  | some (.thmInfo v)    => v.type.getUsedConstants ++ v.value.getUsedConstants
-  | some (.opaqueInfo v) => v.type.getUsedConstants ++ v.value.getUsedConstants
-  | some (.ctorInfo v)   => v.type.getUsedConstants
-  | some (.recInfo v)    => v.type.getUsedConstants
-  | some (.inductInfo v) => v.type.getUsedConstants ++ v.ctors.toArray
-  | some (.quotInfo _)   => #[]
-  | none                 => #[]
+  | some ci => constInfoChildren ci
+  | none    => #[]
 
 /-- Whether `c`'s own type or value names `sorryAx` — a *direct carrier*. -/
 def isDirectSorryCarrier (env : Environment) (c : Name) : Bool :=
@@ -180,16 +186,22 @@ structure TaintResult where
 /-- The walk `extract` and `check-axioms` share. `roots` is P, the project's
     constants; children outside P or in T (`trusted`) are blocked — taken as leaves
     by the trusted-base decision — while `sorryAx` itself, which lives outside every
-    project, is still recognised because the target test precedes the blocked test. -/
+    project, is still recognised because the target test precedes the blocked test.
+
+    `childrenOverride` replaces the environment's out-edges for the names it holds:
+    the caller uses it for a name several project modules declare (the importer
+    kept one version), so that the walk follows the union of every version's
+    dependencies and cannot be steered clean by whichever proof survived. -/
 def projectTaint (env : Environment) (isProject trusted : Name → Bool)
-    (roots : Array Name) : TaintResult :=
+    (roots : Array Name) (childrenOverride : Std.HashMap Name (Array Name) := {})
+    : TaintResult :=
   let blocked (n : Name) : Bool := !isProject n || trusted n
   -- `getUsedConstants` over every root's type and value is the dominant cost of
   -- the pass (about a second on dalek), and both the walk and the direct-carrier
   -- test need it, so compute it once. Only unblocked nodes are ever expanded, and
   -- with `roots = P` those are all roots; a non-root falls back to `constChildren`.
   let childrenOf : Std.HashMap Name (Array Name) := roots.foldl (init := {}) fun m r =>
-    m.insert r (constChildren env r)
+    m.insert r (childrenOverride.getD r (constChildren env r))
   let children (n : Name) : Array Name :=
     match childrenOf[n]? with
     | some cs => cs

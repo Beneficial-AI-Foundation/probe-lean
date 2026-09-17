@@ -98,6 +98,21 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
           python3 check.py
 
+      # Merged declarations: two modules restate one theorem with the same
+      # statement, Lean's importer keeps one proof. The walk must follow both
+      # versions' dependencies, so the sorried one taints every caller.
+      - name: End-to-end merged-declaration check
+        run: |
+          diff lean-toolchain tests/fixtures/merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
+          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
       # a hard failure instead of silent drift (the previous fixture was
@@ -136,6 +151,7 @@ jobs:
           # check on the pinned elaborator.
           cp lean-toolchain tests/fixtures/aux-fold/lean-toolchain
           cp lean-toolchain tests/fixtures/collision/lean-toolchain
+          cp lean-toolchain tests/fixtures/merge/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -201,6 +217,21 @@ jobs:
           cat extract.stderr
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
           python3 check.py
+
+      # Merged declarations: two modules restate one theorem with the same
+      # statement, Lean's importer keeps one proof. The walk must follow both
+      # versions' dependencies, so the sorried one taints every caller.
+      - name: End-to-end merged-declaration check
+        run: |
+          diff lean-toolchain tests/fixtures/merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
+          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
   check-version:
     name: Version consistency

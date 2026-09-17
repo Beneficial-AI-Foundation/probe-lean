@@ -2712,6 +2712,17 @@ def testCoimportCollisions (result : TestResult) : IO TestResult := do
   let def3 := (`M3, toOwned #[mkTestDefn `shared_thm prop])
   result ← test "exempt pair plus def owner: collision" ((findCoimportCollisions #[thm1, thm2, def3]).size == 1) result
 
+  -- The exempt pairs are the *merged* declarations: the importer keeps one body.
+  let (cols, merged) := classifyDuplicates #[thm1, thm2]
+  result ← test "restated theorem: merged, not a collision"
+    (cols.isEmpty && merged.size == 1 && merged[0]!.declName == `shared_thm) result
+  result ← test "merged versions list every owner, sorted by module"
+    (merged[0]!.versions.map (·.1) == #[`M1, `M2]) result
+  result ← test "theorem/axiom restatement is merged too" ((classifyDuplicates #[thm1, ax2]).2.size == 1) result
+  result ← test "a collision is never also merged"
+    ((classifyDuplicates #[thm1, thm2, def3]).2.isEmpty) result
+  result ← test "disjoint modules: nothing merged" ((classifyDuplicates #[disjointA, disjointB]).2.isEmpty) result
+
   let int1 := (`M1, toOwned #[mkTestDefn `_internalDup prop])
   let int2 := (`M2, toOwned #[mkTestDefn `_internalDup prop])
   result ← test "internal-name duplicate: still detected" ((findCoimportCollisions #[int1, int2]).size == 1) result
@@ -4513,7 +4524,41 @@ run_cmd do
      (`TaintEnv.evSorried.mvcgen_spec, #["externally_verified"]),
      (`TaintEnv.noRangeMid, #["externally_verified"])]
   let trustAttrs := computeTrustBase env consts attrs
+  -- Merged declarations (co-import kept one of several same-statement versions).
+  let thmSorried := env.find? `TaintEnv.sorried |>.get!
+  let thmClean := env.find? `TaintEnv.clean |>.get!
+  let axTrust := env.find? `TaintEnv.trustAx |>.get!
+  let mkMerged (n : Name) (vs : Array (Name × ConstantInfo)) : MergedDecl := { declName := n, versions := vs }
+  let thmThm := mkMerged `TaintEnv.evSorried #[(`M1, thmSorried), (`M2, thmClean)]
+  let axThm := mkMerged `TaintEnv.trustAx #[(`M1, axTrust), (`M2, thmClean)]
+  let axAx := mkMerged `TaintEnv.trustAx #[(`M1, axTrust), (`M2, axTrust)]
+  let extDef := mkTestDefn `TaintEnv.ext (.sort .zero)
+  let extExt := mkMerged `TaintEnv.ext #[(`A.FunsExternal, extDef), (`B.TypesExternal, extDef)]
+  let extPlain := mkMerged `TaintEnv.ext #[(`A.FunsExternal, extDef), (`B.Funs, extDef)]
+  -- A tagged theorem that is also merged: the tag vouches for one body only.
+  let trustMerged := computeTrustBase env consts attrs
+    (Std.HashMap.ofList [(`TaintEnv.evSorried, thmThm)])
+  -- The walk with the union of both versions' edges: `clean` inherits the sorried
+  -- version's `sorryAx`.
+  let overridden := projectTaint env isProject (fun _ => false) roots
+    (childrenOverride := mergedChildrenMap #[mkMerged `TaintEnv.clean #[(`M1, thmClean), (`M2, thmSorried)]])
   let checks : Array (String × Bool) := #[
+    ("merged thm/thm: the union of children carries the sorry",
+      (mergedChildren thmThm).contains ``sorryAx),
+    ("merged thm/thm is never trusted", (mergedTrustedReason env thmThm).isNone),
+    ("merged axiom/thm is not trusted (the theorem version has a body)",
+      (mergedTrustedReason env axThm).isNone),
+    ("merged axiom/axiom is trusted as an axiom", mergedTrustedReason env axAx == some "axiom"),
+    ("merged defs in External modules are trusted by rule 3",
+      mergedTrustedReason env extExt == some "external"),
+    ("merged defs where one owner is not External: not trusted",
+      (mergedTrustedReason env extPlain).isNone),
+    ("computeTrustBase: a tagged theorem that is merged loses rule-2 trust",
+      trustMerged[`TaintEnv.evSorried]? == none && trustMerged[`TaintEnv.trustAx]? == some "axiom"),
+    ("childrenOverride: the merged clean theorem becomes a direct carrier and is tainted",
+      overridden.direct.contains `TaintEnv.clean && overridden.tainted.contains `TaintEnv.clean),
+    ("childrenOverride: unrelated roots are unchanged",
+      !overridden.tainted.contains `TaintEnv.viaAx && overridden.tainted.contains `TaintEnv.viaProof),
     ("direct carriers: the three sorried lemmas and the sorry-typed axiom",
       tr.direct.size == 4 &&
       [`TaintEnv.sorried, `TaintEnv.noRangeMid, `TaintEnv.evSorried, `TaintEnv.badAx].all tr.direct.contains),
@@ -4554,6 +4599,38 @@ run_cmd do
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
   elabCommand (← `(def $(mkIdent `taintEnvChecks) : Array (String × Bool) :=
     #[$items,*]))
+
+def testMergedDecls (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing merged declarations (co-import kept one of several proofs)..."
+  let prop : Lean.Expr := .sort .zero
+  let mkThmWith (n : Lean.Name) (body : Lean.Expr) : Lean.ConstantInfo :=
+    .thmInfo { name := n, levelParams := [], type := prop, value := body, all := [n] }
+  let sorried := mkThmWith `shared (.const ``sorryAx [])
+  let proved := mkThmWith `shared (.const ``True.intro [])
+  let m : MergedDecl := { declName := `shared, versions := #[(`Bad, sorried), (`Good, proved)] }
+  let ch := mergedChildren m
+  result ← test "mergedChildren is the union over versions"
+    (ch.contains ``sorryAx && ch.contains ``True.intro) result
+  result ← test "mergedChildren has no duplicates"
+    ((mergedChildren { m with versions := #[(`A, proved), (`B, proved)] }).size ==
+      (constInfoChildren proved).size) result
+  result ← test "mergedChildrenMap keys on the declared name"
+    ((mergedChildrenMap #[m])[`shared]? == some ch) result
+  result ← test "no merged decls: empty override" (mergedChildrenMap #[]).isEmpty result
+  result ← test "warning: none for an empty list" (formatMergedWarning #[] == "") result
+  result ← test "warning: names the declaration"
+    (formatMergedWarning #[`shared] ==
+      "Warning: 1 declaration name(s) are declared by more than one project module with the \
+       same statement, and Lean kept one proof: shared; the walk follows every version's \
+       dependencies and no `@[externally_verified]` on them is honoured") result
+  let many := (Array.range 12).map fun i => Lean.Name.mkSimple s!"d{i}"
+  let w := formatMergedWarning many
+  result ← test "warning: capped list with a remainder count"
+    (w.startsWith "Warning: 12 declaration name(s)" && (w.splitOn ", … and 2 more").length == 2 &&
+     (w.splitOn "d11").length == 1) result
+  return result
 
 def testProjectTaintEnv (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -4658,6 +4735,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testAttributeScan result
   result ← testAttributeScanNegatives result
   result ← testLoadedProjectModules result
+  result ← testMergedDecls result
   result ← testProjectTaintEnv result
   return result
 

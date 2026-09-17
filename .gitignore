@@ -34,3 +34,9 @@ tests/fixtures/collision/.verilib/
 tests/fixtures/collision/lake-manifest.json
 tests/fixtures/collision/extract.stderr
 tests/fixtures/collision/check-axioms.out
+tests/fixtures/merge/.verilib/
+tests/fixtures/merge/lake-manifest.json
+tests/fixtures/merge/extract.stderr
+tests/fixtures/merge/extract.stdout
+tests/fixtures/merge/check-axioms.out
+tests/fixtures/merge/check-axioms.err

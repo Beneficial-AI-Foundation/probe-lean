@@ -19,7 +19,7 @@ probe-lean can analyze any Lean 4 project that meets these requirements:
 |-------------|--------|
 | **Lean version** | **≥ v4.28.0-rc1** — the `.olean` binary format is not compatible across Lean versions, and probe-lean cannot be built for older toolchains |
 | **Buildable Lean libraries** | probe-lean only needs the `.olean` files from `lake build <lib>`. If the Lean library targets compile but the final executable linking fails (e.g., missing GPU drivers), extraction can still succeed — use `--library <lib>` to build only the library |
-| **Co-importable modules** | All built modules must load into a **single Lean environment**: no two modules may declare the same fully-qualified name (identical-statement theorem/axiom restatements are the narrow exception Lean itself tolerates). Extraction runs a preflight check and lists any duplicated names with their owning modules |
+| **Co-importable modules** | All built modules must load into a **single Lean environment**: no two modules may declare the same fully-qualified name (identical-statement theorem/axiom restatements are the narrow exception Lean itself tolerates — it keeps one proof, so probe-lean walks the union of every version's dependencies for such names and warns). Extraction runs a preflight check and lists any duplicated names with their owning modules |
 
 ### Projects with native dependencies
 

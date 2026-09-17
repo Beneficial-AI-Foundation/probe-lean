@@ -36,13 +36,18 @@ def check (fs : Failures) (name : String) (ok : Bool) : IO Unit := do
     IO.println s!"  ✗ {name}"
     fs.modify (·.push name)
 
+/-- The body of a theorem or definition, read by pattern match: since Lean 4.30
+    `ConstantInfo.value?`/`value!` hide theorem bodies unless `allowOpaque := true`
+    (the `value!` on the newest toolchain panicked here). -/
+def bodyOf (ci : ConstantInfo) : Option Expr :=
+  match ci with
+  | .thmInfo v => some v.value
+  | .defnInfo v => some v.value
+  | _ => none
+
 def usesSorry (ci : ConstantInfo) : Bool :=
-  let value := match ci with
-    | .thmInfo v => some v.value
-    | .defnInfo v => some v.value
-    | _ => none
   ci.type.getUsedConstants.contains ``sorryAx ||
-    (value.map (·.getUsedConstants.contains ``sorryAx)).getD false
+    ((bodyOf ci).map (·.getUsedConstants.contains ``sorryAx)).getD false
 
 def checkPrecondition (fs : Failures) : IO Unit := do
   initSearchPath (← findSysroot)
@@ -57,7 +62,7 @@ def checkPrecondition (fs : Failures) : IO Unit := do
   | none => check fs "viaNoRange exists" false
   | some ci =>
     check fs "viaNoRange references noRangeMid directly"
-      (ci.value!.getUsedConstants.contains `noRangeMid)
+      (((bodyOf ci).map (·.getUsedConstants.contains `noRangeMid)).getD false)
   match declRangeExt.find? env `vouched, declRangeExt.find? env `vouched.mvcgen_spec with
   | some r1, some r2 =>
     check fs "vouched and its companion share one declaration range"

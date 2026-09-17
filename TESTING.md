@@ -54,6 +54,7 @@ All tests run without external tools.
 | `testAttributeScan` | Header-only `@[…]` scan: comment/string stripping (nested block comments, docstrings, escaped quotes), head-line detection, look-back window, 1-based range conversion (the old scan read the *next* declaration's tag) |
 | `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; the declaration's own tag still survives |
 | `testLoadedProjectModules` | Fallback P: `all` restricted to the modules the environment loaded |
+| `testMergedDecls` | `classifyDuplicates` splits tolerated restatements (merged) from collisions; `mergedChildren` is the union over versions; `formatMergedWarning` text and cap |
 | `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `rule2Applies`, `computeTrustBase`, and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
@@ -90,7 +91,10 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
    report agree on every atom in both directions); then builds `tests/fixtures/collision`,
    whose two colliding modules force the import fallback under `--module`, and runs
    `check.py` (a transitively loaded sorried module still taints the selected caller);
-   repeated on the newest supported Lean by the `test-newest` job
+   then builds `tests/fixtures/merge`, where two modules restate one theorem and the
+   importer keeps one proof, and runs its `check.py` (the merged name reads `unverified`,
+   both callers `verified`, the warning is printed); repeated on the newest supported Lean
+   by the `test-newest` job
 
 The CI uses `lean-action` which automatically installs elan, sets up the
 Lean toolchain from `lean-toolchain`, and caches the `.lake` directory.

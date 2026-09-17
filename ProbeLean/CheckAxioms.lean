@@ -34,8 +34,8 @@ def runCheckAxiomsInProject (projectPath : System.FilePath)
     | .error code => return code
     | .ok r => pure r
 
-  let (env, imported) ← match ← importProjectEnvWithFallback projectPath prepared.allModules
-      prepared.selectedModules prepared.nixMode with
+  let (env, imported, merged) ← match ← importProjectEnvWithFallback projectPath
+      prepared.allModules prepared.selectedModules prepared.nixMode with
     | .error msg => IO.eprintln s!"Import failed: {msg}"; return 1
     | .ok r => pure r
 
@@ -46,6 +46,7 @@ def runCheckAxiomsInProject (projectPath : System.FilePath)
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, _) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
     (importedAll := imported.size == prepared.allModules.size) (moduleCount := imported.size)
+    (merged := merged)
   reportTypeTainted pt
   let emitted := (getProjectDeclsFrom env consts selFilter).foldl
     (init := ({} : Std.HashSet Name)) fun s d => s.insert d.name

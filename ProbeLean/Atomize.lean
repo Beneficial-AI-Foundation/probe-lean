@@ -246,7 +246,7 @@ def findProbeLeanLib : IO (List System.FilePath) := do
     Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command so both see the
     exact same environment. -/
 def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectModule)
-    (nixMode : Option NixMode := none) : IO (Except String Environment) := do
+    (nixMode : Option NixMode := none) : IO (Except String (Environment × Array MergedDecl)) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
@@ -270,7 +270,7 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
   -- Preflight: abort with an actionable diagnostic if the modules cannot
   -- coexist in one environment, instead of paying for the import and
   -- surfacing a raw kernel error.
-  let (collisions, skippedPreflight) ← detectCoimportCollisions modules
+  let (collisions, merged, skippedPreflight) ← detectCoimportCollisions modules
 
   if !collisions.isEmpty then
     return .error (formatCoimportError collisions skippedPreflight)
@@ -288,7 +288,7 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
     -- same failure shape as the `ConstantInfo.value?` default that emptied
     -- theorem proof edges. `.private` is the current upstream default; it is
     -- spelled out so a future default change cannot regress soundness.
-    return .ok (← importModules imports {} 0 (level := OLeanLevel.private))
+    return .ok (← importModules imports {} 0 (level := OLeanLevel.private), merged)
   catch e =>
     let msg := toString e
     if containsSubstring msg "already contains" then
@@ -341,7 +341,9 @@ def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
 /-- Import the project for the taint walk: **all** built project modules (P must
     cover the whole project, whatever `--module`/`--library` selected for output),
     falling back to the selected modules when the full set cannot be co-imported.
-    Returns the environment and the project modules it holds (`loadedProjectModules`).
+    Returns the environment, the project modules it holds (`loadedProjectModules`)
+    and the merged declarations among them (`Coimport.MergedDecl`: same-statement
+    restatements the importer collapsed to one proof).
 
     The full import is attempted only when the cheap olean-header preflight passes,
     so a project that relies on the selection to dodge a collision pays one
@@ -352,20 +354,23 @@ def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
     audit loses them (`formatFallbackWarning`). -/
 def importProjectEnvWithFallback (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
-    : IO (Except String (Environment × Array ProjectModule)) := do
+    : IO (Except String (Environment × Array ProjectModule × Array MergedDecl)) := do
   if selected.size == all.size then
-    return (← importProjectEnv projectPath all nixMode).map (·, all)
+    return (← importProjectEnv projectPath all nixMode).map fun (env, merged) => (env, all, merged)
   match ← importProjectEnv projectPath all nixMode with
-  | .ok env => return .ok (env, all)
+  | .ok (env, merged) => return .ok (env, all, merged)
   | .error msg =>
     match ← importProjectEnv projectPath selected nixMode with
     | .error e => return .error e
-    | .ok env =>
+    | .ok (env, _) =>
       let imported := loadedProjectModules all env.allImportedModuleNames
       if imported.size < all.size then
         IO.eprintln (formatFallbackWarning (all.size - imported.size))
       IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
-      return .ok (env, imported)
+      -- The preflight above scanned the selection only; the merged set has to
+      -- cover every project module the environment actually holds.
+      let (_, merged, _) ← detectCoimportCollisions imported
+      return .ok (env, imported, merged)
 
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so
     viewify and the web UI omit it from the presented graph, split by origin:
@@ -428,7 +433,7 @@ private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
     (crate : String) (nixMode : Option NixMode := none)
     : IO (Except String (Array Atom × ProjectTaint)) := do
-  let (env, imported) ← match ← importProjectEnvWithFallback projectPath all selected nixMode with
+  let (env, imported, merged) ← match ← importProjectEnvWithFallback projectPath all selected nixMode with
     | .error msg => return .error msg
     | .ok r => pure r
   -- P is decided by the imported project modules; emission by the selection.
@@ -443,7 +448,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (importedAll := imported.size == all.size) (moduleCount := imported.size)
+    (importedAll := imported.size == all.size) (moduleCount := imported.size) (merged := merged)
   IO.println (formatTaintSummary pt)
   reportTypeTainted pt
 

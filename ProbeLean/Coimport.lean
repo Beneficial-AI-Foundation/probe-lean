@@ -16,6 +16,15 @@
   involving dependency modules, module-system split parts (`.olean.private`),
   or oleans the scan had to skip — are under-detection only: the import then
   fails as before and lands on the fallback hint in `Atomize.lean`.
+
+  The tolerated duplicates are not harmless for the taint walk. The importer
+  keeps **one** version of a restated theorem without comparing proof bodies, so
+  after co-import a `Name` no longer identifies one project proof: a sorried
+  problem-file `theorem shared` and a proved solution-file `theorem shared`
+  merge into whichever the importer kept. The preflight therefore also returns
+  these *merged* names with every version it read (`MergedDecl`), and the taint
+  pass walks the union of their dependencies (`Taint.mergedChildren`) and
+  refuses rule-2 trust for them — fail closed, whichever proof survived.
 -/
 import Lean
 import ProbeLean.Environment
@@ -59,21 +68,32 @@ def constSubsumes (a b : ConstantInfo) : Bool :=
 def isDisplayableCollisionName (n : Name) : Bool :=
   !n.isInternal && !n.hasMacroScopes
 
+/-- A declaration name declared by more than one project module where every
+    owner pair *is* subsumable: the importer accepts the set and keeps one
+    version, discarding the others' proof bodies. `versions` holds every
+    `(owning module, constant info)` the preflight read, sorted by module. -/
+structure MergedDecl where
+  declName : Name
+  versions : Array (Name × ConstantInfo)   -- sorted by module name, ≥ 2 entries
+  deriving Inhabited
+
 /-- Pure core of the preflight: given each module's own declarations as
     `(declared name, constant info)` pairs — the positional pairing of
     `ModuleData.constNames` with `ModuleData.constants`, which is exactly how
-    the importer iterates them — return the names owned by more than one
-    module where some owner pair is not mutually subsumable. Detection keys
-    on the raw declared `Name` from the olean — display filtering happens in
-    `formatCoimportError`, never here. Result and per-collision module lists
-    are sorted for deterministic output (P14). -/
-def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
-    Array DeclCollision := Id.run do
+    the importer iterates them — classify the names owned by more than one
+    module: a *collision* when some owner pair is not mutually subsumable (the
+    import would fail), *merged* otherwise (the import keeps one version).
+    Detection keys on the raw declared `Name` from the olean — display filtering
+    happens in `formatCoimportError`, never here. Both results and their module
+    lists are sorted for deterministic output (P14). -/
+def classifyDuplicates (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
+    Array DeclCollision × Array MergedDecl := Id.run do
   let mut owners : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
   for (modName, decls) in moduleDecls do
     for (cname, cinfo) in decls do
       owners := owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
   let mut collisions : Array DeclCollision := #[]
+  let mut merged : Array MergedDecl := #[]
   for (declName, os) in owners.toList do
     if os.size > 1 then
       let mut fatal := false
@@ -83,18 +103,26 @@ def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × Constant
           let b := os[j]!.2
           if !(constSubsumes a b || constSubsumes b a) then
             fatal := true
+      let sorted := os.qsort fun a b => a.1.toString < b.1.toString
       if fatal then
-        let mods := (os.map (·.1)).qsort fun a b => a.toString < b.toString
-        collisions := collisions.push { declName, modules := mods }
-  return collisions.qsort fun a b => a.declName.toString < b.declName.toString
+        collisions := collisions.push { declName, modules := sorted.map (·.1) }
+      else
+        merged := merged.push { declName, versions := sorted }
+  return (collisions.qsort (fun a b => a.declName.toString < b.declName.toString),
+          merged.qsort (fun a b => a.declName.toString < b.declName.toString))
+
+/-- The collisions of `classifyDuplicates`: the names that make the import fail. -/
+def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
+    Array DeclCollision :=
+  (classifyDuplicates moduleDecls).1
 
 /-- Run the preflight over the (already filtered) project modules: read each
-    module's base `.olean` and detect collisions. A module whose olean cannot
-    be read is skipped with a stderr warning and returned in the second
-    component, so callers can surface that the scan was partial — a skip
-    alone must never fail the extraction. -/
+    module's base `.olean` and classify duplicated names into collisions and
+    merged declarations. A module whose olean cannot be read is skipped with a
+    stderr warning and returned in the last component, so callers can surface
+    that the scan was partial — a skip alone must never fail the extraction. -/
 def detectCoimportCollisions (modules : Array ProjectModule) :
-    IO (Array DeclCollision × Array ProjectModule) := do
+    IO (Array DeclCollision × Array MergedDecl × Array ProjectModule) := do
   let mut moduleDecls : Array (Name × Array (Name × ConstantInfo)) := #[]
   let mut skipped : Array ProjectModule := #[]
   for m in modules do
@@ -109,7 +137,8 @@ def detectCoimportCollisions (modules : Array ProjectModule) :
       IO.eprintln s!"Warning: co-importability preflight could not read {m.oleanPath} (module {m.name}): {e}"
       IO.eprintln "  The module is skipped, so the preflight may be incomplete."
       skipped := skipped.push m
-  return (findCoimportCollisions moduleDecls, skipped)
+  let (collisions, merged) := classifyDuplicates moduleDecls
+  return (collisions, merged, skipped)
 
 /-- How many duplicated names are listed individually in the diagnostic. -/
 def maxDisplayedCollisions : Nat := 10
