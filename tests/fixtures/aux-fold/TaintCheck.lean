@@ -293,13 +293,13 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
   -- named by its field, the second command on a tagged line), and the one tag the
   -- scan cannot see (the `attribute` command).
   check fs "Divergence(tag) for the generated helper the scan would have trusted"
-    (lines.contains "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; not trusted")
+    (lines.contains "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; the source text does not decide trust")
   check fs "Divergence(tag) for the second command on a tagged line"
-    (lines.contains "Divergence(tag): victim header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; not trusted")
+    (lines.contains "Divergence(tag): victim header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; the source text does not decide trust")
   check fs "exactly two Divergence(tag) lines"
     ((lines.filter fun l => l.startsWith "Divergence(tag):").size == 2)
   check fs "Note(tag) for the attribute command"
-    (lines.contains "Note(tag): laterVouched is tagged externally_verified by an `attribute` command or a macro; its header does not show the tag; trusted")
+    (lines.contains "Note(tag): laterVouched is tagged externally_verified by an `attribute` command or a macro; its header does not show the tag; the tag set decides trust")
   check fs "exactly one Note(tag) line" ((lines.filter fun l => l.startsWith "Note(tag):").size == 1)
 
 def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do

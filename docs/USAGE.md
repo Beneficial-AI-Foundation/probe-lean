@@ -125,9 +125,12 @@ set, and nothing the source scan could be fooled by (a tag in a docstring, a com
 an interpolated string, a neighbouring command on the same line) reaches trust. The source scan
 still fills the `attributes` array for attributes probe-lean does not register; the pass prints
 where it got the set from (`externally_verified tag set: <n> name(s) from <extension>`) and,
-on stderr, every disagreement between the scan and the set (`Divergence(tag): … not trusted`
-for a header the scan would have trusted, `Note(tag): … trusted` for a tag the header does
-not show).
+on stderr, every disagreement between the scan and the set (`Divergence(tag): … the source
+text does not decide trust` for a header the scan would have trusted, `Note(tag): … the tag
+set decides trust` for a tag the header does not show; both report set membership, the
+status is in `trusted-reason`). A tag a registration the reader does not understand attaches
+with no header to scan — an `attribute` command, a range-less constant — is untrusted
+without a line.
 
 A module built under the module system (`module` header) is read from its `.olean.private`
 part, as the importer does; a module-system olean without its split parts aborts the

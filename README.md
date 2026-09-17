@@ -159,13 +159,17 @@ Builds and imports the project and runs the same kernel walk that decides
 `verification-status` in `extract`, then lists every project constant that rests
 on an unexcused project `sorry` — atoms and non-atoms alike:
 
+On `tests/fixtures/aux-fold` (abridged):
+
 ```
-Project constants: 11293 in 231 module(s) | trusted: 150 | direct sorry carriers: 4 | tainted: 112
-externally_verified tag set: 2 name(s) from externallyVerifiedAttr
-112 constant(s) rest on an unexcused project sorry:
-  Edwards.add_assoc_Ed25519 [direct]
-  Montgomery.add_fromEdwards
-  spqr.core.iter.adapters.map.Map.Insts.CoreIterTraitsIteratorIterator [direct] [not emitted]
+Project constants: 102 in 7 module(s) | trusted: 9 | direct sorry carriers: 19 | tainted: 24
+externally_verified tag set: 7 name(s) from externallyVerifiedAttr
+24 constant(s) rest on an unexcused project sorry:
+  admittedFact [direct]
+  instInhabitedBox
+  loopy._unsafe_rec [direct] [not emitted]
+  noRangeMid [direct] [not emitted]
+  viaNoRange
   ...
 ```
 

@@ -83,9 +83,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `primary-spec` relies on (the companion of a `@[step]` axiom is that axiom's spec
   proxy). A **tag audit** prints every disagreement between the scan and the set on
   stderr — `Divergence(tag): <n> header shows @[externally_verified] naming it, but the
-  attribute's tag set does not contain it; not trusted` for the shapes the scan used to
-  trust, `Note(tag): <n> is tagged externally_verified by an \`attribute\` command or a
-  macro; its header does not show the tag; trusted` for the tags it cannot see — and the
+  attribute's tag set does not contain it; the source text does not decide trust` for the
+  shapes the scan used to trust, `Note(tag): <n> is tagged externally_verified by an
+  \`attribute\` command or a macro; its header does not show the tag; the tag set decides
+  trust` for the tags it cannot see (both lines report set membership, not the final
+  status: an `axiom` in the first position is still trusted by rule 1, a merged name in
+  the second is not trusted by rule 2) — and the
   pass prints where the set came from (`externally_verified tag set: <n> name(s) from
   <extension>`). A registration the reader does not understand (an explicit `ref`, a
   wrapper, a `ParametricAttribute`) is under-trust and loud, never over-trust.

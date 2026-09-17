@@ -286,13 +286,13 @@ def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
     `externally_verified`. `scanOnly` — the header shows the tag and names the
     constant (`DeclAttrs.headerNamesTag`), yet the tag set lacks it: either a shape
     the scan gets wrong (a generated `instX.field` helper, two commands on one line)
-    or a registration the tag-set reader does not understand; either way the constant
-    is **not** trusted and the line says so. Projections and `.mvcgen_spec`
-    companions are left out of that side, as the scan-based rule left them out by
-    kind: a one-line structure's projection is named by its field on the head line,
-    which is known and benign. `tagOnly` — the set has it, the header does not show
-    it: an `attribute` command or a macro attached the tag; trusted. Both sorted by
-    name. -/
+    or a registration the tag-set reader does not understand; either way rule 2 does
+    not apply to the constant (rules 1 and 3 still may, so the line reports membership,
+    not a status). Projections and `.mvcgen_spec` companions are left out of that side,
+    as the scan-based rule left them out by kind: a one-line structure's projection is
+    named by its field on the head line, which is known and benign. `tagOnly` — the set
+    has it, the header does not show it: an `attribute` command or a macro attached the
+    tag. Both sorted by name. -/
 def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : Std.HashSet Name)
     : Array Name × Array Name := Id.run do
   let mut scanOnly : Array Name := #[]
@@ -439,15 +439,18 @@ def formatCrossWalkedNote (names : Array Name) : String :=
       follows the project's own version(s), the other body is in the trusted base, and no \
       `@[externally_verified]` on them is honoured"
 
-/-- Printed per `ProjectTaint.scanOnlyTags` entry. -/
+/-- Printed per `ProjectTaint.scanOnlyTags` entry. The line states what the audit knows —
+    set membership — not the final status: an `axiom` in this position is still trusted by
+    rule 1. -/
 def formatScanOnlyTagLine (n : Name) : String :=
   s!"Divergence(tag): {n} header shows @[externally_verified] naming it, but the attribute's \
-    tag set does not contain it; not trusted"
+    tag set does not contain it; the source text does not decide trust"
 
-/-- Printed per `ProjectTaint.tagOnly` entry. -/
+/-- Printed per `ProjectTaint.tagOnly` entry. Likewise membership only: a merged or
+    cross-boundary name in the set is still not trusted by rule 2 (`mergedTrustedReason`). -/
 def formatTagOnlyLine (n : Name) : String :=
   s!"Note(tag): {n} is tagged externally_verified by an `attribute` command or a macro; its \
-    header does not show the tag; trusted"
+    header does not show the tag; the tag set decides trust"
 
 /-- Print the type-taint, merged-declaration, cross-merge and tag-audit warnings to
     stderr. -/

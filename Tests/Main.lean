@@ -4304,11 +4304,11 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   result ← test "scan-only tag line"
     (formatScanOnlyTagLine `instInhabitedBox.default ==
       "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, \
-       but the attribute's tag set does not contain it; not trusted") result
+       but the attribute's tag set does not contain it; the source text does not decide trust") result
   result ← test "tag-only line"
     (formatTagOnlyLine `later ==
       "Note(tag): later is tagged externally_verified by an `attribute` command or a macro; its \
-       header does not show the tag; trusted") result
+       header does not show the tag; the tag set decides trust") result
   let pl : Array ProjectModule := #[{ name := `M.B, oleanPath := "b.olean" }, { name := `M.A, oleanPath := "a.olean" }]
   let pe := formatProoflessError pl
   result ← test "proofless error names the modules, sorted, and the cause"
