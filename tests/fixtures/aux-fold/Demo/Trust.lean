@@ -1,8 +1,9 @@
 import Demo.Attr
 
 /-- A sorried lemma a human vouches for. Rule 2 of the trusted base: `trusted`,
-reason `externally_verified`, found by the source scan (the tag is the target's own
-registration, invisible to probe-lean's handle lookup). -/
+reason `externally_verified`, read from the tag set the target's own registration
+(`Demo.Attr`) stored in the olean — invisible to probe-lean's handle lookup, found by
+the static tag-set reader. -/
 @[externally_verified]
 step_theorem vouched : (0 : Nat) < 5 := by sorry
 
@@ -11,9 +12,10 @@ base, so `transitively-verified`. -/
 theorem viaVouched : (0 : Nat) < 5 := vouched
 
 /-!
-Fabricated-trust shapes. The source scan feeds rule 2, so a `@[externally_verified]`
-that is *not* the declaration's own annotation must never make it trusted. Each of the
-declarations below is a plain `sorry` and must read `unverified`.
+Fabricated-trust shapes. Rule 2 is membership in the tag set, so a
+`@[externally_verified]` that is *not* the declaration's own annotation must never
+make it trusted, and the source scan that fills `attributes` must not show it either.
+Each of the declarations below is a plain `sorry` and must read `unverified`.
 -/
 
 /-- Tagged, one line, directly above an untagged neighbour: `trusted`. -/
@@ -84,8 +86,10 @@ def defaultBox : Box := default
 `@[externally_verified]` on this head line: `unverified`, and no tag shown. -/
 def interpolationVictim : String := s!"{(sorry : String)} {"@[externally_verified]"}"
 
--- Two commands on one line share the line range: `endorsed` is `trusted`, `victim`
--- is `unverified` and shows no tag (its scan starts at its own column).
+-- Two commands on one line share the line range: `endorsed` is `trusted`; `victim`
+-- is `unverified` — the line-based scan shows it `endorsed`'s tag (cosmetic, in
+-- `attributes` only), the tag set does not contain it, and the tag audit prints a
+-- `Divergence(tag)` line for it.
 @[externally_verified] theorem endorsed : True := True.intro theorem victim : (0 : Nat) < 5 := by sorry
 
 /-- A syntax quotation whose last line but one is a pure attribute line; the old

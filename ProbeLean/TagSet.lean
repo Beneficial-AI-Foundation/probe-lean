@@ -31,7 +31,8 @@
   that is not the constant's own name; one created through a wrapper rather than a
   literal `registerTagAttribute` call in the `initialize` body; a `ParametricAttribute`
   or hand-rolled storage. `Taint.tagAudit` reports every declaration whose header
-  shows the tag while the set does not contain it, so a target whose registration is
+  shows the tag naming it while the set does not contain it (projections and
+  `.mvcgen_spec` companions excepted, by kind), so a target whose registration is
   not understood is loud for every tag written as `@[…]` on a declaration; a tag such
   a registration attaches with no header to scan — an `attribute` command, a
   range-less constant — is untrusted without a line.
