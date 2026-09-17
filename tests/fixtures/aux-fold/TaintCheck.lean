@@ -56,6 +56,13 @@ def usesSorry (ci : ConstantInfo) : Bool :=
   ci.type.getUsedConstants.contains ``sorryAx ||
     ((bodyOf ci).map (·.getUsedConstants.contains ``sorryAx)).getD false
 
+/-- `Lean.collectAxioms` from IO: the public entry point, stable across 4.28–4.33
+    (the internal `CollectAxioms.collect` is private since 4.33). -/
+def axiomsOf (env : Environment) (n : Name) : IO (Array Name) := do
+  let (axs, _) ← (collectAxioms n : CoreM (Array Name)).toIO
+    { fileName := "<TaintCheck>", fileMap := default } { env }
+  return axs
+
 def checkPrecondition (fs : Failures) : IO Unit := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{ module := `Demo }] {} (level := OLeanLevel.private)
@@ -93,9 +100,9 @@ def checkPrecondition (fs : Failures) : IO Unit := do
   match env.find? `instReprPayload with
   | none => check fs "instReprPayload exists" false
   | some ci => check fs "instReprPayload carries a sorry" (usesSorry ci)
-  let (_, axs) := ((CollectAxioms.collect `instReprTagged).run env).run {}
+  let axs ← axiomsOf env `instReprTagged
   check fs "instReprTagged rests on a sorry (through the derived implementation)"
-    (axs.axioms.contains ``sorryAx)
+    (axs.contains ``sorryAx)
   match env.find? `admittedFact with
   | none => check fs "admittedFact exists" false
   | some ci => check fs "admittedFact carries a sorry" (usesSorry ci)
@@ -109,8 +116,8 @@ def checkPrecondition (fs : Failures) : IO Unit := do
   check fs "instInhabitedBox.default is neither a projection nor internal"
     (env.contains `instInhabitedBox.default && !env.isProjectionFn `instInhabitedBox.default &&
      !(`instInhabitedBox.default).isInternal)
-  let (_, axs2) := ((CollectAxioms.collect `instInhabitedBox.default).run env).run {}
-  check fs "instInhabitedBox.default rests on a sorry" (axs2.axioms.contains ``sorryAx)
+  let axs2 ← axiomsOf env `instInhabitedBox.default
+  check fs "instInhabitedBox.default rests on a sorry" (axs2.contains ``sorryAx)
   -- Two commands on one line: same line range, different columns.
   match declRangeExt.find? env `endorsed, declRangeExt.find? env `victim with
   | some r1, some r2 =>
@@ -119,8 +126,8 @@ def checkPrecondition (fs : Failures) : IO Unit := do
     check fs "victim starts at a later column" (r2.range.pos.column > r1.range.pos.column)
   | _, _ => check fs "endorsed and victim both have ranges" false
   -- The partial def: the kernel constant is clean, its compiled body is a carrier.
-  let (_, axs3) := ((CollectAxioms.collect `loopy).run env).run {}
-  check fs "loopy's kernel constant does not depend on sorryAx" (!axs3.axioms.contains ``sorryAx)
+  let axs3 ← axiomsOf env `loopy
+  check fs "loopy's kernel constant does not depend on sorryAx" (!axs3.contains ``sorryAx)
   match env.find? `loopy._unsafe_rec with
   | none => check fs "loopy._unsafe_rec exists" false
   | some ci => check fs "loopy._unsafe_rec carries the sorry" (usesSorry ci)
