@@ -525,30 +525,117 @@ private def extractAttrsFromLine (line : String) : Array String := Id.run do
           result := result.push attr
   return result
 
-/-- Extract attribute names from source text around a declaration.
-    Scans from `startLine` (0-based, typically the docstring) through `endLine`
-    for `@[...]` annotations. Stops at the declaration keyword. -/
+/-- The code text of one source line: line comments, (nested) block comments —
+    docstrings included — and string literals removed. `depth` is the block-comment
+    nesting depth carried in from the previous line; the new depth is returned.
+    A string literal does not carry across lines. -/
+def stripCommentsAndStrings (line : String) (depth : Nat) : String × Nat := Id.run do
+  let cs := line.toList.toArray
+  let mut out : String := ""
+  let mut depth := depth
+  let mut inString := false
+  let mut i := 0
+  while i < cs.size do
+    let c := cs[i]!
+    let next := cs[i + 1]?
+    if depth > 0 then
+      if c == '/' && next == some '-' then
+        depth := depth + 1
+        i := i + 2
+      else if c == '-' && next == some '/' then
+        depth := depth - 1
+        i := i + 2
+      else
+        i := i + 1
+    else if inString then
+      if c == '\\' then
+        i := i + 2
+      else
+        if c == '"' then inString := false
+        i := i + 1
+    else if c == '"' then
+      inString := true
+      i := i + 1
+    else if c == '-' && next == some '-' then
+      break
+    else if c == '/' && next == some '-' then
+      depth := depth + 1
+      i := i + 2
+    else
+      out := out.push c
+      i := i + 1
+  return (out, depth)
+
+/-- `code` with every `@[…]` block removed (an unclosed block runs to the end). -/
+def removeAttrBlocks (code : String) : String := Id.run do
+  let parts := code.splitOn "@["
+  let mut out := parts.headD ""
+  for p in parts.tail do
+    match p.splitOn "]" with
+    | _ :: rest => out := out ++ "]".intercalate rest
+    | [] => pure ()
+  return out
+
+/-- Tokens that mark the head line of a declaration once comments, strings and
+    `@[…]` blocks are gone. `:` covers `theorem x : …`, `instance : …` and `:=`;
+    `|` an inductive's first constructor; the keywords catch heads with neither. -/
+private def declHeadKeywords : Array String :=
+  #["theorem", "lemma", "def", "abbrev", "instance", "axiom", "opaque", "structure",
+    "inductive", "class", "example", "where"]
+
+/-- Whether a line of code text (see `stripCommentsAndStrings`) is a declaration
+    head: outside its `@[…]` blocks it contains `:`, `|` or a declaration keyword. -/
+def isDeclHeadLine (code : String) : Bool :=
+  let rest := removeAttrBlocks code
+  rest.any (fun c => c == ':' || c == '|') ||
+    (rest.split Char.isWhitespace).any fun tok => declHeadKeywords.contains tok.toString
+
+/-- The attribute names of a declaration whose source range is lines
+    `[startLine, endLine]` (0-based) of `lines`. Only the declaration **header** is
+    read, because the result feeds the trusted base (`@[externally_verified]`): line
+    and block comments (docstrings) and string literals are stripped first, and the
+    scan stops after the head line (`isDeclHeadLine`), so an annotation quoted in a
+    docstring or a body comment is never attributed to the declaration.
+
+    The two lines before `startLine` are still looked at, for ranges that start at
+    the keyword, but only a *pure* attribute line counts there — one that is nothing
+    but `@[…]` blocks — and a head line in that window is the previous declaration's:
+    it resets whatever was gathered, so a tagged one-line neighbour just above cannot
+    lend its tag. -/
+def attributesFromLines (lines : Array String) (startLine endLine : Nat) : Array String :=
+  Id.run do
+  let mut attrs : Array String := #[]
+  let scanFrom := if startLine > 2 then startLine - 2 else 0
+  let scanTo := min (endLine + 1) lines.size
+  let mut depth := 0
+  for i in [scanFrom:scanTo] do
+    if h : i < lines.size then
+      let (code, d) := stripCommentsAndStrings lines[i] depth
+      depth := d
+      let isHead := isDeclHeadLine code
+      if i < startLine then
+        if isHead then attrs := #[]
+        else if (removeAttrBlocks code).trimAscii.isEmpty then
+          for attr in extractAttrsFromLine code do
+            if !attrs.contains attr then attrs := attrs.push attr
+      else
+        for attr in extractAttrsFromLine code do
+          if !attrs.contains attr then attrs := attrs.push attr
+        if isHead then break
+  return attrs
+
+/-- Extract attribute names from the source text of a declaration; see
+    `attributesFromLines` for what is and is not read. `startLine`/`endLine` are the
+    declaration range's **1-based** lines (`Lean.Position.line`, as in
+    `CodeTextInfo`); they are converted to 0-based indices here. The old scan indexed
+    the line array with the 1-based numbers directly, which shifted its window one
+    line down — onto the *next* declaration's first line, whose `@[…]` it then read
+    as this declaration's. -/
 def extractAttributesFromSource (cache : FileCache) (projectPath : System.FilePath)
     (codePath : String) (startLine endLine : Nat) : IO (Array String) := do
   if codePath.isEmpty then return #[]
-  let fullPath := (projectPath / codePath).toString
-  let lines ← readFileLines cache fullPath
-  if lines.isEmpty then return #[]
-
-  let mut attrs : Array String := #[]
-  -- Scan from declaration range start through the end, looking for @[...] blocks.
-  -- The range starts at the docstring; attributes appear between the docstring and
-  -- the theorem/def keyword.
-  let scanFrom := if startLine > 2 then startLine - 2 else 0
-  let scanTo := min (endLine + 1) lines.size
-
-  for i in [scanFrom:scanTo] do
-    if h : i < lines.size then
-      let line := lines[i]
-      for attr in extractAttrsFromLine line do
-        if !attrs.contains attr then
-          attrs := attrs.push attr
-  return attrs
+  let lines ← readFileLines cache (projectPath / codePath).toString
+  return attributesFromLines lines (startLine - 1) (endLine - 1)
 
 /-- Strip leading "./" from a path string -/
 def stripLeadingDotSlash (path : String) : String :=

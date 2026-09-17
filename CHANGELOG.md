@@ -45,9 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   edge the emitted graph is missing. The build log is likewise still parsed and compared
   with the walk's direct carriers. `--skip-verify` keeps its shape (no status except
   `trusted`); `--skip-enrich` caps clean atoms at `verified`. If the full module set
-  cannot be co-imported under a selection, the walk falls back to the selected modules
-  and prints `Warning: <n> project module(s) not imported; their declarations are treated
-  as trusted`. A trusted declaration whose *statement* names `sorry` is reported.
+  cannot be co-imported under a selection, the walk runs over the selected modules and
+  every project module they import transitively (P is the project inventory restricted to
+  what the environment loaded, so no emitted atom's dependency closure leaves P) and prints
+  `Warning: <n> project module(s) not imported (full import failed); …` for the modules
+  outside that closure, which only the `check-axioms` audit misses. A trusted declaration
+  whose *statement* names `sorry` directly is reported. An atom whose name the walk never
+  saw gets **no** status and a `Warning: atom … not a project constant the kernel walk
+  covered` line, instead of being read as clean.
+
+  The `@[externally_verified]` source scan, which feeds the trusted base, reads only the
+  declaration **header**: comments (docstrings included) and string literals are stripped
+  and the scan stops after the line that opens the declaration, so a tag quoted in a
+  docstring or body comment, or a tagged one-liner on the line above, no longer makes a
+  declaration trusted.
 
   The reachability core (`AxiomCheck.reachingNames`) also fixes #103: the shared memo
   finalised a frame's answer while a back-edge into it was still suppressed, so
@@ -57,11 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   **Measured**, before/after, with probe-lean built for Lean 4.31:
 
   - curve25519-dalek-lean-verify `f6c7fabd` (231 modules, 11,293 project constants,
-    2354 atoms): atom set and all four dependency arrays byte-identical, `attributes`
-    and `primary-spec` unchanged; exactly 2 atoms move `trusted → transitively-verified`
-    (the `.mvcgen_spec` companions of the two `@[externally_verified]` theorems), no other
-    status moves; 0 divergences; 112 tainted constants (4 direct carriers), 152 trusted.
-    `extract` 8.6 s → 9.35 s (three runs each), peak RSS 6.48 GB → 6.44 GB.
+    2354 atoms): atom set and all four dependency arrays byte-identical, `primary-spec`
+    unchanged; 3 atoms move `trusted → transitively-verified`: the `.mvcgen_spec`
+    companions of the two `@[externally_verified]` theorems, and `externallyVerifiedAttr`
+    — the `initialize` that *registers* the tag, which the old scan had trusted because its
+    docstring quotes `@[externally_verified]`. No other status moves; 0 divergences; 112
+    tainted constants (4 direct carriers), 151 trusted. `attributes` change on 10 atoms,
+    all drops of text the header-only scan no longer reads: `step` quoted in three Lint
+    helpers' docstrings, `irreducible` quoted in a docstring, and junk tokens split out of
+    string arguments (`@[rust_fun "…<u8>}::from"]`). `extract` 8.6 s → 9.3 s (three runs
+    each), peak RSS 6.48 GB → 6.44 GB; `check-status-consistency.py` passes.
   - SparsePostQuantumRatchet-verify `e3cc4c6` (261 modules, 15,534 project constants,
     2820 atoms): the walk's 146 tainted constants are **name for name** the 146 entries of
     SPQR's own `collectAxioms`-based `sorry-manifest.txt`; 31 atoms drop
@@ -87,6 +103,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the walk.
 - `tools/audit/compare-extract.py --status-policy taint` accepts the status moves of this
   release and reports every move by kind.
+- New `tools/audit/check-status-consistency.py ARTIFACT check-axioms.out`: asserts the
+  artifact and the `check-axioms` report agree in **both** directions on every emitted atom
+  (`unverified` ⇔ listed `[direct]`, `verified` ⇔ listed, clean ⇔ not listed). Run in CI on
+  the fixtures; the one-directional "every `unverified` atom is a direct carrier" check
+  passed vacuously.
 
 ### Internal
 
@@ -96,9 +117,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   children once for both the walk and the direct-carrier test, this kept the whole pass
   under a second on dalek.
 - The aux-fold fixture (`tests/fixtures/aux-fold`) gained a target-registered
-  `externally_verified` tag, a `step_theorem` companion macro, a `*External` module and a
-  range-less `addDecl` carrier; `TaintCheck.lean` asserts the statuses, the
-  `Divergence:` line and the `check-axioms` report on both CI toolchains.
+  `externally_verified` tag, a `step_theorem` companion macro, a `*External` module, a
+  range-less `addDecl` carrier and three fabricated-trust shapes (tagged one-liner above an
+  untagged neighbour, tag quoted in a docstring and a body comment); `TaintCheck.lean`
+  asserts the statuses, the `Divergence:` line and the `check-axioms` report on both CI
+  toolchains.
+- New fixture `tests/fixtures/collision`: two colliding modules force the import fallback
+  under `--module`, and the selected module's transitively loaded project dependency is a
+  `sorry`; `check.py` asserts the dependent reads `verified` and the fallback warning counts
+  the two modules outside the import closure.
 
 ## [0.14.0] - 2026-09-15
 

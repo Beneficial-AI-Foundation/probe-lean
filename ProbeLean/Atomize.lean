@@ -326,15 +326,30 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
       return .error s!"Failed to import modules: {msg}{hint}"
     return .error s!"Failed to import modules: {msg}"
 
+/-- The project modules an environment actually holds: `all` restricted to
+    `loaded` (`env.allImportedModuleNames`). Importing a selection loads every
+    project module in its import closure too, and those must be in P: a constant can
+    only reference constants of its own module's import closure, so with P built this
+    way every emitted atom's whole dependency closure is inside P even when only the
+    selection could be imported. Building P from the selection itself left a
+    transitively loaded sorried module outside P — blocked, hence clean. -/
+def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
+    : Array ProjectModule :=
+  let set := Std.HashSet.ofArray loaded
+  all.filter fun m => set.contains m.name
+
 /-- Import the project for the taint walk: **all** built project modules (P must
     cover the whole project, whatever `--module`/`--library` selected for output),
     falling back to the selected modules when the full set cannot be co-imported.
-    Returns the environment and the module set actually imported.
+    Returns the environment and the project modules it holds (`loadedProjectModules`).
 
     The full import is attempted only when the cheap olean-header preflight passes,
     so a project that relies on the selection to dodge a collision pays one
     preflight, not a failed import. The fallback also catches an import-time
-    duplicate the preflight cannot see, and stale oleans of an unselected library. -/
+    duplicate the preflight cannot see, and stale oleans of an unselected library.
+    Under the fallback the modules left out are exactly those outside the selection's
+    import closure: no emitted status can depend on them, only the `check-axioms`
+    audit loses them (`formatFallbackWarning`). -/
 def importProjectEnvWithFallback (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
     : IO (Except String (Environment × Array ProjectModule)) := do
@@ -343,9 +358,14 @@ def importProjectEnvWithFallback (projectPath : System.FilePath)
   match ← importProjectEnv projectPath all nixMode with
   | .ok env => return .ok (env, all)
   | .error msg =>
-    IO.eprintln (formatFallbackWarning (all.size - selected.size))
-    IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
-    return (← importProjectEnv projectPath selected nixMode).map (·, selected)
+    match ← importProjectEnv projectPath selected nixMode with
+    | .error e => return .error e
+    | .ok env =>
+      let imported := loadedProjectModules all env.allImportedModuleNames
+      if imported.size < all.size then
+        IO.eprintln (formatFallbackWarning (all.size - imported.size))
+      IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
+      return .ok (env, imported)
 
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so
     viewify and the web UI omit it from the presented graph, split by origin:

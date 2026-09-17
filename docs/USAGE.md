@@ -77,7 +77,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--from-file <FILE>` | | Use existing build output for the build-log cross-check instead of the captured `lake build` output |
 | `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`); the graph-BFS cross-check is not run |
 
-Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)). With `--module`/`--library`, `extract` first tries to import **all** built project modules — the kernel walk below needs the whole project — and falls back to the selection with `Warning: <n> project module(s) not imported; their declarations are treated as trusted` if the full set cannot be co-imported.
+Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)). With `--module`/`--library`, `extract` first tries to import **all** built project modules — the kernel walk below needs the whole project — and falls back to the selection if the full set cannot be co-imported. The walk then covers the selected modules and every project module they import transitively, which is every module an emitted atom can depend on; the modules left out are announced with `Warning: <n> project module(s) not imported (full import failed); they are outside the selection's import closure, so no emitted status depends on them, but check-axioms does not audit them`.
 
 `verification-status` is decided by a **kernel walk**, not by the build log or the emitted
 dependency graph. `sorry` elaborates to the `sorryAx` axiom; `extract` walks the constant graph
@@ -98,8 +98,21 @@ status: the build log's `sorry` warnings against the walk's direct carriers, and
 reverse-BFS over the emitted graph against the walk's verdicts. A
 `Divergence: <atom> graph says clean, oracle says tainted` line localises a node or edge the
 emitted graph is missing (typically a carrier with no declaration range, which is never an
-atom). A trusted declaration whose *statement* names `sorry` is reported with
-`Warning: trusted declaration <n> has \`sorry\` in its statement`.
+atom). A trusted declaration whose *statement* names `sorry` directly is reported with
+`Warning: trusted declaration <n> names \`sorry\` directly in its statement`. An atom the walk
+did not cover (its Lean name is not a project constant — a bug, since every emitted atom is
+one) gets no status and `Warning: atom <name> is not a project constant the kernel walk
+covered; no verification-status assigned`.
+
+`@[externally_verified]` is read from the declaration's **header only**: comments, docstrings
+and string literals are ignored and the scan stops at the line that opens the declaration, so
+a tag quoted in a docstring or body comment, or a tagged one-liner on the line above, does not
+make a declaration trusted.
+
+To check an artifact against the `check-axioms` report in both directions (every `unverified`
+atom is a listed direct carrier *and* every listed emitted carrier is `unverified`, likewise for
+`verified` and the clean statuses), run
+`tools/audit/check-status-consistency.py .verilib/probes/lean_*.json check-axioms.out`.
 
 `extract` folds **auxiliary dependency edges** into the declaration that references them.
 Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not

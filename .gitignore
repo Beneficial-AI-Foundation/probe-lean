@@ -30,3 +30,7 @@ tests/fixtures/aux-fold/.verilib/
 tests/fixtures/aux-fold/lake-manifest.json
 tests/fixtures/aux-fold/extract.stderr
 tests/fixtures/aux-fold/check-axioms.out
+tests/fixtures/collision/.verilib/
+tests/fixtures/collision/lake-manifest.json
+tests/fixtures/collision/extract.stderr
+tests/fixtures/collision/check-axioms.out

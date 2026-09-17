@@ -22,9 +22,13 @@ structure ProjectTaint where
   trust : Std.HashMap Name String
   /-- The walk's result over P. -/
   taint : TaintResult
-  /-- `false` when the full project module set could not be co-imported and the walk
-      ran over the selected modules only — every unimported module's declarations
-      are then leaves, i.e. trusted, and the caller has printed
+  /-- P itself: the constants the walk covered. An atom whose name is not here was
+      never assessed and must not receive a status (`Transitive.taintVerdict`). -/
+  constants : Std.HashSet Name
+  /-- `false` when the full project module set could not be co-imported and P is
+      the selection's import closure only. Every emitted atom's dependency closure
+      is still inside P (see `Atomize.loadedProjectModules`); what is lost is the
+      `check-axioms` audit of the modules left out, and the caller has printed
       `formatFallbackWarning`. -/
   importedAll : Bool
   /-- |P|. -/
@@ -93,16 +97,30 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
   let attrs ← computeAttributes env projectPath fileCache pathCache consts
   let trust := computeTrustBase env consts attrs
   let taint := runProjectTaint env pFilter consts trust
-  return ({ trust, taint, importedAll, pSize := consts.size, moduleCount }, attrs)
+  let constants := consts.foldl (init := ({} : Std.HashSet Name)) fun s (n, _) => s.insert n
+  return ({ trust, taint, constants, importedAll, pSize := consts.size, moduleCount }, attrs)
 
-/-- A trusted declaration whose *statement* mentions `sorry`: its meaning is unknown.
-    Blocking still applies; this is a warning, not a status change. -/
+/-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
+    unknown. Blocking still applies; this is a warning, not a status change. Only a
+    literal occurrence is detected — a statement that reaches `sorry` through another
+    project constant (`axiom a : p` with `def p : Prop := sorry`) is not. -/
 def formatTypeTaintWarning (n : Name) : String :=
-  s!"Warning: trusted declaration {n} has `sorry` in its statement"
+  s!"Warning: trusted declaration {n} names `sorry` directly in its statement"
 
-/-- Printed when the full project module set could not be co-imported. -/
+/-- Printed when the full project module set could not be co-imported. The modules
+    left out are outside the selection's import closure, so no emitted status rests
+    on them; the `check-axioms` audit does not cover them. -/
 def formatFallbackWarning (notImported : Nat) : String :=
-  s!"Warning: {notImported} project module(s) not imported; their declarations are treated as trusted"
+  s!"Warning: {notImported} project module(s) not imported (full import failed); they are \
+    outside the selection's import closure, so no emitted status depends on them, but \
+    check-axioms does not audit them"
+
+/-- Printed for an atom whose Lean name is not in P: the walk never assessed it, so it
+    gets no `verification-status`. Every emitted atom is a project constant by
+    construction; this firing is a bug signal, never silently "clean". -/
+def formatUnknownAtomWarning (atom : String) : String :=
+  s!"Warning: atom {atom} is not a project constant the kernel walk covered; \
+    no verification-status assigned"
 
 /-- One-line summary of the pass, printed by `extract` and `check-axioms`. -/
 def formatTaintSummary (pt : ProjectTaint) : String :=

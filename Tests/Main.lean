@@ -2908,16 +2908,19 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
     trust := Std.HashMap.ofList [(`t, "axiom")]
     taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d],
                typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`t, `d, `v, `c]
     importedAll := true, pSize := 4, moduleCount := 1 }
-  let vs1 := (taintVerdict pt `d).2
-  let vs2 := (taintVerdict pt `v).2
-  let vs3 := (taintVerdict pt `c).2
-  let vs4 := (taintVerdict pt `t).2
+  let vsOf (n : Lean.Name) : WebVerificationStatus :=
+    ((taintVerdict pt n).map (·.2)).getD .failed
+  let vs1 := vsOf `d
+  let vs2 := vsOf `v
+  let vs3 := vsOf `c
+  let vs4 := vsOf `t
   result ← test "direct carrier maps to unverified" (vs1 == .unverified) result
   result ← test "tainted maps to verified" (vs2 == .verified) result
   result ← test "clean modulo T maps to transitively-verified" (vs3 == .transitivelyVerified) result
   result ← test "trusted maps to trusted with its reason"
-    (vs4 == .trusted && (taintVerdict pt `t).1 == some "axiom") result
+    (vs4 == .trusted && ((taintVerdict pt `t).map (·.1)) == some (some "axiom")) result
 
   let validStatuses := #["verified", "unverified", "failed", "trusted", "transitively-verified"]
   let allValid := [vs1, vs2, vs3, vs4, WebVerificationStatus.failed].all fun v =>
@@ -4183,11 +4186,13 @@ def testApplyTaintStatus (result : TestResult) : IO TestResult := do
     trust := Std.HashMap.ofList [(`T.ax, "axiom"), (`T.ev, "externally_verified")]
     taint := { tainted := Std.HashSet.ofArray #[`T.direct, `T.via],
                direct := Std.HashSet.ofArray #[`T.direct, `T.ev], typeTainted := #[] }
-    importedAll := true, pSize := 6, moduleCount := 1 }
+    constants := Std.HashSet.ofArray #[`T.ax, `T.ev, `T.direct, `T.via, `T.clean]
+    importedAll := true, pSize := 5, moduleCount := 1 }
   let atoms := #[mkU "probe:ax" `T.ax, mkU "probe:ev" `T.ev, mkU "probe:direct" `T.direct,
-    mkU "probe:via" `T.via, mkU "probe:clean" `T.clean, mkU "probe:unknown" `T.unknown]
+    mkU "probe:via" `T.via, mkU "probe:clean" `T.clean, mkU "probe:unknown" `T.unknown,
+    mkU "probe:anon" .anonymous]
   let vs (a : Array UnifiedAtom) (i : Nat) : Option WebVerificationStatus := a[i]!.verificationStatus
-  let full := applyTaintStatus atoms pt true true
+  let (full, unknown) := applyTaintStatus atoms pt true true
   result ← test "trusted axiom → trusted/axiom"
     (vs full 0 == some .trusted && full[0]!.trustedReason == some "axiom") result
   result ← test "trusted direct carrier stays trusted (the human-vouches case)"
@@ -4197,12 +4202,21 @@ def testApplyTaintStatus (result : TestResult) : IO TestResult := do
   result ← test "tainted → verified (locally sorry-free, rests on a sorry)"
     (vs full 3 == some .verified) result
   result ← test "clean modulo T → transitively-verified" (vs full 4 == some .transitivelyVerified) result
-  result ← test "a name the pass never saw is clean" (vs full 5 == some .transitivelyVerified) result
-  let noUp := applyTaintStatus atoms pt true false
+  -- Absence from the analysis is not evidence of verification: a name outside P
+  -- (a forgotten `leanName`, a reconstructed atom) gets no status and is reported.
+  result ← test "a name the pass never saw gets no status"
+    (vs full 5 == none && full[5]!.trustedReason == none) result
+  result ← test "the default .anonymous leanName is unknown too" (vs full 6 == none) result
+  result ← test "unknown atoms are returned by name, in order"
+    (unknown == #["probe:unknown", "probe:anon"]) result
+  result ← test "taintVerdict is none off P" (taintVerdict pt `T.unknown).isNone result
+  result ← test "a run with every atom in P reports no unknowns"
+    (applyTaintStatus (atoms.extract 0 5) pt true true).2.isEmpty result
+  let (noUp, _) := applyTaintStatus atoms pt true false
   result ← test "--skip-enrich caps clean at verified, the rest unchanged"
     (vs noUp 4 == some .verified && vs noUp 3 == some .verified &&
      vs noUp 2 == some .unverified && vs noUp 0 == some .trusted) result
-  let noTaint := applyTaintStatus atoms pt false true
+  let (noTaint, _) := applyTaintStatus atoms pt false true
   result ← test "--skip-verify stamps only the trusted atoms"
     (vs noTaint 0 == some .trusted && vs noTaint 1 == some .trusted &&
      vs noTaint 2 == none && vs noTaint 4 == none) result
@@ -4251,10 +4265,16 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   IO.println "Testing taint diagnostics formatting..."
   result ← test "fallback warning"
     (formatFallbackWarning 3 ==
-      "Warning: 3 project module(s) not imported; their declarations are treated as trusted") result
+      "Warning: 3 project module(s) not imported (full import failed); they are outside the \
+       selection's import closure, so no emitted status depends on them, but check-axioms \
+       does not audit them") result
   result ← test "type taint warning"
     (formatTypeTaintWarning `Foo.bar ==
-      "Warning: trusted declaration Foo.bar has `sorry` in its statement") result
+      "Warning: trusted declaration Foo.bar names `sorry` directly in its statement") result
+  result ← test "unknown atom warning"
+    (formatUnknownAtomWarning "probe:x" ==
+      "Warning: atom probe:x is not a project constant the kernel walk covered; \
+       no verification-status assigned") result
   result ← test "tainted line: plain" (formatTaintedLine `Foo.a false true == "  Foo.a") result
   result ← test "tainted line: direct" (formatTaintedLine `Foo.a true true == "  Foo.a [direct]") result
   result ← test "tainted line: not emitted"
@@ -4265,6 +4285,7 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
     trust := Std.HashMap.ofList [(`t, "axiom")]
     taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d],
                typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`t, `d, `v]
     importedAll := true, pSize := 40, moduleCount := 3 }
   result ← test "summary line"
     (formatTaintSummary pt ==
@@ -4287,11 +4308,130 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
     trust := {}
     taint := { tainted := Std.HashSet.ofArray #[`T.host, `T.d, `T.missed],
                direct := Std.HashSet.ofArray #[`T.d, `T.missed], typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`T.host, `T.d, `T.clean, `T.missed, `T.d.mvcgen_spec]
     importedAll := true, pSize := 4, moduleCount := 1 }
   let divs := logDivergences warnings atoms pt2
   result ← test "log divergences: aux-carried sorry is agreement; clean-vs-sorry both ways reported"
     (divs == #["Divergence: probe:clean build log says sorry, kernel says clean",
                "Divergence: probe:missed kernel says sorry, build log says clean"]) result
+  return result
+
+-- The source scan feeds the trusted base (rule 2), so what it reads is a soundness
+-- question: only the declaration header, with comments and strings stripped.
+def testAttributeScan (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing attributesFromLines (header-only attribute scan)..."
+  result ← test "strip: line comment" (stripCommentsAndStrings "a -- b" 0 == ("a ", 0)) result
+  result ← test "strip: nested block comment on one line"
+    (stripCommentsAndStrings "/- x /- y -/ z -/ w" 0 == (" w", 0)) result
+  result ← test "strip: block comment opened carries depth"
+    (stripCommentsAndStrings "/- open" 0 == ("", 1)) result
+  result ← test "strip: depth carried in, closed on this line"
+    (stripCommentsAndStrings "still -/ code" 1 == (" code", 0)) result
+  result ← test "strip: docstring opener is a block comment"
+    (stripCommentsAndStrings "/-- doc -/ @[simp]" 0 == (" @[simp]", 0)) result
+  result ← test "strip: string literal" (stripCommentsAndStrings "\"@[x]\" y" 0 == (" y", 0)) result
+  result ← test "strip: escaped quote inside a string"
+    (stripCommentsAndStrings "\"a\\\"b\" c" 0 == (" c", 0)) result
+  result ← test "removeAttrBlocks" (removeAttrBlocks "@[simp, foo] theorem x" == " theorem x") result
+  result ← test "removeAttrBlocks: unclosed block runs to the end"
+    (removeAttrBlocks "@[simp," == "") result
+  result ← test "head: colon" (isDeclHeadLine "instance : Foo Nat") result
+  result ← test "head: keyword without colon" (isDeclHeadLine "structure Foo where") result
+  result ← test "head: inductive constructor bar" (isDeclHeadLine "  | a") result
+  result ← test "head: `:=` inside an attribute block does not count"
+    (!isDeclHeadLine "@[to_additive (attr := simp)]") result
+  result ← test "head: modifiers alone are not a head" (!isDeclHeadLine "private noncomputable") result
+  result ← test "head: `set_option … in` is not a head"
+    (!isDeclHeadLine "set_option maxHeartbeats 400000 in") result
+  let scan (ls : Array String) (s e : Nat) := attributesFromLines ls s e
+  result ← test "docstring, attribute line, head, body"
+    (scan #["/-- doc -/", "@[simp, externally_verified]", "theorem foo : P := by", "  sorry"] 0 3
+      == #["simp", "externally_verified"]) result
+  result ← test "attribute on the head line"
+    (scan #["@[step] theorem x : P := rfl"] 0 0 == #["step"]) result
+  result ← test "multi-line head: attribute before, colon on the second line"
+    (scan #["@[simp] private theorem foo", "    (x : Nat) : P x := rfl"] 0 1 == #["simp"]) result
+  result ← test "attribute block containing `:=` is read and does not end the header"
+    (scan #["@[to_additive (attr := simp)]", "theorem foo : P := rfl"] 0 1 == #["to_additive"]) result
+  result ← test "look-back: a pure attribute line just above the range counts"
+    (scan #["@[simp]", "theorem b : P := rfl"] 1 1 == #["simp"]) result
+  result ← test "range beyond the file is clipped" (scan #["@[simp] def x := 1"] 0 40 == #["simp"]) result
+  result ← test "empty file" (scan #[] 0 3 == #[]) result
+  -- The IO wrapper takes the range's 1-based lines (`Lean.Position.line`). The
+  -- cache is pre-seeded, so no file is touched. Two one-line `@[simp]` theorems
+  -- back to back, then a tagged neighbour: `neg_y` on 1-based line 3 keeps its own
+  -- `simp` and gets nothing from the lines around it — the old 1-based-as-0-based
+  -- indexing read the *next* line's tag as this declaration's.
+  let cache : FileCache ← IO.mkRef {}
+  let path := ((System.FilePath.mk "/proj") / "T.lean").toString
+  cache.modify (·.insert path #["", "@[simp] theorem neg_x : P := rfl",
+    "@[simp] theorem neg_y : Q := rfl", "@[externally_verified] theorem next : R := by sorry",
+    "/-- `@[externally_verified]` marks … -/", "initialize attr : TagAttribute ←",
+    "  registerTagAttribute `externally_verified \"…\""])
+  let negY ← extractAttributesFromSource cache "/proj" "T.lean" 3 3
+  result ← test "1-based range: a one-line @[simp] theorem keeps its attribute" (negY == #["simp"]) result
+  let negX ← extractAttributesFromSource cache "/proj" "T.lean" 2 2
+  result ← test "1-based range: the neighbour's tag on the next line is not read" (negX == #["simp"]) result
+  let attrDecl ← extractAttributesFromSource cache "/proj" "T.lean" 5 7
+  result ← test "1-based range: a docstring quoting the tag yields nothing (dalek externallyVerifiedAttr)"
+    (attrDecl == #[]) result
+  let noPath ← extractAttributesFromSource cache "/proj" "" 5 7
+  result ← test "empty code path yields nothing" (noPath == #[]) result
+  return result
+
+-- Every way a `@[…]` that is not the declaration's own annotation could reach the
+-- trusted base. Each of these used to yield `externally_verified`.
+def testAttributeScanNegatives (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing attributesFromLines: fabricated-trust cases..."
+  let scan (ls : Array String) (s e : Nat) := attributesFromLines ls s e
+  result ← test "body comment quoting the tag"
+    (scan #["theorem foo : P := by", "  -- do not mark this @[externally_verified]", "  sorry"] 0 2
+      == #[]) result
+  result ← test "multi-line docstring quoting the tag"
+    (scan #["/-- Not", "  @[externally_verified], see below. -/", "theorem foo : P := by", "  sorry"] 0 3
+      == #[]) result
+  result ← test "docstring quoting the tag on the head line"
+    (scan #["/-- not @[externally_verified] -/ theorem foo : P := by sorry"] 0 0 == #[]) result
+  result ← test "string literal in the body"
+    (scan #["def s : String :=", "  \"@[externally_verified]\""] 0 1 == #[]) result
+  result ← test "string literal on the head line"
+    (scan #["def s : String := \"@[externally_verified]\""] 0 0 == #[]) result
+  result ← test "anything after the head line is body, even an `@[`"
+    (scan #["theorem foo : P := by", "  @[simp] exact bar"] 0 1 == #[]) result
+  result ← test "look-back: a tagged one-line neighbour just above lends nothing"
+    (scan #["@[externally_verified] theorem a : P := by sorry", "theorem b : P := by sorry"] 1 1
+      == #[]) result
+  result ← test "look-back: a neighbour's attribute line then its head, then ours"
+    (scan #["@[externally_verified]", "theorem a : P := by sorry", "theorem b : P := by sorry"] 2 2
+      == #[]) result
+  result ← test "look-back: a non-pure line in a comment window lends nothing"
+    (scan #["/- see @[externally_verified] above", "-/", "theorem b : P := rfl"] 2 2 == #[]) result
+  result ← test "look-back: a stray non-pure line lends nothing"
+    (scan #["  exact @[externally_verified] x", "theorem b : P := rfl"] 1 1 == #[]) result
+  result ← test "the declaration's own tag survives all of the above"
+    (scan #["@[externally_verified] theorem a : P := by sorry",
+            "/-- Not `@[simp]`. -/", "@[externally_verified]", "theorem b : P := by",
+            "  -- @[step]", "  sorry"] 1 5 == #["externally_verified"]) result
+  return result
+
+def testLoadedProjectModules (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing loadedProjectModules (P under the import fallback)..."
+  let m (n : Lean.Name) : ProjectModule := { name := n, oleanPath := s!"{n}.olean" }
+  let all := #[m `App.A, m `App.B, m `App.Common, m `App.Main]
+  let names (ms : Array ProjectModule) := ms.map (·.name)
+  result ← test "transitively loaded project modules are in P, colliding ones are not"
+    (names (loadedProjectModules all #[`Init, `App.Common, `App.Main]) == #[`App.Common, `App.Main]) result
+  result ← test "inventory order is kept"
+    (names (loadedProjectModules all #[`App.Main, `App.A]) == #[`App.A, `App.Main]) result
+  result ← test "everything loaded → all of the inventory"
+    ((loadedProjectModules all (names all)).size == all.size) result
+  result ← test "nothing loaded → empty" (loadedProjectModules all #[`Init]).isEmpty result
   return result
 
 -- ============================================================
@@ -4515,6 +4655,9 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testApplyTaintStatus result
   result ← testDivergenceLines result
   result ← testTaintFormatting result
+  result ← testAttributeScan result
+  result ← testAttributeScanNegatives result
+  result ← testLoadedProjectModules result
   result ← testProjectTaintEnv result
   return result
 

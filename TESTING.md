@@ -50,7 +50,10 @@ All tests run without external tools.
 | `testReachabilityBlocked` | The blocked set: blocked node not expanded, blocked direct carrier shields its caller, target reached although blocked (target-before-block), target outside P reached through a P chain, cycle with a blocked sibling, root-order independence |
 | `testApplyTaintStatus` | `applyTaintStatus` verdict matrix (trusted / trusted direct carrier / direct / tainted / clean / unknown name), `--skip-enrich` cap, `--skip-verify` shape, `unifyAtom` carries `leanName` and no status, `leanName` not serialised |
 | `testDivergenceLines` | Graph-vs-oracle divergence text in both directions, `demoteTransitive`, `statusCounts` |
-| `testTaintFormatting` | Fallback / type-taint warnings, `check-axioms` report lines, summary line, build-log divergences (aux-carried sorry is agreement; generated atoms skipped) |
+| `testTaintFormatting` | Fallback / type-taint / unknown-atom warnings, `check-axioms` report lines, summary line, build-log divergences (aux-carried sorry is agreement; generated atoms skipped) |
+| `testAttributeScan` | Header-only `@[…]` scan: comment/string stripping (nested block comments, docstrings, escaped quotes), head-line detection, look-back window, 1-based range conversion (the old scan read the *next* declaration's tag) |
+| `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; the declaration's own tag still survives |
+| `testLoadedProjectModules` | Fallback P: `all` restricted to the modules the environment loaded |
 | `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `rule2Applies`, `computeTrustBase`, and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
@@ -83,7 +86,11 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
 3. **End-to-end** -- builds `tests/fixtures/aux-fold`, runs `probe-lean extract` and
    `probe-lean check-axioms` on it, then `AuxFoldCheck.lean` (recovered auxiliary edges)
    and `TaintCheck.lean` (kernel-backed statuses, the `Divergence:` line, the
-   `check-axioms` report); repeated on the newest supported Lean by the `test-newest` job
+   `check-axioms` report) and `tools/audit/check-status-consistency.py` (artifact and
+   report agree on every atom in both directions); then builds `tests/fixtures/collision`,
+   whose two colliding modules force the import fallback under `--module`, and runs
+   `check.py` (a transitively loaded sorried module still taints the selected caller);
+   repeated on the newest supported Lean by the `test-newest` job
 
 The CI uses `lean-action` which automatically installs elan, sets up the
 Lean toolchain from `lean-toolchain`, and caches the `.lake` directory.

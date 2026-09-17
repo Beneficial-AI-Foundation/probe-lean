@@ -120,6 +120,14 @@ def checkStatuses (fs : Failures) (data : Json) : IO Unit := do
     ((strArray data "probe:vouched.mvcgen_spec" "attributes").contains "externally_verified")
   check fs "vouched.mvcgen_spec is flagged as a generated companion"
     (boolOf data "probe:vouched.mvcgen_spec" "is-aeneas-generated")
+  -- Fabricated trust: a tag that is not the declaration's own annotation.
+  expect "probe:taggedOneLiner" "trusted"
+  expect "probe:neighbour" "unverified"
+  check fs "neighbour shows no externally_verified (the line above is not its header)"
+    (!(strArray data "probe:neighbour" "attributes").contains "externally_verified")
+  expect "probe:docMention" "unverified"
+  check fs "docMention shows no externally_verified (docstring and body comment are not read)"
+    (!(strArray data "probe:docMention" "attributes").contains "externally_verified")
   -- Rule 3: the `*External` module convention.
   expect "probe:externalOp" "trusted"
   check fs "externalOp trusted-reason is external" (reasonOf data "probe:externalOp" == some "external")
@@ -147,6 +155,8 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
     (lines.contains "Divergence: 1 atom(s) where the emitted graph disagrees with the kernel walk")
   check fs "the full module set was imported (no fallback warning)"
     (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
+  check fs "every atom was covered by the walk (no unknown-atom warning)"
+    (!lines.any fun l => l.startsWith "Warning: atom ")
   check fs "no build-log divergence (log and kernel agree on the direct carriers)"
     (!lines.any fun l => l.startsWith "Divergence:" && (l.splitOn "build log").length > 1)
 
@@ -161,12 +171,15 @@ def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   check fs "External-module theorem is listed as direct" (has "  extThm [direct]")
   check fs "sorried_bound is listed as direct" (has "  sorried_bound [direct]")
   check fs "the fold's auxiliary is listed and not emitted" (has "  tacticUse._proof_1 [not emitted]")
+  check fs "the untagged neighbour and the docstring-mention are listed as direct"
+    (has "  neighbour [direct]" && has "  docMention [direct]")
   check fs "trusted declarations are not listed"
-    (!lines.any fun l => l.startsWith "  vouched" || l.startsWith "  externalOp")
+    (!lines.any fun l => l.startsWith "  vouched" || l.startsWith "  externalOp" ||
+      l.startsWith "  taggedOneLiner")
   check fs "clean-modulo-T declarations are not listed"
     (!lines.any fun l => l.startsWith "  viaVouched" || l.startsWith "  usesExternal" ||
       l.startsWith "  cleanUse")
-  check fs "the count line matches" (has "8 constant(s) rest on an unexcused project sorry:")
+  check fs "the count line matches" (has "10 constant(s) rest on an unexcused project sorry:")
 
 def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]

@@ -67,7 +67,10 @@ jobs:
       #
       # The same fixture also carries the sorry-taint end-to-end check
       # (`TaintCheck.lean`): the trusted base, a range-less carrier, a generated
-      # companion, the `Divergence:` line on stderr and the `check-axioms` report.
+      # companion, fabricated-trust shapes the source scan must not read, the
+      # `Divergence:` line on stderr and the `check-axioms` report.
+      # `check-status-consistency.py` then asserts the artifact and the report
+      # agree in *both* directions on every atom.
       - name: End-to-end aux-fold and sorry-taint extract checks
         run: |
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
@@ -79,6 +82,21 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
           lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # The import fallback: two colliding modules force `extract --module` to
+      # import the selection only, and the selected module's transitively loaded
+      # project dependency carries a `sorry`. P must include that dependency.
+      - name: End-to-end import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr
+          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
+          python3 check.py
 
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
@@ -117,6 +135,7 @@ jobs:
           # the fixture follows the root instead of silently running this job's
           # check on the pinned elaborator.
           cp lean-toolchain tests/fixtures/aux-fold/lean-toolchain
+          cp lean-toolchain tests/fixtures/collision/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -170,6 +189,18 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
           lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      - name: End-to-end import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr
+          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
+          python3 check.py
 
   check-version:
     name: Version consistency

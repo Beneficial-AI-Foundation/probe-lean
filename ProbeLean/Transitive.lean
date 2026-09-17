@@ -20,31 +20,41 @@ open Lean
 /-- The status the taint pass assigns to the constant `n`, with its `trusted-reason`.
     Per the spec's definitions: `trusted` if in T; else `unverified` if a direct
     carrier; else `verified` if an unexcused project `sorry` is reachable; else
-    `transitively-verified`. A name the pass never saw is clean modulo T by
-    construction (every emitted atom is in P). -/
-def taintVerdict (pt : ProjectTaint) (n : Name) : Option String × WebVerificationStatus :=
-  match pt.trust[n]? with
-  | some reason => (some reason, .trusted)
-  | none =>
-    if pt.taint.direct.contains n then (none, .unverified)
-    else if pt.taint.tainted.contains n then (none, .verified)
-    else (none, .transitivelyVerified)
+    `transitively-verified`. `none` for a name outside P: the walk never assessed it,
+    and absence from the analysis is not evidence of verification. -/
+def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVerificationStatus) :=
+  if !pt.constants.contains n then none
+  else some <| match pt.trust[n]? with
+    | some reason => (some reason, .trusted)
+    | none =>
+      if pt.taint.direct.contains n then (none, .unverified)
+      else if pt.taint.tainted.contains n then (none, .verified)
+      else (none, .transitivelyVerified)
 
 /-- Stamp `verification-status`/`trusted-reason` on every atom from the taint pass,
     joined on `leanName`. `applyTaint := false` (`--skip-verify`) stamps only the
     trusted atoms and leaves the rest without a status; `upgrade := false`
-    (`--skip-enrich`) caps clean atoms at `verified`. -/
+    (`--skip-enrich`) caps clean atoms at `verified`. Atoms whose name is not in P
+    get no status at all and are returned by name so the caller can warn
+    (`formatUnknownAtomWarning`). -/
 def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
-    (applyTaint upgrade : Bool) : Array UnifiedAtom :=
-  atoms.map fun a =>
-    let (reason, status) := taintVerdict pt a.leanName
-    match status with
-    | .trusted => { a with verificationStatus := some .trusted, trustedReason := reason }
-    | _ =>
-      if !applyTaint then { a with verificationStatus := none, trustedReason := none }
+    (applyTaint upgrade : Bool) : Array UnifiedAtom × Array String := Id.run do
+  let mut out : Array UnifiedAtom := Array.mkEmpty atoms.size
+  let mut unknown : Array String := #[]
+  for a in atoms do
+    match taintVerdict pt a.leanName with
+    | none =>
+      unknown := unknown.push a.name
+      out := out.push { a with verificationStatus := none, trustedReason := none }
+    | some (reason, .trusted) =>
+      out := out.push { a with verificationStatus := some .trusted, trustedReason := reason }
+    | some (_, status) =>
+      if !applyTaint then
+        out := out.push { a with verificationStatus := none, trustedReason := none }
       else
         let status := if status == .transitivelyVerified && !upgrade then .verified else status
-        { a with verificationStatus := some status, trustedReason := none }
+        out := out.push { a with verificationStatus := some status, trustedReason := none }
+  return (out, unknown)
 
 /-- The graph-BFS input: the oracle's statuses with the upgrade undone, so the BFS
     re-derives `transitively-verified` from the emitted edges alone. -/

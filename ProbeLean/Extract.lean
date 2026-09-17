@@ -431,8 +431,10 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
 
   -- === Step 3: Merge — status from the taint pass, joined on `leanName` ===
   IO.println "=== Step 3/3: Merge ==="
-  let unifiedAtoms := applyTaintStatus (atoms.map unifyAtom) pt
+  let (unifiedAtoms, unknown) := applyTaintStatus (atoms.map unifyAtom) pt
     (applyTaint := !config.skipVerify) (upgrade := !config.skipEnrich)
+  for name in unknown do
+    IO.eprintln (formatUnknownAtomWarning name)
 
   runEnrichStep config unifiedAtoms
 
