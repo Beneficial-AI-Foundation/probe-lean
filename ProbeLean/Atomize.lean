@@ -246,7 +246,7 @@ def findProbeLeanLib : IO (List System.FilePath) := do
     Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command so both see the
     exact same environment. -/
 def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectModule)
-    (nixMode : Option NixMode := none) : IO (Except String (Environment × Array MergedDecl)) := do
+    (nixMode : Option NixMode := none) : IO (Except String (Environment × CoimportPreflight)) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
@@ -276,7 +276,6 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
     return .error (formatProoflessError pre.proofless)
   if !pre.collisions.isEmpty then
     return .error (formatCoimportError pre.collisions pre.skipped)
-  let merged := pre.merged
 
   let moduleNames := modules.map (·.name)
   let imports := moduleNames.map fun m => { module := m : Import }
@@ -291,7 +290,7 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
     -- same failure shape as the `ConstantInfo.value?` default that emptied
     -- theorem proof edges. `.private` is the current upstream default; it is
     -- spelled out so a future default change cannot regress soundness.
-    return .ok (← importModules imports {} 0 (level := OLeanLevel.private), merged)
+    return .ok (← importModules imports {} 0 (level := OLeanLevel.private), pre)
   catch e =>
     let msg := toString e
     if containsSubstring msg "already contains" then
@@ -375,11 +374,11 @@ def formatLoadedOrphansError (names : Array Name) : String :=
     This is the import without the orphan check; `importProjectEnvWithFallback` adds it. -/
 private def importProjectEnvSelecting (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode)
-    : IO (Except String (Environment × Array ProjectModule × Array MergedDecl)) := do
+    : IO (Except String (Environment × Array ProjectModule × CoimportPreflight)) := do
   if selected.size == all.size then
-    return (← importProjectEnv projectPath all nixMode).map fun (env, merged) => (env, all, merged)
+    return (← importProjectEnv projectPath all nixMode).map fun (env, pre) => (env, all, pre)
   match ← importProjectEnv projectPath all nixMode with
-  | .ok (env, merged) => return .ok (env, all, merged)
+  | .ok (env, pre) => return .ok (env, all, pre)
   | .error msg =>
     match ← importProjectEnv projectPath selected nixMode with
     | .error e => return .error e
@@ -388,20 +387,22 @@ private def importProjectEnvSelecting (projectPath : System.FilePath)
       if imported.size < all.size then
         IO.eprintln (formatFallbackWarning (all.size - imported.size))
       IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
-      -- The preflight above scanned the selection only; the merged set has to
-      -- cover every project module the environment actually holds.
+      -- The preflight above scanned the selection only; the merged set and the
+      -- owned versions have to cover every project module the environment holds.
       let pre ← detectCoimportCollisions imported
       if !pre.proofless.isEmpty then
         return .error (formatProoflessError pre.proofless)
-      return .ok (env, imported, pre.merged)
+      return .ok (env, imported, pre)
 
 /-- `importProjectEnvSelecting` (all modules, falling back to the selection), then the
     orphan check: whichever import succeeded, an orphan module among `orphans` that it
-    loaded (`loadedOrphans`) is fatal — see `formatLoadedOrphansError`. -/
+    loaded (`loadedOrphans`) is fatal — see `formatLoadedOrphansError`. Returns the
+    environment, the project modules it holds and the preflight over exactly those
+    modules (`CoimportPreflight.merged`, `.owned`). -/
 def importProjectEnvWithFallback (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
     (orphans : Array Name := #[])
-    : IO (Except String (Environment × Array ProjectModule × Array MergedDecl)) := do
+    : IO (Except String (Environment × Array ProjectModule × CoimportPreflight)) := do
   match ← importProjectEnvSelecting projectPath all selected nixMode with
   | .error e => return .error e
   | .ok r =>
@@ -471,7 +472,7 @@ private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
     (crate : String) (nixMode : Option NixMode := none) (orphans : Array Name := #[])
     : IO (Except String (Array Atom × ProjectTaint)) := do
-  let (env, imported, merged) ← match ← importProjectEnvWithFallback projectPath all selected
+  let (env, imported, pre) ← match ← importProjectEnvWithFallback projectPath all selected
       nixMode orphans with
     | .error msg => return .error msg
     | .ok r => pure r
@@ -487,7 +488,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (moduleCount := imported.size) (merged := merged)
+    (moduleCount := imported.size) (merged := pre.merged) (owned := pre.owned)
   IO.println (formatTaintSummary pt)
   IO.println (formatTagSetLine pt.tagSet)
   reportTaintWarnings pt

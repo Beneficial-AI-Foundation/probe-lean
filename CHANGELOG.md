@@ -138,12 +138,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the last body, so in one import order the sorried project body sat under a non-project
   name (blocked, "trusted wholesale") and in the other the project name carried the
   dependency's clean body. Both left the caller clean. A post-import scan of the
-  environment header (`Taint.crossMergedNames`) now flags every name a project module
+  environment header (`Taint.crossMergedDecls`) now flags every name a project module
   declares that the environment attributes elsewhere, and every name a non-project module
-  declares too; they are added to P, given `sorryAx` as an out-edge (the invisible body is
-  taken to be the sorried one), excluded from every trust rule, and reported as `Warning:
-  <n> declaration name(s) are declared by a project module and by a module the walk cannot
-  see into …`. New fixture `tests/fixtures/cross-merge` (a path dependency) pins it in CI.
+  declares too; they are added to P whatever module owns them. The preflight keeps every
+  project constant it read, so when it read every project module declaring such a name
+  (the normal case) the walk follows the **project's own version(s)** under the
+  merged-declaration policy (`Taint.splitCrossMerged`): a `sorry` in any project version
+  makes the name `unverified` and every caller `verified`, whichever body the environment
+  kept — including the case where the project won the name and the environment holds the
+  dependency's clean proof — while a proved restatement of a proved dependency theorem
+  stays clean, since the other body is a dependency's and already in the trusted base; no
+  `@[externally_verified]` on them is honoured. This matters beyond hand-written
+  restatements: Lean tolerates same-name theorems so that equational theorems (`f.eq_1`)
+  can be realised on demand in different files, and a project module and a dependency
+  module realising the same one would otherwise have tainted every caller. Reported as
+  `Note: <n> declaration name(s) are declared by a project module and by a module outside
+  the project (a dependency), and Lean kept one body: …`. Only when a declaring project
+  module's olean could not be read is the project body invisible; such a name is given
+  `sorryAx` as an out-edge, excluded from every trust rule, and reported as `Warning: <n>
+  declaration name(s) are declared by a project module whose olean the preflight could not
+  read and by another module …`. Fixture `tests/fixtures/cross-merge` (a path dependency)
+  pins both import orders with a sorried and a proved project body each.
 
   **A stale orphan olean the import loads aborts the extraction.** Module discovery drops
   an `.olean` with no backing `.lean` source and says so, but `importModules` still loads
@@ -162,9 +177,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   SCC finalisation and is validated against `Lean.collectAxioms` in the unit suite.
 
   **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch at the round-3
-  revision (the later round-4 changes — how olean parts are loaded and the orphan abort —
-  touch neither the walk, the trusted base nor the emitted arrays of a healthy project, and
-  were not re-measured), both built for Lean 4.31, three warm runs each,
+  revision (the later round-4 changes — how olean parts are loaded, the orphan abort and
+  walking cross-boundary names from the project's own bodies — were not re-measured: the
+  first two touch neither the walk nor the emitted arrays of a healthy project, and both
+  targets had zero cross-boundary names), both built for Lean 4.31, three warm runs each,
   `tools/audit/compare-extract.py --status-policy taint` and
   `check-status-consistency.py` passing on both targets:
 

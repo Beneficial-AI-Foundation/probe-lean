@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end assertions for a declaration merged across the project boundary.
+"""End-to-end assertions for declarations merged across the project boundary.
 
 Run from this directory, after
 
@@ -8,15 +8,19 @@ Run from this directory, after
     probe-lean check-axioms . >check-axioms.out
     python3 check.py
 
-`CrossMerge.Restate` restates the dependency theorem `Dep.Shared.shared` (same name
-and statement) with a `sorry`. Lean's importer tolerates the pair and keeps ONE body
-without comparing them; it attributes the name to the module imported first — the
-dependency, loaded through `CrossMerge.Other` — and keeps the body imported last —
-the project's sorried one. The name is therefore outside P (blocked, "trusted
-wholesale") while carrying the project's `sorry`, and `CrossMerge.Use.caller` would
-read clean. The olean preflight reads project modules only and cannot see this; the
-post-import scan of the environment header must flag `shared`, treat it as resting on
-`sorry`, and taint both callers.
+Four project theorems restate a theorem of the `dep` path dependency with the same name
+and statement; Lean's importer keeps ONE body per name without comparing them. In both
+import orders (dependency wins the name / project wins the name) and for both project
+bodies (sorried / proved) the walk must follow the *project's* version, which only the
+olean preflight has a copy of:
+
+    name      project body   who wins the name   body the env keeps   expected
+    shared    sorry          dependency          project's (sorry)    callers verified
+    shared2   proof          dependency          project's (proof)    callers transitively-verified
+    shared3   proof          project             dependency's         shared3 + caller transitively-verified
+    shared4   sorry          project             dependency's (proof) shared4 unverified, caller verified
+
+`shared4` is the sharp case: the environment shows a clean body under a project name.
 """
 
 import glob
@@ -24,6 +28,8 @@ import json
 import sys
 
 failures = []
+
+NOTE = "Note: 4 declaration name(s) are declared by a project module and by a module outside the project"
 
 
 def check(name, ok):
@@ -48,20 +54,37 @@ def main():
     with open("check-axioms.out") as fh:
         report = fh.read().splitlines()
 
-    print("Extract output: the callers of the cross-merged theorem")
+    print("Dependency wins the name, project body sorried (shared)")
     check("caller (built against the sorried version) is verified",
           status(data, "probe:caller") == "verified")
-    check("viaDep (built against the dependency's proved version) is verified too: fail closed",
+    check("viaDep (built against the dependency's proved version) is verified too: the name is one",
           status(data, "probe:viaDep") == "verified")
-    check("nothing reads transitively-verified",
-          all(a.get("verification-status") != "transitively-verified" for a in data.values()))
+    check("shared is not an atom (the dependency owns the name)", "probe:shared" not in data)
+
+    print("Dependency wins the name, project body proved (shared2)")
+    check("callerGood is transitively-verified", status(data, "probe:callerGood") == "transitively-verified")
+    check("viaDep2 is transitively-verified", status(data, "probe:viaDep2") == "transitively-verified")
+    check("shared2 is not an atom", "probe:shared2" not in data)
+
+    print("Project wins the name, project body proved (shared3)")
+    check("shared3 is an atom and transitively-verified, not trusted",
+          status(data, "probe:shared3") == "transitively-verified")
+    check("callerFirst is transitively-verified", status(data, "probe:callerFirst") == "transitively-verified")
+
+    print("Project wins the name, project body sorried, environment holds the dependency's proof (shared4)")
+    check("shared4 is unverified (the preflight's copy of the project body is walked)",
+          status(data, "probe:shared4") == "unverified")
+    check("callerBad is verified", status(data, "probe:callerBad") == "verified")
+
     check("every atom has a status", all("verification-status" in a for a in data.values()))
 
     print("Extract stderr")
-    check("the cross-merged declaration is reported",
-          any(l.startswith("Warning: 1 declaration name(s) are declared by a project module and by a module the walk cannot see into")
-              and "shared" in l for l in stderr))
-    check("no project/project merge warning (the preflight cannot see this pair)",
+    check("the note names all four cross-boundary declarations",
+          any(l.startswith(NOTE) and all(n in l for n in ("shared", "shared2", "shared3", "shared4"))
+              for l in stderr))
+    check("no fail-closed warning: every declaring project module was read",
+          not any("could not read and by another module" in l for l in stderr))
+    check("no project/project merge warning (the preflight cannot see these pairs)",
           not any("declared by more than one project module" in l for l in stderr))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))
@@ -69,11 +92,16 @@ def main():
           not any(l.startswith("Warning: atom ") for l in stderr))
 
     print("check-axioms report")
-    check("shared is listed as a direct carrier",
-          any(l.startswith("  shared [direct]") for l in report))
-    check("both callers are listed", "  caller" in report and "  viaDep" in report)
-    check("the same warning is printed by check-axioms",
-          any("cannot see into" in l for l in report + stderr))
+    check("shared is listed as a direct carrier that is not emitted",
+          "  shared [direct] [not emitted]" in report)
+    check("shared4 is listed as an emitted direct carrier", "  shared4 [direct]" in report)
+    check("the tainted callers are listed",
+          all(f"  {c}" in report for c in ("caller", "viaDep", "callerBad")))
+    check("the clean names are not listed",
+          not any(l.startswith(f"  {c}") for l in report
+                  for c in ("shared2", "shared3", "callerGood", "callerFirst", "viaDep2")))
+    check("the same note is printed by check-axioms",
+          any(l.startswith(NOTE) for l in report + stderr))
 
     print()
     if failures:

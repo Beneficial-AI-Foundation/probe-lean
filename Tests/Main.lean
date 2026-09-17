@@ -4317,8 +4317,13 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   result ← test "cross-merge warning: none for an empty list" (formatCrossMergedWarning #[] == "") result
   let cw := formatCrossMergedWarning #[`shared]
   result ← test "cross-merge warning names the declaration and the treatment"
-    (cw.startsWith "Warning: 1 declaration name(s) are declared by a project module and by a module the walk cannot see into" &&
+    (cw.startsWith "Warning: 1 declaration name(s) are declared by a project module whose olean the preflight could not read" &&
      (cw.splitOn "one body: shared;").length == 2 && (cw.splitOn "resting on `sorry`").length == 2) result
+  result ← test "cross-walked note: none for an empty list" (formatCrossWalkedNote #[] == "") result
+  let nt := formatCrossWalkedNote #[`shared]
+  result ← test "cross-walked note names the declaration and the treatment"
+    (nt.startsWith "Note: 1 declaration name(s) are declared by a project module and by a module outside the project" &&
+     (nt.splitOn "one body: shared;").length == 2 && (nt.splitOn "project's own version(s)").length == 2) result
   return result
 
 -- The source scan feeds the trusted base (rule 2), so what it reads is a soundness
@@ -4833,6 +4838,49 @@ def testMergedDecls (result : TestResult) : IO TestResult := do
      (w.splitOn "d11").length == 1) result
   return result
 
+/-- `splitCrossMerged`: a cross-boundary name is walked from the project's own versions
+    when the preflight read every project module declaring it, and taken to rest on
+    `sorry` otherwise. -/
+def testCrossMergeSplit (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the cross-boundary merge split (walk the project's bodies vs assume sorry)..."
+  let prop : Lean.Expr := .sort .zero
+  let mkThm (n : Lean.Name) (body : Lean.Expr) : Lean.ConstantInfo :=
+    .thmInfo { name := n, levelParams := [], type := prop, value := body, all := [n] }
+  let proved := mkThm `shared (.const ``True.intro [])
+  let sorried := mkThm `shared (.const ``sorryAx [])
+  let owned : Std.HashMap Lean.Name (Array (Lean.Name × Lean.ConstantInfo)) := Id.run do
+    let mut m : Std.HashMap Lean.Name (Array (Lean.Name × Lean.ConstantInfo)) := {}
+    m := m.insert `shared #[(`P.Restate, proved)]
+    m := m.insert `both #[(`P.B, sorried), (`P.A, proved)]
+    m := m.insert `partial #[(`P.Read, proved)]
+    return m
+  -- Every declaring module read: walked from that version, whichever body the env kept.
+  let (w1, a1) := splitCrossMerged #[(`shared, #[`P.Restate])] owned
+  result ← test "all owners read: walked, none assumed" (w1.size == 1 && a1.isEmpty) result
+  result ← test "the walked versions are the project's"
+    (w1[0]!.declName == `shared && w1[0]!.versions.map (·.1) == #[`P.Restate]) result
+  result ← test "the walked children are the project body's"
+    ((mergedChildren w1[0]!).contains ``True.intro && !(mergedChildren w1[0]!).contains ``sorryAx) result
+  -- Two project owners plus a dependency owner: both project versions, sorted by module.
+  let (w2, a2) := splitCrossMerged #[(`both, #[`P.A, `P.B])] owned
+  result ← test "two project owners: both versions walked"
+    (w2.size == 1 && a2.isEmpty && w2[0]!.versions.map (·.1) == #[`P.A, `P.B]) result
+  result ← test "a sorry in any project version is followed" ((mergedChildren w2[0]!).contains ``sorryAx) result
+  -- A declaring module the preflight skipped: its body is invisible, assume sorry.
+  let (w3, a3) := splitCrossMerged #[(`partial, #[`P.Read, `P.Skipped])] owned
+  result ← test "an unread owner: assumed sorried" (w3.isEmpty && a3 == #[`partial]) result
+  let (w4, a4) := splitCrossMerged #[(`unknown, #[`P.X])] owned
+  result ← test "no version read at all: assumed" (w4.isEmpty && a4 == #[`unknown]) result
+  let (w5, a5) := splitCrossMerged #[(`ghost, #[])] owned
+  result ← test "no declaring module known: assumed" (w5.isEmpty && a5 == #[`ghost]) result
+  -- Order is the input's (sorted by name upstream).
+  let (w6, a6) := splitCrossMerged #[(`both, #[`P.A, `P.B]), (`partial, #[`P.Skipped]), (`shared, #[`P.Restate])] owned
+  result ← test "mixed input keeps name order in both outputs"
+    (w6.map (·.declName) == #[`both, `shared] && a6 == #[`partial]) result
+  return result
+
 def testProjectTaintEnv (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -4938,6 +4986,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testLoadedOrphans result
   result ← testTagSetLiterals result
   result ← testMergedDecls result
+  result ← testCrossMergeSplit result
   result ← testProjectTaintEnv result
   return result
 

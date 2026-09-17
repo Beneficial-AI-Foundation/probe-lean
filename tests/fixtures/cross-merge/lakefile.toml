@@ -1,12 +1,19 @@
 name = "crossmerge"
 defaultTargets = ["CrossMerge"]
 
-# `CrossMerge.Restate` restates the dependency's `Dep.Shared.shared` (same name,
-# same statement) with a `sorry`. Lean's importer tolerates the pair and keeps ONE
-# body, attributing the name to whichever module was imported first — here the
-# dependency, loaded through `CrossMerge.Other`. The olean preflight reads project
-# modules only, so it cannot see this merge; the post-import scan of the
-# environment header must.
+# Four project theorems restate a theorem of the `dep` path dependency (same name, same
+# statement). Lean's importer tolerates each pair and keeps ONE body: the name goes to
+# whichever module was imported first, the body to whichever came last. probe-lean
+# imports project modules sorted by name and the dependency is loaded by the first
+# module that imports it (`CrossMerge.Other`), so:
+#   - `ABad`/`AFirst` sort before `Other`: the project wins the name, the environment
+#     keeps the dependency's body (`shared4` sorried in the project, `shared3` proved);
+#   - `Restate`/`RestateGood` sort after `Other`: the dependency wins the name, the
+#     environment keeps the project's body (`shared` sorried, `shared2` proved).
+# The olean preflight reads project modules only, so it cannot see these merges; the
+# post-import scan of the environment header must, and the walk must follow the
+# preflight's copy of each project version rather than whatever body the environment
+# kept.
 [[require]]
 name = "dep"
 path = "dep"

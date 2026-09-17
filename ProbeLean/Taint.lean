@@ -31,10 +31,17 @@ structure ProjectTaint where
       statement (`Coimport.MergedDecl`): the importer kept one proof, the walk
       followed the union of all of them. Sorted by name; reported as a warning. -/
   merged : Array Name := #[]
-  /-- Names a project module declares whose other version the walk cannot see
-      (`crossMergedNames`): treated as resting on `sorry`, never trusted. Sorted by
-      name; reported as a warning. -/
+  /-- Names a project module declares that another module declares too
+      (`crossMergedDecls`) where some declaring project module's olean the preflight
+      could not read (`splitCrossMerged`): the project body is invisible, so they are
+      treated as resting on `sorry` and never trusted. Sorted by name; reported as a
+      warning. -/
   crossMerged : Array Name := #[]
+  /-- Names a project module declares that a module outside the project declares too,
+      every declaring project module read by the preflight: walked from the project's
+      own version(s) like a merged declaration (`splitCrossMerged`). Sorted by name;
+      reported as a note. -/
+  crossWalked : Array Name := #[]
   /-- The `externally_verified` tag set rule 2 was decided from (`TagSet`). -/
   tagSet : TagSet := {}
   /-- Tag audit (`tagAudit`): source-visible constants whose header shows the tag
@@ -71,24 +78,26 @@ def mergedChildrenMap (merged : Array MergedDecl) : Std.HashMap Name (Array Name
 def mergedOwners (merged : Array MergedDecl) : Std.HashMap Name (Array Name) :=
   merged.foldl (init := {}) fun acc m => acc.insert m.declName (m.versions.map (·.1))
 
-/-- Names a project module declares that the walk cannot see every body of, found
-    after the import from the environment header alone (no dependence on the olean
-    preflight): (a) a name in a project module's `constNames` that the environment
+/-- Names a project module declares that the environment collapsed with another
+    module's version, found after the import from the environment header alone (no
+    dependence on the olean preflight), each with the sorted project modules that
+    declare it: (a) a name in a project module's `constNames` that the environment
     attributes to another module — `finalizeImport` keeps the **first** owner's index
     and the **last** subsuming body, so this catches a same-statement restatement of
     a dependency theorem imported after it, and any project/project pair the
     preflight did not read; (b) a name declared by both a project module and a
-    non-project module, whichever order they were imported in. In every case one of
-    the two bodies is gone and it may be the one with the `sorry`, so the caller
-    treats these names as direct carriers and trusts none of them. Sorted by name.
+    non-project module, whichever order they were imported in. In every case the
+    environment holds one body and it need not be the project's; `splitCrossMerged`
+    decides whether the project's own version(s) can be walked instead. Sorted by
+    name.
 
     `knownMerged` (`mergedOwners`) exempts a project/project discrepancy only when
     the preflight read **both** the declaring module and the module the environment
     attributes the name to — those two versions are the ones `mergedChildren` walks.
     A third declaring module whose olean the preflight skipped is not covered and
     stays flagged: its discarded body was never walked. -/
-def crossMergedNames (env : Environment) (pFilter : ProjectFilter)
-    (knownMerged : Std.HashMap Name (Array Name)) : Array Name := Id.run do
+def crossMergedDecls (env : Environment) (pFilter : ProjectFilter)
+    (knownMerged : Std.HashMap Name (Array Name)) : Array (Name × Array Name) := Id.run do
   let mods := env.header.moduleData
   let modNames := env.header.moduleNames
   let mut declared : Std.HashSet Name := {}
@@ -110,7 +119,44 @@ def crossMergedNames (env : Environment) (pFilter : ProjectFilter)
     if !pFilter.moduleIdxs.contains i then
       for n in mods[i]!.constNames do
         if declared.contains n then flagged := flagged.insert n
-  flagged.toArray.qsort fun a b => a.toString < b.toString
+  -- Second pass: which project modules declare each flagged name. A module can be the
+  -- environment's owner (not flagged at its own index) and still be one of them.
+  let mut declaring : Std.HashMap Name (Array Name) := {}
+  for i in [:mods.size] do
+    if pFilter.moduleIdxs.contains i then
+      for n in mods[i]!.constNames do
+        if flagged.contains n then
+          declaring := declaring.insert n ((declaring.getD n #[]).push modNames[i]!)
+  let names := flagged.toArray.qsort fun a b => a.toString < b.toString
+  names.map fun n => (n, (declaring.getD n #[]).qsort fun a b => a.toString < b.toString)
+
+/-- The names of `crossMergedDecls`. -/
+def crossMergedNames (env : Environment) (pFilter : ProjectFilter)
+    (knownMerged : Std.HashMap Name (Array Name)) : Array Name :=
+  (crossMergedDecls env pFilter knownMerged).map (·.1)
+
+/-- Decide, per cross-boundary name, what the walk follows. `owned` is what the
+    preflight read for every project-declared name (`Coimport.ownersByName`). If every
+    project module declaring the name has a version there, the project's own bodies are
+    all visible and the name is walked like a merged declaration from exactly those
+    versions (the other body is a dependency's, already in the trusted base) — first
+    component. Otherwise a project body is invisible (its module's olean could not be
+    read) and the name is taken to rest on `sorry` — second component. Both keep the
+    input's name order. -/
+def splitCrossMerged (decls : Array (Name × Array Name))
+    (owned : Std.HashMap Name (Array (Name × ConstantInfo)))
+    : Array MergedDecl × Array Name := Id.run do
+  let mut walked : Array MergedDecl := #[]
+  let mut assumed : Array Name := #[]
+  for (n, declaring) in decls do
+    let versions := (owned.getD n #[]).filter fun (m, _) => declaring.contains m
+    let allRead := !declaring.isEmpty && declaring.all fun m => versions.any (·.1 == m)
+    if allRead then
+      walked := walked.push
+        { declName := n, versions := versions.qsort fun a b => a.1.toString < b.1.toString }
+    else
+      assumed := assumed.push n
+  return (walked, assumed)
 
 /-- Trust for a merged declaration: every version must be trusted on its own by
     rules 1 and 3 (kind and owning module). Rule 2 never applies — an
@@ -259,35 +305,47 @@ def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : 
   return (scanOnly.qsort (fun a b => a.toString < b.toString),
           tagOnly.qsort (fun a b => a.toString < b.toString))
 
-/-- The walk over P with T blocked; merged declarations follow every version's
-    dependencies (`mergedChildrenMap`), and cross-merged names (`crossMergedNames`)
-    count as project constants whatever module the environment attributes them to,
-    with `sorryAx` added to their out-edges: the body the walk cannot see is taken to
-    be the sorried one. -/
+/-- The walk over P with T blocked; merged declarations — project/project pairs and
+    the cross-boundary names walked from their project versions — follow every
+    version's dependencies (`mergedChildrenMap`). Every cross-boundary name
+    (`crossNames`) counts as a project constant whatever module the environment
+    attributes it to, so it is expanded rather than blocked; those in `crossAssumed`
+    get `sorryAx` added to their out-edges, since the project body the walk cannot see
+    is taken to be the sorried one. -/
 def runProjectTaint (env : Environment) (pFilter : ProjectFilter)
     (consts : Array (Name × ConstantInfo)) (trust : Std.HashMap Name String)
-    (merged : Array MergedDecl := #[]) (crossMerged : Array Name := #[]) : TaintResult :=
-  let crossSet := Std.HashSet.ofArray crossMerged
-  let override := crossMerged.foldl (init := mergedChildrenMap merged) fun m n =>
+    (merged : Array MergedDecl := #[]) (crossNames : Array Name := #[])
+    (crossAssumed : Array Name := #[]) : TaintResult :=
+  let crossSet := Std.HashSet.ofArray crossNames
+  let override := crossAssumed.foldl (init := mergedChildrenMap merged) fun m n =>
     m.insert n ((m.getD n (constChildren env n)).push sorryAxiomName)
   projectTaint env (fun n => pFilter.contains env n || crossSet.contains n) trust.contains
     (consts.map (·.1)) (childrenOverride := override)
 
 /-- P, T and the walk in one call. Returns the attribute map too, so the atom builder
-    does not scan the sources a second time. `merged` is what the co-import preflight
-    read for the imported modules (`Atomize.importProjectEnvWithFallback`); the
-    cross-boundary merges are found here from the environment itself, and the names
-    among them that the environment attributes to a non-project module are added to
-    P so they are walked and reported. -/
+    does not scan the sources a second time. `merged` and `owned` are what the co-import
+    preflight read for the imported modules (`Atomize.importProjectEnvWithFallback`);
+    the cross-boundary merges are found here from the environment itself
+    (`crossMergedDecls`), split by `splitCrossMerged` into names walked from their
+    project versions (joined to `merged`) and names taken to rest on `sorry`, and the
+    names among them that the environment attributes to a non-project module are added
+    to P so they are walked and reported. -/
 def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
     (pFilter : ProjectFilter) (fileCache : FileCache) (pathCache : ModulePathCache)
     (consts : Array (Name × ConstantInfo)) (moduleCount : Nat)
     (merged : Array MergedDecl := #[])
+    (owned : Std.HashMap Name (Array (Name × ConstantInfo)) := {})
     : IO (ProjectTaint × Std.HashMap Name DeclAttrs) := do
+  let cross := crossMergedDecls env pFilter (mergedOwners merged)
+  let (crossWalkedAll, crossAssumed) := splitCrossMerged cross owned
+  -- A project/project pair that a dependency also declares is flagged by rule (b) of
+  -- `crossMergedDecls`; `merged` already holds exactly its versions.
+  let mergedNames := Std.HashSet.ofArray (merged.map (·.declName))
+  let mergedAll := merged ++ crossWalkedAll.filter fun m => !mergedNames.contains m.declName
   let mergedMap : Std.HashMap Name MergedDecl :=
-    merged.foldl (init := {}) fun acc m => acc.insert m.declName m
-  let crossMerged := crossMergedNames env pFilter (mergedOwners merged)
-  let consts := crossMerged.foldl (init := consts) fun acc n =>
+    mergedAll.foldl (init := {}) fun acc m => acc.insert m.declName m
+  let crossNames := cross.map (·.1)
+  let consts := crossNames.foldl (init := consts) fun acc n =>
     if pFilter.contains env n then acc
     else match env.find? n with
       | some ci => acc.push (n, ci)
@@ -296,11 +354,12 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
   let attrs ← computeAttributes env projectPath fileCache pathCache consts tagSet.tagged
   let propTyped ← propTypedNames env (externalRule3Candidates env consts)
   let trust := computeTrustBase env consts tagSet.tagged mergedMap propTyped
-    (Std.HashSet.ofArray crossMerged)
-  let taint := runProjectTaint env pFilter consts trust merged crossMerged
+    (Std.HashSet.ofArray crossAssumed)
+  let taint := runProjectTaint env pFilter consts trust mergedAll crossNames crossAssumed
   let constants := consts.foldl (init := ({} : Std.HashSet Name)) fun s (n, _) => s.insert n
   let (scanOnlyTags, tagOnly) := tagAudit env attrs tagSet.tagged
-  return ({ trust, taint, constants, merged := merged.map (·.declName), crossMerged,
+  return ({ trust, taint, constants, merged := merged.map (·.declName),
+            crossMerged := crossAssumed, crossWalked := crossWalkedAll.map (·.declName),
             tagSet, scanOnlyTags, tagOnly, pSize := consts.size, moduleCount }, attrs)
 
 /-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
@@ -367,10 +426,18 @@ def formatMergedWarning (names : Array Name) : String :=
 /-- Printed for `ProjectTaint.crossMerged`. Empty when there are none. -/
 def formatCrossMergedWarning (names : Array Name) : String :=
   if names.isEmpty then "" else
-    s!"Warning: {names.size} declaration name(s) are declared by a project module and by a \
-      module the walk cannot see into (a dependency package, or a module the preflight could \
-      not read), and Lean kept one body: {listNames names}; they are treated as resting on \
+    s!"Warning: {names.size} declaration name(s) are declared by a project module whose olean \
+      the preflight could not read and by another module, and Lean kept one body: \
+      {listNames names}; the project's body is invisible, so they are treated as resting on \
       `sorry` (unverified, every caller verified) and no trust rule applies to them"
+
+/-- Printed for `ProjectTaint.crossWalked`. Empty when there are none. -/
+def formatCrossWalkedNote (names : Array Name) : String :=
+  if names.isEmpty then "" else
+    s!"Note: {names.size} declaration name(s) are declared by a project module and by a module \
+      outside the project (a dependency), and Lean kept one body: {listNames names}; the walk \
+      follows the project's own version(s), the other body is in the trusted base, and no \
+      `@[externally_verified]` on them is honoured"
 
 /-- Printed per `ProjectTaint.scanOnlyTags` entry. -/
 def formatScanOnlyTagLine (n : Name) : String :=
@@ -391,6 +458,8 @@ def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
     IO.eprintln (formatMergedWarning pt.merged)
   if !pt.crossMerged.isEmpty then
     IO.eprintln (formatCrossMergedWarning pt.crossMerged)
+  if !pt.crossWalked.isEmpty then
+    IO.eprintln (formatCrossWalkedNote pt.crossWalked)
   for n in pt.scanOnlyTags do
     IO.eprintln (formatScanOnlyTagLine n)
   for n in pt.tagOnly do

@@ -55,6 +55,7 @@ All tests run without external tools.
 | `testLoadedProjectModules` | Fallback P: `all` restricted to the modules the environment loaded |
 | `testLoadedOrphans` | Orphan oleans the import loaded anyway (`loadedOrphans`): none, disjoint, one hit, sorted; the abort message |
 | `testMergedDecls` | `classifyDuplicates` splits tolerated restatements (merged) from collisions; `mergedChildren` is the union over versions; `formatMergedWarning` text and cap |
+| `testCrossMergeSplit` | `splitCrossMerged`: every declaring project module read → walked from the project's versions (single version; two project owners plus a dependency); an unread, unknown or absent declaring module → assumed sorried; input order kept |
 | `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `computeTrustBase` (a range-sharer that only *shows* a neighbour's tag is not trusted; a name in the tag set is; excluded names), `propTypedNames`, `crossMergedNames` on a clean environment, and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
@@ -94,10 +95,12 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
    then builds `tests/fixtures/merge`, where two modules restate one theorem and the
    importer keeps one proof, and runs its `check.py` (the merged name reads `unverified`,
    both callers `verified`, the warning is printed); then builds
-   `tests/fixtures/cross-merge`, where a project module restates a path dependency's
-   theorem with a `sorry` and the importer attributes the name to the dependency, and runs
-   its `check.py` (both callers `verified`, the cross-merge warning is printed, `shared` is
-   listed `[direct] [not emitted]`); then `tests/fixtures/module-merge` (two `module` files
+   `tests/fixtures/cross-merge`, where four project modules restate a path dependency's
+   theorems (sorried and proved, dependency-wins-the-name and project-wins-the-name), and
+   runs its `check.py` (the sorried restatements' callers `verified` and `shared4`
+   `unverified` although the environment holds the dependency's proof under its name, the
+   proved ones' callers `transitively-verified`, the cross-boundary note names all four,
+   `shared` listed `[direct] [not emitted]`); then `tests/fixtures/module-merge` (two `module` files
    export the same `public theorem`, one sorried; the preflight must read the private part)
    plus `RepeatRead.lean`, run from the root, which reads one module's split parts three
    times in one process and checks that stale part files next to a non-`module` base are

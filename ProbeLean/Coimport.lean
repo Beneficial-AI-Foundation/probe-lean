@@ -70,14 +70,28 @@ def constSubsumes (a b : ConstantInfo) : Bool :=
 def isDisplayableCollisionName (n : Name) : Bool :=
   !n.isInternal && !n.hasMacroScopes
 
-/-- A declaration name declared by more than one project module where every
-    owner pair *is* subsumable: the importer accepts the set and keeps one
-    version, discarding the others' proof bodies. `versions` holds every
-    `(owning module, constant info)` the preflight read, sorted by module. -/
+/-- A declaration name the importer collapsed to one body: declared by more than one
+    project module where every owner pair *is* subsumable (the importer accepts the
+    set and keeps one version, discarding the others' proof bodies), or declared by a
+    project module and a module outside the project (`Taint.splitCrossMerged`, where
+    the project-owned versions are the ones walked). `versions` holds every
+    `(owning module, constant info)` the preflight read, sorted by module; at least
+    one, two or more for a project/project pair. -/
 structure MergedDecl where
   declName : Name
-  versions : Array (Name × ConstantInfo)   -- sorted by module name, ≥ 2 entries
+  versions : Array (Name × ConstantInfo)   -- sorted by module name, ≥ 1 entry
   deriving Inhabited
+
+/-- Every declared name with the `(owning module, constant info)` pairs the preflight
+    read for it, in the order of `moduleDecls`. `classifyDuplicates` reads it for the
+    merged/collision classification; the taint pass reads it for names the environment
+    header shows are also declared outside the project (`Taint.splitCrossMerged`), whose
+    project-owned bodies would otherwise be lost as singletons. -/
+def ownersByName (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
+    Std.HashMap Name (Array (Name × ConstantInfo)) :=
+  moduleDecls.foldl (init := {}) fun owners (modName, decls) =>
+    decls.foldl (init := owners) fun owners (cname, cinfo) =>
+      owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
 
 /-- Pure core of the preflight: given each module's own declarations as
     `(declared name, constant info)` pairs — the positional pairing of
@@ -90,10 +104,7 @@ structure MergedDecl where
     lists are sorted for deterministic output (P14). -/
 def classifyDuplicates (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
     Array DeclCollision × Array MergedDecl := Id.run do
-  let mut owners : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
-  for (modName, decls) in moduleDecls do
-    for (cname, cinfo) in decls do
-      owners := owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
+  let owners := ownersByName moduleDecls
   let mut collisions : Array DeclCollision := #[]
   let mut merged : Array MergedDecl := #[]
   for (declName, os) in owners.toList do
@@ -124,6 +135,10 @@ structure CoimportPreflight where
   collisions : Array DeclCollision := #[]
   /-- Names the importer merges (one body kept), with every version read. -/
   merged : Array MergedDecl := #[]
+  /-- Every project-declared name with the versions read for it (`ownersByName`), so
+      the taint pass can walk a project body the environment discarded in favour of a
+      dependency's (`Taint.splitCrossMerged`). -/
+  owned : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
   /-- Modules whose olean could not be read; the scan is partial for them. -/
   skipped : Array ProjectModule := #[]
   /-- Module-system modules (`module` header) whose `.olean.server` or
@@ -196,7 +211,7 @@ def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPrefli
       IO.eprintln "  The module is skipped, so the preflight may be incomplete."
       skipped := skipped.push m
   let (collisions, merged) := classifyDuplicates moduleDecls
-  return { collisions, merged, skipped, proofless }
+  return { collisions, merged, owned := ownersByName moduleDecls, skipped, proofless }
 
 /-- The abort message for `CoimportPreflight.proofless`. -/
 def formatProoflessError (proofless : Array ProjectModule) : String :=
