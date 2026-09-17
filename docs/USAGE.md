@@ -71,7 +71,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
-| `--module <PREFIX>` | `-m` | Filter to specific module prefix |
+| `--module <PREFIX>` | `-m` | Filter to specific module prefix. The kernel walk still imports every built project module, so a narrow selection is not faster than a full run (about 1.2 s slower on dalek than 0.14.0, which imported the selection only) |
 | `--library <LIBS>` | `-l` | Comma-separated list of library names to build **and** restrict analysis to (modules are kept only if they belong to one of these library roots). When omitted, the build uses `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and **all** of the project's built modules are analyzed — auto-detected targets are not used as a module filter, since `defaultTargets` may name a `lean_exe` or a library may declare custom `roots`. |
 | `--skip-verify` | | Skip status stamping: atoms carry no `verification-status`, except trusted ones (`"trusted"`) |
 | `--from-file <FILE>` | | Use existing build output for the build-log cross-check instead of the captured `lake build` output |
@@ -79,9 +79,9 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 
 Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)). With `--module`/`--library`, `extract` first tries to import **all** built project modules — the kernel walk below needs the whole project — and falls back to the selection if the full set cannot be co-imported. The walk then covers the selected modules and every project module they import transitively, which is every module an emitted atom can depend on; the modules left out are announced with `Warning: <n> project module(s) not imported (full import failed); they are outside the selection's import closure, so no emitted status depends on them, but check-axioms does not audit them`.
 
-The preflight tolerates exactly what Lean's importer tolerates: two modules restating a theorem with the same name and statement (a problem file and its solution file, say). The importer then keeps **one** proof without comparing the bodies, so the name no longer identifies one project proof. `extract` and `check-axioms` fail closed on such *merged* declarations: the walk follows the union of every version's dependencies — a `sorry` in any version makes the name `unverified` and every caller `verified` — no `@[externally_verified]` on them is honoured, and they are announced with `Warning: <n> declaration name(s) are declared by more than one project module with the same statement, and Lean kept one proof: <names>`. Give each variant its own namespace if the proved version's callers should read clean.
+The preflight tolerates exactly what Lean's importer tolerates: two modules restating a theorem with the same name and statement (a problem file and its solution file, say). The importer then keeps **one** proof in its lookup map without comparing the bodies, so the name no longer identifies one project proof — but the imported environment's header still holds every module's own version, and `extract` and `check-axioms` fail closed on such *merged* declarations: the walk follows the union of every version's dependencies — a `sorry` in any version makes the name `unverified` and every caller `verified` — no `@[externally_verified]` on them is honoured, and they are announced with `Warning: <n> declaration name(s) are declared by more than one project module with the same statement, and Lean kept one proof: <names>`. Give each variant its own namespace if the proved version's callers should read clean. Lean's on-demand realisations (`f.eq_1`, `f.congr_simp`, `f.hcongr_N`, `match_1.congr_eq_N`) that several modules realised independently are walked the same way but announced with `Note: <n> Lean-realised equational/congruence theorem(s) were realised in more than one module: <names>; …` instead, since nothing was written twice by hand.
 
-The preflight reads project modules only, so a restatement of a **dependency's** theorem (or a pair involving a module whose `.olean` it could not read) is found after the import instead, from the environment header: a name a project module declares that the environment attributes to another module, or that a non-project module declares too. The preflight keeps a copy of every project constant it read, so normally the walk follows the **project's own version(s)** of such a name, under the merged-declaration policy: a `sorry` in any of them makes the name `unverified` (or `[not emitted]` in `check-axioms`, when the importer attributed it to the dependency) and every caller `verified`, whichever body the environment kept; a proved restatement of a proved dependency theorem stays clean, the other body being a dependency's and already trusted; no `@[externally_verified]` on it is honoured. Announced with `Note: <n> declaration name(s) are declared by a project module and by a module outside the project (a dependency), and Lean kept one body: <names>; …`. Only when a declaring project module's olean could not be read is its body invisible; such a name is treated as resting on `sorry` with no trust rule applied, and announced with `Warning: <n> declaration name(s) are declared by a project module whose olean the preflight could not read and by another module, and Lean kept one body: <names>; …`.
+A restatement of a **dependency's** theorem — a name a project module declares that a non-project module declares too, or that the environment attributes outside the project — is found the same way and walked from the **project's own version(s)**, under the merged-declaration policy: a `sorry` in any of them makes the name `unverified` (or `[not emitted]` in `check-axioms`, when the importer attributed it to the dependency) and every caller `verified`, whichever body the environment kept; a proved restatement of a proved dependency theorem stays clean, the other body being a dependency's and already trusted; no `@[externally_verified]` on it is honoured. Announced with `Note: <n> declaration name(s) are declared by a project module and by a module outside the project (a dependency), and Lean kept one body: <names>; …`.
 
 `verification-status` is decided by a **kernel walk**, not by the build log or the emitted
 dependency graph. `sorry` elaborates to the `sorryAx` axiom; `extract` walks the constant graph
@@ -132,18 +132,14 @@ status is in `trusted-reason`). A tag a registration the reader does not underst
 with no header to scan — an `attribute` command, a range-less constant — is untrusted
 without a line.
 
-A module built under the module system (`module` header) is read from its `.olean.private`
-part, as the importer does; a module-system olean without its split parts aborts the
-extraction, because the exported level shows a `public theorem` as a proof-less axiom.
-A stale `.olean` with no backing `.lean` source is dropped from the inventory (`Ignoring
-<n> orphan module(s) …`); if a live module still imports it, the extraction aborts with
-`<n> stale module(s) with no .lean source were imported by a live module: …`, because its
-constants would otherwise sit outside the project boundary and be trusted like a
-dependency's — run `lake clean` in the target project and rebuild. After the import, every
-imported project module's olean as the search path resolves it (`Lean.findOLean`) must be the
-file the preflight read; otherwise the extraction aborts with `module <m> was imported from <a>,
-but the co-import preflight read <b> …` (a `LEAN_PATH` entry shadowing the project's build
-directory, or a rebuild between the two reads).
+A module built under the module system (`module` header) is imported from its `.olean.private`
+part, as Lean requires, so its `public theorem`s are seen with their proofs; a module-system
+olean without its split parts aborts the extraction before the import, which would fail on it
+(`missing data file`). A stale `.olean` with no backing `.lean` source is dropped from the
+inventory (`Ignoring <n> orphan module(s) …`); if a live module still imports it, the
+extraction aborts with `<n> stale module(s) with no .lean source were imported by a live
+module: …`, because its constants would otherwise sit outside the project boundary and be
+trusted like a dependency's — run `lake clean` in the target project and rebuild.
 
 To check an artifact against the `check-axioms` report in both directions (every `unverified`
 atom is a listed direct carrier *and* every listed emitted carrier is `unverified`, likewise for

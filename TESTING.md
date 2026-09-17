@@ -49,14 +49,14 @@ All tests run without external tools.
 | `testReachabilityBlocked` | The blocked set: blocked node not expanded, blocked direct carrier shields its caller, target reached although blocked (target-before-block), target outside P reached through a P chain, cycle with a blocked sibling, root-order independence |
 | `testApplyTaintStatus` | `applyTaintStatus` verdict matrix (trusted / trusted direct carrier / direct / tainted / clean / unknown name), `--skip-enrich` cap, `--skip-verify` shape, `unifyAtom` carries `leanName` and no status, `leanName` not serialised |
 | `testDivergenceLines` | Graph-vs-oracle divergence text in both directions, `demoteTransitive`, `statusCounts` |
-| `testTaintFormatting` | Fallback / type-taint / unknown-atom / cross-merge warnings, `check-axioms` report lines, summary line, `Divergence(log):` lines (aux-carried sorry is agreement; generated and trusted atoms skipped) |
+| `testTaintFormatting` | Fallback / type-taint / unknown-atom warnings, the proofless abort text, the cross-boundary note, `check-axioms` report lines, summary line, `Divergence(log):` lines (aux-carried sorry is agreement; generated and trusted atoms skipped) |
 | `testAttributeScan` | Header-only `@[…]` scan: the `stripLine` lexer (nested block comments, docstrings, strings across lines, escaped quotes, raw strings, interpolated strings, char literals, `«…»`, `stripLines` from the top), head-line detection, no look-back above the range, 1-based range conversion (the old scan read the *next* declaration's tag) |
 | `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; block comment / module docstring / multi-line string opened above the window; raw string, char literal, guillemet identifier spelling the tag; the declaration's own tag still survives. `headerNamesDecl`: dotted names, private names, anonymous instances, range-sharers (derived instance, companion) not named |
 | `testLoadedProjectModules` | Fallback P: `all` restricted to the modules the environment loaded |
 | `testLoadedOrphans` | Orphan oleans the import loaded anyway (`loadedOrphans`): none, disjoint, one hit, sorted; the abort message |
-| `testMergedDecls` | `classifyDuplicates` splits tolerated restatements (merged) from collisions; `mergedChildren` is the union over versions; `formatMergedWarning` text and cap |
-| `testCrossMergeSplit` | `splitCrossMerged`: every declaring project module read → walked from the project's versions (single version; two project owners plus a dependency); an unread, unknown or absent declaring module → assumed sorried; input order kept |
-| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `computeTrustBase` (a range-sharer that only *shows* a neighbour's tag is not trusted; a name in the tag set is; excluded names), `propTypedNames`, `crossMergedNames` on a clean environment, and agreement with `Lean.collectAxioms` on every root |
+| `testMergedDecls` | `mergedChildren` is the union over versions, deduplicated; `mergedChildrenMap`; `formatMergedWarning` text and cap; `formatRealisedMergedNote` |
+| `testHeaderMerges` | `classifyHeaderVersions` over fabricated header data: project/project → merged with both versions sorted by module; project + dependency → cross with the project's versions only (dependency `constants` never read); a name the environment attributes outside the project → cross; an un-duplicated name → nothing; two project owners plus a dependency → cross with both versions; both outputs sorted by name; `isRealisedTheoremName` positives (`eq_N`, `eq_def`, `eq_unfold`, `congr_simp`, `hcongr_N`, `congr_N`, `match_1.congr_eq_N`) and negatives |
+| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `computeTrustBase` (a range-sharer that only *shows* a neighbour's tag is not trusted; a name in the tag set is), `propTypedNames`, `headerMerges` on a clean environment (nothing merged, nothing cross), and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
 
@@ -101,11 +101,11 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
    `unverified` although the environment holds the dependency's proof under its name, the
    proved ones' callers `transitively-verified`, the cross-boundary note names all four,
    `shared` listed `[direct] [not emitted]`); then `tests/fixtures/module-merge` (two `module` files
-   export the same `public theorem`, one sorried; the preflight must read the private part)
-   plus `RepeatRead.lean`, run from the root, which reads one module's split parts three
-   times in one process and checks that stale part files next to a non-`module` base are
-   not opened; then `tests/fixtures/module-collision` (the collision fixture with `module`
-   headers, so the fallback preflights module-system modules repeatedly); then
+   export the same `public theorem`, one sorried; the private-level import keeps both bodies
+   in the environment header); then `tests/fixtures/module-collision` (the collision fixture
+   with `module` headers: the exported level shows both `public def dup` as axioms, which the
+   base-olean preflight tolerates, so the full import itself fails and the fallback takes
+   over); then
    `tests/fixtures/orphan` (`extract`, delete a source, `extract` and `check-axioms` again:
    both must abort with the stale-module message); repeated on the newest supported Lean by
    the `test-newest` job

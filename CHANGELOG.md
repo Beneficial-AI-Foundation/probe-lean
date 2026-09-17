@@ -117,40 +117,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Whether generated axioms should stay trusted is a spec decision left to a follow-up;
   this release only makes them visible.
 
-  **Preflight and import must read the same oleans.** The co-import preflight reads each
-  module's olean by the path discovery found under the build directory, while the import
-  resolves module names through `LEAN_PATH`, and the merged-declaration policy walks the
-  preflight's bodies in place of the environment's. After the import, `extract` and
-  `check-axioms` now check that `Lean.findOLean` resolves every imported project module to
-  the discovered file (real paths) and abort with `module <m> was imported from <a>, but the
-  co-import preflight read <b> …` otherwise (a shadowing `LEAN_PATH` entry, or a rebuild
-  between the two reads).
-
   **Merged declarations fail closed.** Lean's importer accepts two project modules that
-  restate a theorem with the same name and statement and keeps *one* proof without
-  comparing the bodies (the co-import preflight tolerates the same pair on purpose), so
-  after import the name no longer identifies one project proof: a sorried problem-file
-  `theorem shared` and a proved solution-file `theorem shared` collapse to whichever
-  survived, and a caller built against the sorried one could read clean. The preflight
-  now returns these names with every version it read (`Coimport.MergedDecl`); the walk
-  follows the union of all versions' dependencies, so a `sorry` in any version makes the
-  name `unverified` and every caller `verified`; rule 2 never applies to them (a tag sits
-  in one file); and `Warning: <n> declaration name(s) are declared by more than one project
-  module with the same statement, and Lean kept one proof: …` is printed by `extract` and
-  `check-axioms`. New fixture `tests/fixtures/merge` pins it in CI. Under the **module
-  system** the preflight reads the `.olean.private` part the importer reads — all parts in
-  one `readModuleDataParts` call, as Lean requires (separate `readModuleData` calls work
-  once per process and segfault on the second read of the same module, which the import
-  fallback performs), and only when the base part's header says `module`, as the
-  importer does, so stale part files next to a rebuilt non-`module` base are ignored: a
-  module-system base `.olean` is the exported level, where a `public theorem` is an axiom without its proof,
-  so two sorried public theorems restating one statement were seen as two same-type
-  axioms — merged, and trusted as `axiom`. A module-system olean whose `.olean.server` or
-  `.olean.private` part is missing aborts the extraction, since Lean would then import
-  proof-less axioms. The exemption from the cross-merge scan below is a coverage record:
-  a name is exempt only when the preflight read both the declaring module and the module
-  the environment attributes it to, so a module the preflight skipped fails closed. New
-  fixture `tests/fixtures/module-merge` pins it in CI.
+  restate a theorem with the same name and statement and keeps *one* proof in its lookup
+  map without comparing the bodies (the co-import preflight tolerates the same pair on
+  purpose), so after import the name no longer identifies one project proof: a sorried
+  problem-file `theorem shared` and a proved solution-file `theorem shared` collapse to
+  whichever survived, and a caller built against the sorried one could read clean. The
+  importer collapses only the lookup map, though: the environment header keeps every
+  imported module's own constants (`Environment.header.moduleData`), and the import runs
+  at the private level, so every version is in the environment already — module-system
+  `public theorem`s with their proofs included. `extract` and `check-axioms` read the
+  versions from there (`Taint.headerMerges`); the walk follows the union of all versions'
+  dependencies, so a `sorry` in any version makes the name `unverified` and every caller
+  `verified`; rule 2 never applies to them (a tag sits in one file); and `Warning: <n>
+  declaration name(s) are declared by more than one project module with the same
+  statement, and Lean kept one proof: …` is printed by `extract` and `check-axioms`. Lean's
+  on-demand realisations — equation lemmas (`f.eq_1`, `eq_def`, `eq_unfold`), congruence
+  theorems (`congr_simp`, `hcongr_N`, `congr_N`) and matcher congruence equations
+  (`match_1.congr_eq_N`) — that several modules realised independently are walked the
+  same way but announced as `Note: <n> Lean-realised equational/congruence theorem(s) were
+  realised in more than one module: …` instead, since nothing was written twice by hand;
+  every merged name on both targets is of that kind (16 on dalek, 39 on SPQR), so neither
+  prints the `Warning:`. New fixtures `tests/fixtures/merge` and `tests/fixtures/module-merge`
+  (two `module` files exporting the same `public theorem`, one sorried) pin it in CI. A
+  module-system olean whose `.olean.server` or `.olean.private` part is missing aborts the
+  extraction before the import, which would fail on it (`missing data file`). The co-import
+  preflight is a pre-import collision diagnostic and nothing more: it reads each module's
+  base `.olean` only. At the exported level of a module-system module a non-exposed
+  `public def` is an axiom, and the preflight tolerates two same-type axioms where the
+  importer's `isPropCheap` does not, so a def/def collision between module-system modules
+  is found at import time and lands on the fallback (or the import-failure hint) instead of
+  the preflight message (`tests/fixtures/module-collision`).
 
   **Kernel dependencies, not executable bodies.** A `partial def`'s body compiles to
   `X._unsafe_rec`, and the kernel constant `X` is an opaque inhabitant with no edge to it;
@@ -162,33 +159,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Documented in `docs/SCHEMA.md`; whether such hosts should count as carriers is a spec
   decision, not made here.
 
-  That preflight reads project oleans only, so a project theorem restating a
-  **dependency's** theorem (or a pair involving an olean the preflight skipped) was still
-  fail-open: `finalizeImport` attributes the name to the first module imported and keeps
-  the last body, so in one import order the sorried project body sat under a non-project
-  name (blocked, "trusted wholesale") and in the other the project name carried the
-  dependency's clean body. Both left the caller clean. A post-import scan of the
-  environment header (`Taint.crossMergedDecls`) now flags every name a project module
-  declares that the environment attributes elsewhere, and every name a non-project module
-  declares too; they are added to P whatever module owns them. The preflight keeps every
-  project constant it read, so when it read every project module declaring such a name
-  (the normal case) the walk follows the **project's own version(s)** under the
-  merged-declaration policy (`Taint.splitCrossMerged`): a `sorry` in any project version
-  makes the name `unverified` and every caller `verified`, whichever body the environment
-  kept — including the case where the project won the name and the environment holds the
+  A project theorem restating a **dependency's** theorem was still fail-open:
+  `finalizeImport` attributes the name to the first module imported and keeps the last
+  body, so in one import order the sorried project body sat under a non-project name
+  (blocked, "trusted wholesale") and in the other the project name carried the
+  dependency's clean body. Both left the caller clean. `Taint.headerMerges` also flags
+  every name a project module declares that a non-project module declares too, or that
+  the environment attributes outside the project; they are added to P whatever module
+  owns them, and the walk follows the **project's own version(s)** from the header under
+  the merged-declaration policy: a `sorry` in any project version makes the name
+  `unverified` and every caller `verified`, whichever body the environment kept —
+  including the case where the project won the name and the environment holds the
   dependency's clean proof — while a proved restatement of a proved dependency theorem
   stays clean, since the other body is a dependency's and already in the trusted base; no
-  `@[externally_verified]` on them is honoured. This matters beyond hand-written
-  restatements: Lean tolerates same-name theorems so that equational theorems (`f.eq_1`)
-  can be realised on demand in different files, and a project module and a dependency
-  module realising the same one would otherwise have tainted every caller. Reported as
-  `Note: <n> declaration name(s) are declared by a project module and by a module outside
-  the project (a dependency), and Lean kept one body: …`. Only when a declaring project
-  module's olean could not be read is the project body invisible; such a name is given
-  `sorryAx` as an out-edge, excluded from every trust rule, and reported as `Warning: <n>
-  declaration name(s) are declared by a project module whose olean the preflight could not
-  read and by another module …`. Fixture `tests/fixtures/cross-merge` (a path dependency)
-  pins both import orders with a sorried and a proved project body each.
+  `@[externally_verified]` on them is honoured. Reported as `Note: <n> declaration name(s)
+  are declared by a project module and by a module outside the project (a dependency), and
+  Lean kept one body: …` (realised theorems under their own `Note:`, as above). Fixture
+  `tests/fixtures/cross-merge` (a path dependency) pins both import orders with a sorried
+  and a proved project body each.
 
   **A stale orphan olean the import loads aborts the extraction.** Module discovery drops
   an `.olean` with no backing `.lean` source and says so, but `importModules` still loads
@@ -235,7 +223,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     which only the dropped look-back ever contributed. `extract` 8.75 s → 6.68 s (−2.08 s
     ± 0.05, −23.7%, faster in 10 of 10 pairs), peak RSS 6.45 GB → 6.44 GB.
   - SparsePostQuantumRatchet-verify `66939b9` (261 modules, 15,534 project constants,
-    2819 atoms; one module-system file, so the `.olean.private` preflight path runs):
+    2819 atoms; one module-system file, imported at the private level):
     the walk's 146 tainted constants are **name for name** the 146 entries of SPQR's own
     `collectAxioms`-based `sorry-manifest.txt`; 31 atoms drop `transitively-verified →
     verified`, all downstream of the range-less `Map` iterator instance and each printed
@@ -244,6 +232,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     never fires. `attributes` change on 10 atoms (the three Lint helpers, junk tokens).
     `extract` 5.50 s → 4.90 s (−0.60 s ± 0.03, −10.9%, faster in 10 of 10 pairs), peak RSS
     unchanged at 2.85 GB.
+  - A narrow selection is slower by design: `extract -m Curve25519Dalek.ExternallyVerified`
+    on dalek, 3 alternating pairs, `main` 2.84–2.87 s, this branch 4.04–4.12 s (+1.22 s),
+    because the kernel walk imports every built project module whatever `--module`
+    selected, where 0.14.0 imported the selection only. Accepted: `extract` is normally
+    run without `--module`, and the selection cannot be walked soundly on its own.
 
 ### Changed
 
@@ -326,10 +319,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `sorry`; `check.py` asserts the dependent reads `verified` and the fallback warning counts
   the two modules outside the import closure.
 - New fixture `tests/fixtures/module-collision`: the `collision` fixture with `module`
-  headers, so the import fallback preflights module-system modules three times in one
-  process — the shape that segfaulted with per-part `readModuleData` calls.
-  `tests/fixtures/module-merge/RepeatRead.lean` (run from the root) reads one module's parts
-  three times and checks that stale part files next to a non-`module` base are not opened.
+  headers. The base-olean preflight sees both `public def dup` as same-type axioms and
+  tolerates them, so the full import itself fails and `extract -m` goes through the
+  fallback with module-system modules in the selection.
 - New fixture `tests/fixtures/orphan`: `extract` once, delete a source, `extract` and
   `check-axioms` again; both must abort with the stale-module message.
 
