@@ -20,6 +20,7 @@ open Lean
     `extract` publishes as atoms (the selected, source-visible declarations). -/
 def printTaintReport (pt : ProjectTaint) (emitted : Std.HashSet Name) : IO Unit := do
   IO.println (formatTaintSummary pt)
+  IO.println (formatTagSetLine pt.tagSet)
   let sorted := pt.taint.tainted.toArray.qsort (·.toString < ·.toString)
   IO.println s!"{sorted.size} constant(s) rest on an unexcused project sorry:"
   for n in sorted do

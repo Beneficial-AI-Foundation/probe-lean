@@ -22,6 +22,13 @@
      companion is *not* trusted and carries none of its parent's attributes; the
      range-less carrier taints its caller and the graph-BFS disagreement is printed;
      `check-axioms` lists exactly the tainted set, marking the non-atom.
+
+  Round 3 (2026-09-17): rule 2 reads the `externally_verified` tag set from the
+  environment. The precondition pins the shapes that defeated the source scan
+  (`instInhabitedBox.default` sharing `Box`'s line and resting on a sorry; two
+  commands on one line; `loopy._unsafe_rec` carrying the `partial def`'s sorry), the
+  output half asserts none of them is trusted, that an `attribute` command is, and
+  that the tag audit prints exactly the expected `Divergence(tag)`/`Note(tag)` lines.
 -/
 import Lean
 import Demo
@@ -92,6 +99,41 @@ def checkPrecondition (fs : Failures) : IO Unit := do
   match env.find? `admittedFact with
   | none => check fs "admittedFact exists" false
   | some ci => check fs "admittedFact carries a sorry" (usesSorry ci)
+  -- Round 3. The generated helper: same range as the one-line structure, not a
+  -- projection, not internal, rests on the sorried `Inhabited Cell`.
+  match declRangeExt.find? env `Box, declRangeExt.find? env `instInhabitedBox.default with
+  | some r1, some r2 =>
+    check fs "instInhabitedBox.default shares Box's head line"
+      (r1.range.endPos.line == r2.range.pos.line)
+  | _, _ => check fs "Box and instInhabitedBox.default both have ranges" false
+  check fs "instInhabitedBox.default is neither a projection nor internal"
+    (env.contains `instInhabitedBox.default && !env.isProjectionFn `instInhabitedBox.default &&
+     !(`instInhabitedBox.default).isInternal)
+  let (_, axs2) := ((CollectAxioms.collect `instInhabitedBox.default).run env).run {}
+  check fs "instInhabitedBox.default rests on a sorry" (axs2.axioms.contains ``sorryAx)
+  -- Two commands on one line: same line range, different columns.
+  match declRangeExt.find? env `endorsed, declRangeExt.find? env `victim with
+  | some r1, some r2 =>
+    check fs "endorsed and victim share the line range"
+      (r1.range.pos.line == r2.range.pos.line && r1.range.endPos.line == r2.range.endPos.line)
+    check fs "victim starts at a later column" (r2.range.pos.column > r1.range.pos.column)
+  | _, _ => check fs "endorsed and victim both have ranges" false
+  -- The partial def: the kernel constant is clean, its compiled body is a carrier.
+  let (_, axs3) := ((CollectAxioms.collect `loopy).run env).run {}
+  check fs "loopy's kernel constant does not depend on sorryAx" (!axs3.axioms.contains ``sorryAx)
+  match env.find? `loopy._unsafe_rec with
+  | none => check fs "loopy._unsafe_rec exists" false
+  | some ci => check fs "loopy._unsafe_rec carries the sorry" (usesSorry ci)
+  -- The target's tag set, straight from the olean entries: what rule 2 reads.
+  let mut tagSet : Array Name := #[]
+  for i in [:env.header.moduleData.size] do
+    if env.header.moduleNames[i]! == `Demo.Trust then
+      for (ext, es) in env.header.moduleData[i]!.entries do
+        if ext == `externallyVerifiedAttr then tagSet := unsafe unsafeCast es
+  check fs "Demo.Trust's olean stores the tag set under the target's extension name"
+    ([`vouched, `taggedOneLiner, `Tagged, `Box, `endorsed, `laterVouched, `rootVouched].all tagSet.contains &&
+     !tagSet.contains `instInhabitedBox.default && !tagSet.contains `victim &&
+     !tagSet.contains `interpolationVictim && !tagSet.contains `victim2)
 
 def findArtifact (fs : Failures) : IO (Option System.FilePath) := do
   let dir : System.FilePath := ".verilib/probes"
@@ -123,6 +165,44 @@ def strArray (data : Json) (atom field : String) : Array String :=
 
 def boolOf (data : Json) (atom field : String) : Bool :=
   (atomField data atom field >>= (·.getBool?.toOption)).getD false
+
+def checkRound3 (fs : Failures) (data : Json) : IO Unit := do
+  let expect (atom status : String) : IO Unit :=
+    check fs s!"{atom} is {status}" (statusOf data atom == some status)
+  let noTag (atom : String) : IO Unit :=
+    check fs s!"{atom} shows no externally_verified"
+      (!(strArray data atom "attributes").contains "externally_verified")
+  -- The generated helper named by a field: shows the tag (shared range), not trusted.
+  expect "probe:Box" "trusted"
+  check fs "Box trusted-reason is externally_verified" (reasonOf data "probe:Box" == some "externally_verified")
+  expect "probe:instInhabitedCell" "unverified"
+  expect "probe:instInhabitedBox" "verified"
+  expect "probe:instInhabitedBox.default" "verified"
+  check fs "instInhabitedBox.default has no trusted-reason" (reasonOf data "probe:instInhabitedBox.default").isNone
+  check fs "instInhabitedBox.default shows the structure's scanned tag (shared line)"
+    ((strArray data "probe:instInhabitedBox.default" "attributes").contains "externally_verified")
+  expect "probe:defaultBox" "verified"
+  -- Interpolated string, two commands on one line, quotation look-back.
+  expect "probe:interpolationVictim" "unverified"
+  noTag "probe:interpolationVictim"
+  expect "probe:endorsed" "trusted"
+  expect "probe:victim" "unverified"
+  check fs "victim shows endorsed's tag (same line; cosmetic, reported by the tag audit)"
+    ((strArray data "probe:victim" "attributes").contains "externally_verified")
+  check fs "victim has no trusted-reason" (reasonOf data "probe:victim").isNone
+  expect "probe:quoted" "transitively-verified"
+  expect "probe:victim2" "unverified"
+  noTag "probe:victim2"
+  -- A tag is a tag: the `attribute` command and the `_root_.` declaration.
+  expect "probe:laterVouched" "trusted"
+  check fs "laterVouched trusted-reason is externally_verified"
+    (reasonOf data "probe:laterVouched" == some "externally_verified")
+  check fs "laterVouched shows externally_verified in attributes (from the tag set)"
+    ((strArray data "probe:laterVouched" "attributes").contains "externally_verified")
+  expect "probe:rootVouched" "trusted"
+  -- Executable bodies: kernel dependencies only.
+  expect "probe:loopy" "transitively-verified"
+  check fs "loopy._unsafe_rec is not an atom" (data.getObjVal? "probe:loopy._unsafe_rec").toOption.isNone
 
 def checkStatuses (fs : Failures) (data : Json) : IO Unit := do
   IO.println ""
@@ -185,6 +265,7 @@ def checkStatuses (fs : Failures) (data : Json) : IO Unit := do
   expect "probe:sorried_bound" "unverified"
   expect "probe:cleanUse" "transitively-verified"
   expect "probe:theoremUse" "verified"
+  checkRound3 fs data
 
 def checkStderr (fs : Failures) (path : String) : IO Unit := do
   IO.println ""
@@ -204,8 +285,22 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
     (!lines.any fun l => l.startsWith "Warning: atom ")
   check fs "no build-log divergence (log and kernel agree on the direct carriers; trusted hosts are moot)"
     (!lines.any fun l => l.startsWith "Divergence(log):")
+  check fs "the partial def never produces a generic log divergence (its own Note(log) line, if the log was read)"
+    (!lines.any fun l => l.startsWith "Divergence(log): probe:loopy")
   check fs "no cross-merge warning (nothing here restates a dependency)"
     (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "cannot see into").length > 1)
+  -- The tag audit: the two shapes the scan would have trusted (the generated helper
+  -- named by its field, the second command on a tagged line), and the one tag the
+  -- scan cannot see (the `attribute` command).
+  check fs "Divergence(tag) for the generated helper the scan would have trusted"
+    (lines.contains "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; not trusted")
+  check fs "Divergence(tag) for the second command on a tagged line"
+    (lines.contains "Divergence(tag): victim header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; not trusted")
+  check fs "exactly two Divergence(tag) lines"
+    ((lines.filter fun l => l.startsWith "Divergence(tag):").size == 2)
+  check fs "Note(tag) for the attribute command"
+    (lines.contains "Note(tag): laterVouched is tagged externally_verified by an `attribute` command or a macro; its header does not show the tag; trusted")
+  check fs "exactly one Note(tag) line" ((lines.filter fun l => l.startsWith "Note(tag):").size == 1)
 
 def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   IO.println ""
@@ -223,14 +318,24 @@ def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   check fs "the range-sharing derived instance and its caller are listed"
     (has "  instReprTagged" && has "  showTagged")
   check fs "the Prop-typed External def is listed as direct" (has "  admittedFact [direct]")
+  check fs "round 3: the generated helper, the derived instance and their caller are listed"
+    (has "  instInhabitedBox" && has "  instInhabitedBox.default" && has "  defaultBox" &&
+     has "  instInhabitedCell [direct]")
+  check fs "round 3: the scan victims are listed as direct"
+    (has "  interpolationVictim [direct]" && has "  victim [direct]" && has "  victim2 [direct]")
+  check fs "round 3: the partial def's compiled body is listed as direct and not emitted"
+    (has "  loopy._unsafe_rec [direct] [not emitted]")
   check fs "trusted declarations are not listed"
     (!lines.any fun l => l.startsWith "  vouched" || l.startsWith "  externalOp" ||
       l.startsWith "  taggedOneLiner" || l.startsWith "  Tagged " || l == "  Tagged" ||
-      l.startsWith "  externalPred")
+      l.startsWith "  externalPred" || l == "  Box" || l.startsWith "  Box " ||
+      l.startsWith "  endorsed" || l.startsWith "  laterVouched" || l.startsWith "  rootVouched")
   check fs "clean-modulo-T declarations are not listed"
     (!lines.any fun l => l.startsWith "  viaVouched" || l.startsWith "  usesExternal" ||
-      l.startsWith "  cleanUse" || l.startsWith "  Tagged.p")
-  check fs "the count line matches" (has "16 constant(s) rest on an unexcused project sorry:")
+      l.startsWith "  cleanUse" || l.startsWith "  Tagged.p" || l == "  loopy" || l.startsWith "  quoted")
+  check fs "the count line matches" (has "24 constant(s) rest on an unexcused project sorry:")
+  check fs "the tag-set line names the target's extension"
+    (has "externally_verified tag set: 7 name(s) from externallyVerifiedAttr")
 
 def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]

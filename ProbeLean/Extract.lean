@@ -337,7 +337,17 @@ def logDivergences (warnings : Array SorryWarning) (atoms : Array Atom) (pt : Pr
     let direct := pt.taint.direct.contains atom.leanName
     let restsOnSorry := direct || pt.taint.tainted.contains atom.leanName
     if logSorry && !restsOnSorry then
-      out := out.push s!"Divergence(log): {atom.name} build log says sorry, kernel says clean modulo trust"
+      -- A `partial def`'s body compiles to `X._unsafe_rec`; the kernel constant `X` is
+      -- an opaque inhabitant with no edge to it, so a `sorry` in the body is the
+      -- log's finding only. Known and systematic, so it gets its own line: the
+      -- status is about kernel dependencies, not executable bodies (SCHEMA).
+      let unsafeRec := Name.str atom.leanName "_unsafe_rec"
+      if pt.taint.direct.contains unsafeRec || pt.taint.tainted.contains unsafeRec then
+        out := out.push s!"Note(log): {atom.name} build log says sorry; it sits in the compiled body \
+          {unsafeRec} of a `partial def`, which the kernel constant does not reference \
+          (verification-status covers kernel dependencies, not executable bodies)"
+      else
+        out := out.push s!"Divergence(log): {atom.name} build log says sorry, kernel says clean modulo trust"
     else if direct && !logSorry then
       out := out.push s!"Divergence(log): {atom.name} kernel says sorry, no warning in the log"
   return out

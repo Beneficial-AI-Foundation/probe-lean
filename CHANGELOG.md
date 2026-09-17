@@ -28,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   atoms — finds which rest on it. The walk stops at the project boundary (Lean and every
   dependency package are the trusted base) and at trusted project declarations, so a
   `sorry` inside or below a trusted declaration does not taint its callers. Trust is one
-  shared rule set (`ProbeLean/Trust.lean`, precedence: `axiom` → `@[externally_verified]`
-  on the declaration's own source range → non-theorem in a `*External` module), used by
+  shared rule set (`ProbeLean/Trust.lean`, precedence: `axiom` → membership in the
+  `externally_verified` tag set → non-proof in a `*External` module), used by
   `trusted-reason`, by the walk and by `check-axioms`. Statuses: `trusted` if trusted;
   `unverified` if the declaration's own type or value names `sorryAx`; `verified` if an
   unexcused project `sorry` is reachable; `transitively-verified` otherwise. Companions
@@ -57,21 +57,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   saw gets **no** status and a `Warning: atom … not a project constant the kernel walk
   covered` line, instead of being read as clean.
 
-  The `@[externally_verified]` source scan, which feeds the trusted base, reads only the
-  declaration **header**, and the head line must **name the declaration**. The source file
-  is lexed once from the top (`Analysis.stripLines`, cached per file), so block comments,
-  docstrings and string literals opened *above* the declaration are gone too — the old
-  per-window lexer started every declaration in code state and read a tag inside a block
-  comment above (a commented-out `@[externally_verified]`, a module docstring listing the
-  tag on its own line) as a pure attribute line. The lexer also knows raw strings
-  (`r#"…"#`), char literals (`'"'`) and `«…»` identifiers, each of which could smuggle a
-  `@[…]` into code text. And a scanned tag counts only when the header's head line names
-  the declaration (`Analysis.headerNamesDecl`: its user-facing name or a dotted suffix,
-  or the `instance` keyword for an anonymous instance) — a `deriving` instance or a
-  projection of a one-line `@[externally_verified] structure … deriving …` shares the
-  structure's range and used to inherit its trust, so a derived instance resting on a
-  project `sorry` was a trusted leaf shielding every caller. Projections are additionally
-  excluded from rule 2 by kind. Such range-sharers still *show* the tag in `attributes`.
+  **`@[externally_verified]` is read from the environment, not from source text.** Rule 2
+  used to be decided by scanning the declaration's header for the tag, and every review
+  round found a new way for a `sorry` to reach `trusted` through that scan: a window off
+  by one line; a tag inside a comment, docstring or string; range-sharers (a `deriving`
+  instance, a projection, a `.mvcgen_spec` companion) inheriting a neighbour's tag; then a
+  Lean-generated `instInhabitedBox.default` helper whose name ends in the field named on
+  the tagged line, string content inside an `s!"…{"…"}…"` interpolation lexed as code, and
+  two commands on one line sharing a line range. The tag set is in the olean:
+  `registerTagAttribute` stores the tagged names under the registering constant's name.
+  `ProbeLean/TagSet.lean` reads it statically — for each extension with entries in a
+  project module it finds the `TagAttribute` constant of that name, reads the attribute
+  name and extension name off the `initialize` body's `registerTagAttribute` application,
+  and reads the entries — so no target initializer runs and no source text decides trust;
+  probe-lean's own handle stays as a second source. Policy consequences (spec decision 3,
+  amended): a tag is a tag, whatever syntax attached it — an after-the-fact
+  `attribute [externally_verified] foo` command is now honoured, and so is a tag on a
+  range-less constant — and nothing that merely shares a tagged declaration's range is
+  trusted. The source scan stays for the informative `attributes` array (the only source
+  for `step`, `progress`, `simp`, …): it lexes the file from the top with comments, strings,
+  raw strings, interpolated strings, char literals and `«…»` identifiers stripped, reads
+  the header only, and no longer looks at the two lines above a declaration's range (a
+  pure attribute line there belonged to the previous command — a syntax quotation, in
+  the reproduced case). Range-sharers still *show* the neighbour's attributes, which
+  `primary-spec` relies on (the companion of a `@[step]` axiom is that axiom's spec
+  proxy). A **tag audit** prints every disagreement between the scan and the set on
+  stderr — `Divergence(tag): <n> header shows @[externally_verified] naming it, but the
+  attribute's tag set does not contain it; not trusted` for the shapes the scan used to
+  trust, `Note(tag): <n> is tagged externally_verified by an \`attribute\` command or a
+  macro; its header does not show the tag; trusted` for the tags it cannot see — and the
+  pass prints where the set came from (`externally_verified tag set: <n> name(s) from
+  <extension>`). A registration the reader does not understand (an explicit `ref`, a
+  wrapper, a `ParametricAttribute`) is under-trust and loud, never over-trust.
 
   **The `*External` rule excludes proofs, not only `theorem`s.** A `def admitted : False :=
   by sorry` or an `opaque` of Prop type in a `*External` module used to be trusted as a
@@ -90,7 +107,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   name `unverified` and every caller `verified`; rule 2 never applies to them (a tag sits
   in one file); and `Warning: <n> declaration name(s) are declared by more than one project
   module with the same statement, and Lean kept one proof: …` is printed by `extract` and
-  `check-axioms`. New fixture `tests/fixtures/merge` pins it in CI.
+  `check-axioms`. New fixture `tests/fixtures/merge` pins it in CI. Under the **module
+  system** the preflight reads the `.olean.private` part the importer reads (the parts are
+  incremental compacted regions, read in the importer's order): a module-system base
+  `.olean` is the exported level, where a `public theorem` is an axiom without its proof,
+  so two sorried public theorems restating one statement were seen as two same-type
+  axioms — merged, and trusted as `axiom`. A module-system olean whose `.olean.server` or
+  `.olean.private` part is missing aborts the extraction, since Lean would then import
+  proof-less axioms. The exemption from the cross-merge scan below is a coverage record:
+  a name is exempt only when the preflight read both the declaring module and the module
+  the environment attributes it to, so a module the preflight skipped fails closed. New
+  fixture `tests/fixtures/module-merge` pins it in CI.
+
+  **Kernel dependencies, not executable bodies.** A `partial def`'s body compiles to
+  `X._unsafe_rec`, and the kernel constant `X` is an opaque inhabitant with no edge to it;
+  an `@[implemented_by target]` host has no edge to `target`. A `sorry` there does not
+  taint the host: `loopy` in `partial def loopy … sorry …` reads `transitively-verified`
+  while `loopy._unsafe_rec` is a direct carrier listed `[direct] [not emitted]`, and the
+  build-log cross-check prints `Note(log): <atom> build log says sorry; it sits in the
+  compiled body <X._unsafe_rec> of a \`partial def\` …` instead of a divergence.
+  Documented in `docs/SCHEMA.md`; whether such hosts should count as carriers is a spec
+  decision, not made here.
 
   That preflight reads project oleans only, so a project theorem restating a
   **dependency's** theorem (or a pair involving an olean the preflight skipped) was still
@@ -110,26 +147,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `check-axioms` could miss a `sorry` depending on root order. It now uses Tarjan-style
   SCC finalisation and is validated against `Lean.collectAxioms` in the unit suite.
 
-  **Measured**, before/after, with probe-lean built for Lean 4.31:
+  **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch's final
+  revision (the round-3 fixes included), both built for Lean 4.31, three warm runs each,
+  `tools/audit/compare-extract.py --status-policy taint` and
+  `check-status-consistency.py` passing on both targets:
 
   - curve25519-dalek-lean-verify `f6c7fabd` (231 modules, 11,293 project constants,
-    2354 atoms): atom set and all four dependency arrays byte-identical, `primary-spec`
+    2352 atoms): atom set and all four dependency arrays byte-identical, `primary-spec`
     unchanged; 3 atoms move `trusted → transitively-verified`: the `.mvcgen_spec`
     companions of the two `@[externally_verified]` theorems, and `externallyVerifiedAttr`
     — the `initialize` that *registers* the tag, which the old scan had trusted because its
     docstring quotes `@[externally_verified]`. No other status moves; 0 divergences; 112
-    tainted constants (4 direct carriers), 151 trusted. `attributes` change on 10 atoms,
-    all drops of text the header-only scan no longer reads: `step` quoted in three Lint
-    helpers' docstrings, `irreducible` quoted in a docstring, and junk tokens split out of
-    string arguments (`@[rust_fun "…<u8>}::from"]`). `extract` 8.6 s → 9.3 s (three runs
-    each), peak RSS 6.48 GB → 6.44 GB; `check-status-consistency.py` passes.
-  - SparsePostQuantumRatchet-verify `e3cc4c6` (261 modules, 15,534 project constants,
-    2820 atoms): the walk's 146 tainted constants are **name for name** the 146 entries of
-    SPQR's own `collectAxioms`-based `sorry-manifest.txt`; 31 atoms drop
-    `transitively-verified → verified`, all downstream of the range-less `Map` iterator
-    instance and each printed as a divergence; every `unverified` atom is a direct
-    carrier; nothing moves the other way. `extract` 5.9 s → 7.4 s (two warm runs each),
-    peak RSS unchanged at 2.85 GB.
+    tainted constants (4 direct carriers), 150 trusted; the tag set read from the olean
+    holds exactly the 2 tagged theorems, and the tag audit is silent (the scan and the set
+    agree on every declaration). `attributes` change on 15 atoms, all drops: `step`
+    quoted in three Lint helpers' docstrings, `irreducible` quoted in a docstring,
+    `externally_verified` quoted in `externallyVerifiedAttr`'s docstring, junk tokens
+    split out of string arguments (`@[rust_fun "…<u8>}::from"]`, 6 atoms), and `mk_iff`
+    on 5 `IsValid.toOnCurve` projections — the structure's attribute two lines above,
+    which only the dropped look-back ever contributed. `extract` 10.2 s → 9.6 s, peak RSS
+    6.45 GB → 6.44 GB.
+  - SparsePostQuantumRatchet-verify `66939b9` (261 modules, 15,534 project constants,
+    2819 atoms; one module-system file, so the `.olean.private` preflight path runs):
+    the walk's 146 tainted constants are **name for name** the 146 entries of SPQR's own
+    `collectAxioms`-based `sorry-manifest.txt`; 31 atoms drop `transitively-verified →
+    verified`, all downstream of the range-less `Map` iterator instance and each printed
+    as a divergence; every `unverified` atom is a direct carrier; nothing moves the other
+    way; no `externally_verified` registration exists, so the tag set is empty and rule 2
+    never fires. `attributes` change on 10 atoms (the three Lint helpers, junk tokens).
+    `extract` 6.4 s → 7.6 s, peak RSS unchanged at 2.85 GB.
 
 ### Changed
 
@@ -164,6 +210,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Internal
 
+- `Taint.propTypedNames` (rule 3's `Meta.isProp` test) catches heartbeat and
+  recursion-limit exceptions per candidate (`tryCatchRuntimeEx`, each candidate with its
+  own heartbeat budget), so the documented fail-closed fallback is real; `Core.tryCatch`
+  rethrew them and aborted `extract`.
+- Dead code removed: `Analysis.readFileLines`, `getModuleName`, `getProjectDecls`;
+  `AxiomCheck.sorryReachingNames`, `dependsOnSorryAxIn`, `isDirectSorryCarrier`.
 - `Environment.allImportedModuleNames` builds its array on every call; the per-constant
   passes now fetch it once (`Analysis.moduleNameOf`). `projectConstants` sorts
   structurally rather than by `Name.toString`. Together with computing each constant's
@@ -175,9 +227,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   one-line `structure … deriving Repr` whose derived instance rests on a sorried project
   instance, and four fabricated-trust shapes (tagged one-liner above an untagged
   neighbour, tag quoted in a docstring and a body comment, tag commented out in a block
-  comment above); `TaintCheck.lean` asserts the statuses, the `Divergence(graph):` line
-  and the `check-axioms` report on both CI toolchains. CI now keeps `extract`'s stderr in
-  the job log when `extract` fails.
+  comment above), and the round-3 shapes (a tagged one-line `structure Box where default
+  : … deriving Inhabited` whose generated `instInhabitedBox.default` rests on a sorried
+  instance; an `s!"…{"…"}…"` interpolation spelling the tag; two commands on one line; a
+  syntax quotation ending in a pure attribute line; an `attribute [externally_verified]`
+  command; a `_root_.` declaration; a `partial def` with a `sorry` body); `TaintCheck.lean`
+  asserts the statuses, the `Divergence(graph):`, `Divergence(tag):`, `Note(tag):` lines,
+  the tag-set line and the `check-axioms` report on both CI toolchains, and reads the tag
+  set straight from the olean entries as a precondition. CI now keeps `extract`'s stderr
+  in the job log when `extract` fails.
 - New fixture `tests/fixtures/collision`: two colliding modules force the import fallback
   under `--module`, and the selected module's transitively loaded project dependency is a
   `sorry`; `check.py` asserts the dependent reads `verified` and the fallback warning counts

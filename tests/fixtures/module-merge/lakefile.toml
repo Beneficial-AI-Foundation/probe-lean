@@ -1,0 +1,11 @@
+name = "modmerge"
+defaultTargets = ["ModMerge"]
+
+# The `merge` fixture under the module system: `ModMerge.Bad` and `ModMerge.Good`
+# are `module` files that both export `public theorem shared : True`. A module-system
+# module's base `.olean` is the *exported* level, where a public theorem is an axiom
+# without its proof; the proof is in `.olean.private`, which is what `importModules
+# (level := .private)` loads. No root `ModMerge.lean`: each module builds on its own.
+[[lean_lib]]
+name = "ModMerge"
+globs = ["ModMerge.+"]

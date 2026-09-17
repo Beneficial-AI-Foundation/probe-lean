@@ -134,6 +134,24 @@ jobs:
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
+      # Merged declarations under the module system: two `module` files export the
+      # same `public theorem`, one `by sorry`. A module-system base `.olean` is the
+      # exported level, where a public theorem is an axiom without its proof; the
+      # preflight must read the `.olean.private` part the importer reads, or two
+      # sorried theorems merge into a trusted "axiom".
+      - name: End-to-end module-system merge check
+        run: |
+          diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
       # a hard failure instead of silent drift (the previous fixture was
@@ -174,6 +192,7 @@ jobs:
           cp lean-toolchain tests/fixtures/collision/lean-toolchain
           cp lean-toolchain tests/fixtures/merge/lean-toolchain
           cp lean-toolchain tests/fixtures/cross-merge/lean-toolchain
+          cp lean-toolchain tests/fixtures/module-merge/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -268,6 +287,24 @@ jobs:
           diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
             || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/cross-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # Merged declarations under the module system: two `module` files export the
+      # same `public theorem`, one `by sorry`. A module-system base `.olean` is the
+      # exported level, where a public theorem is an axiom without its proof; the
+      # preflight must read the `.olean.private` part the importer reads, or two
+      # sorried theorems merge into a trusted "axiom".
+      - name: End-to-end module-system merge check
+        run: |
+          diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-merge
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }

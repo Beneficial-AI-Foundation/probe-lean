@@ -55,3 +55,55 @@ the range and shows the tag, but rests on the sorried `Repr Payload`: `verified`
 
 /-- Renders through the derived instance: `verified`, never `transitively-verified`. -/
 def showTagged (t : Tagged) : String := reprStr t
+
+/-!
+Round 3 (2026-09-17): shapes the source scan got wrong. Rule 2 now reads the tag set
+from the environment (`ProbeLean/TagSet.lean`), so none of these can fabricate trust;
+the scan stays for the informative `attributes` array and for the tag audit that
+prints `Divergence(tag):` where it would have differed.
+-/
+
+/-- A type whose `Inhabited` instance is a project `sorry`. -/
+inductive Cell | mk
+
+/-- `unverified`: the sorry the derived instance below rests on. -/
+instance : Inhabited Cell := sorry
+
+/-- Tagged, one line, with a field named like a generated helper. Lean derives
+`instInhabitedBox` **and** `instInhabitedBox.default`; both share this range, the
+helper is neither a projection nor internal, and its name ends in the field's name,
+so the head-line rule named it and the scan would have trusted it (`Divergence(tag)`
+is printed for it). Only `Box` is in the tag set: `Box` is `trusted`, the helper and
+the instance are `verified`. -/
+@[externally_verified] structure Box where default : Cell deriving Inhabited
+
+/-- Through the derived instance: `verified`. -/
+def defaultBox : Box := default
+
+/-- The inner string literal of the interpolation used to be lexed as code, which put
+`@[externally_verified]` on this head line: `unverified`, and no tag shown. -/
+def interpolationVictim : String := s!"{(sorry : String)} {"@[externally_verified]"}"
+
+-- Two commands on one line share the line range: `endorsed` is `trusted`, `victim`
+-- is `unverified` and shows no tag (its scan starts at its own column).
+@[externally_verified] theorem endorsed : True := True.intro theorem victim : (0 : Nat) < 5 := by sorry
+
+/-- A syntax quotation whose last line but one is a pure attribute line; the old
+two-line look-back read it as `victim2`'s. `quoted` itself is clean. -/
+def quoted : Lean.MacroM Lean.Syntax := `(declModifiers|
+@[externally_verified]
+)
+/-- `unverified`, no tag shown. -/
+theorem victim2 : (0 : Nat) < 5 := by sorry
+
+/-- Tagged after the fact: a tag is a tag, so `trusted`, reason `externally_verified`,
+with a `Note(tag):` line because the header does not show it. -/
+theorem laterVouched : (0 : Nat) < 5 := by sorry
+attribute [externally_verified] laterVouched
+
+namespace Deep
+/-- Declared with `_root_.` inside a namespace: in the tag set, `trusted`, and the
+head-line token `_root_.rootVouched` matches after the prefix is dropped, so no
+`Divergence(tag)` is printed for it. -/
+@[externally_verified] theorem _root_.rootVouched : (0 : Nat) < 5 := by sorry
+end Deep

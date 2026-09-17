@@ -40,6 +40,12 @@ tests/fixtures/merge/extract.stderr
 tests/fixtures/merge/extract.stdout
 tests/fixtures/merge/check-axioms.out
 tests/fixtures/merge/check-axioms.err
+tests/fixtures/module-merge/.verilib/
+tests/fixtures/module-merge/lake-manifest.json
+tests/fixtures/module-merge/extract.stderr
+tests/fixtures/module-merge/extract.stdout
+tests/fixtures/module-merge/check-axioms.out
+tests/fixtures/module-merge/check-axioms.err
 tests/fixtures/cross-merge/.verilib/
 tests/fixtures/cross-merge/lake-manifest.json
 tests/fixtures/cross-merge/dep/lake-manifest.json

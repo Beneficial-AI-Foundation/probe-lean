@@ -150,25 +150,11 @@ def constChildren (env : Environment) (c : Name) : Array Name :=
   | some ci => constInfoChildren ci
   | none    => #[]
 
-/-- Whether `c`'s own type or value names `sorryAx` — a *direct carrier*. -/
-def isDirectSorryCarrier (env : Environment) (c : Name) : Bool :=
-  (constChildren env c).contains sorryAxiomName
-
 /-- Whether `c`'s *type* (its statement) names `sorryAx`. -/
 def typeNamesSorry (env : Environment) (c : Name) : Bool :=
   match env.find? c with
   | some ci => ci.type.getUsedConstants.contains sorryAxiomName
   | none => false
-
-/-- Of `roots`, the subset whose full transitive closure reaches `sorryAx` — through
-    dependency packages too. Not what `extract` uses for status (see `projectTaint`);
-    kept for audits that want the unfiltered closure. -/
-def sorryReachingNames (env : Environment) (roots : Array Name) : Std.HashSet Name :=
-  reachingNames (constChildren env) (fun _ => false) sorryAxiomName roots
-
-/-- Whether `name`'s full transitive closure reaches `sorryAx`. -/
-def dependsOnSorryAxIn (env : Environment) (name : Name) : Bool :=
-  reaches (constChildren env) (fun _ => false) sorryAxiomName name
 
 /-- Result of the project-boundary taint walk. -/
 structure TaintResult where

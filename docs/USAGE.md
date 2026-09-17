@@ -88,20 +88,23 @@ dependency graph. `sorry` elaborates to the `sorryAx` axiom; `extract` walks the
 of every constant of every built project module — including constants it never emits as atoms
 (auxiliaries, constructors, range-less `addDecl`/`impl_def` constants) — stopping at the project
 boundary (Lean and every dependency package are trusted wholesale) and at the **trusted base**:
-axioms, declarations tagged `@[externally_verified]` on their own source range, and non-proofs
-in `*External` modules (theorems, and `def`/`opaque`s whose type is a proposition, get their
-normal status there). A `sorry` inside or below a trusted declaration does not taint its
+axioms, declarations in the `externally_verified` **tag set** (read from the environment, however
+the tag was attached), and non-proofs in `*External` modules (theorems, and `def`/`opaque`s
+whose type is a proposition, get their normal status there). A `sorry` inside or below a trusted declaration does not taint its
 callers. See [SCHEMA.md](SCHEMA.md) for the exact meaning of each status value. The pass prints
 its totals:
 
 ```
-Project constants: 11293 in 231 module(s) | trusted: 151 | direct sorry carriers: 4 | tainted: 112
+Project constants: 11293 in 231 module(s) | trusted: 150 | direct sorry carriers: 4 | tainted: 112
+externally_verified tag set: 2 name(s) from externallyVerifiedAttr
 ```
 
 Two cross-checks run alongside it and print lines on stderr, never changing a status: the
 build log's `sorry` warnings against the walk's direct carriers (`Divergence(log): <atom>
 build log says sorry, kernel says clean modulo trust`, or `… kernel says sorry, no warning
-in the log`; trusted atoms are skipped, since a `sorry` under them is excused, not missed),
+in the log`; trusted atoms are skipped, since a `sorry` under them is excused, not missed;
+a `partial def` whose `sorry` sits in its compiled `X._unsafe_rec` body gets `Note(log): …`
+instead — the status covers kernel dependencies, not executable bodies, see SCHEMA),
 and the old reverse-BFS over the emitted graph against the walk's verdicts
 (`Divergence(graph): <atom> graph says clean, oracle says tainted`, or the reverse, followed
 by a `Graph cross-check: <n> atom(s) …` summary). A graph divergence localises a node or edge
@@ -112,14 +115,23 @@ did not cover (its Lean name is not a project constant — a bug, since every em
 one) gets no status and `Warning: atom <name> is not a project constant the kernel walk
 covered; no verification-status assigned`.
 
-`@[externally_verified]` is read from the declaration's **header only**: the source file is
-lexed from the top, so comments, docstrings, string and raw string literals, char literals
-and `«…»` identifiers are ignored wherever they open; the scan stops at the line that opens
-the declaration; and the head line must **name the declaration**. So a tag quoted in a
-docstring or body comment, a tagged one-liner on the line above, a tag commented out in a
-block comment above, or the tag of a one-line `structure … deriving …` (whose derived
-instance and projections share its source range and *show* the tag in `attributes`) does not
-make a declaration trusted.
+`@[externally_verified]` is read from the **environment**, not from source text: the target's
+`registerTagAttribute` stores the tagged names in each module's olean, and probe-lean reads
+that set (plus its own handle, for targets that import `ProbeLean.Attrs`). A tag is a tag,
+whatever syntax attached it — `@[…]` on the declaration or an `attribute [externally_verified]
+foo` command — and whatever the constant is. Nothing that merely shares a tagged declaration's
+source range (a `deriving` instance, a projection, a generated companion or helper) is in the
+set, and nothing the source scan could be fooled by (a tag in a docstring, a comment, a string,
+an interpolated string, a neighbouring command on the same line) reaches trust. The source scan
+still fills the `attributes` array for attributes probe-lean does not register; the pass prints
+where it got the set from (`externally_verified tag set: <n> name(s) from <extension>`) and,
+on stderr, every disagreement between the scan and the set (`Divergence(tag): … not trusted`
+for a header the scan would have trusted, `Note(tag): … trusted` for a tag the header does
+not show).
+
+A module built under the module system (`module` header) is read from its `.olean.private`
+part, as the importer does; a module-system olean without its split parts aborts the
+extraction, because the exported level shows a `public theorem` as a proof-less axiom.
 
 To check an artifact against the `check-axioms` report in both directions (every `unverified`
 atom is a listed direct carrier *and* every listed emitted carrier is `unverified`, likewise for
@@ -195,11 +207,13 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 On `tests/fixtures/aux-fold` (abridged; the full report has one line per listed constant):
 
 ```
-Project constants: 61 in 6 module(s) | trusted: 5 | direct sorry carriers: 12 | tainted: 16
-16 constant(s) rest on an unexcused project sorry:
+Project constants: 102 in 7 module(s) | trusted: 9 | direct sorry carriers: 19 | tainted: 24
+externally_verified tag set: 7 name(s) from externallyVerifiedAttr
+24 constant(s) rest on an unexcused project sorry:
   admittedFact [direct]
   extThm [direct]
   instReprTagged
+  loopy._unsafe_rec [direct] [not emitted]
   noRangeMid [direct] [not emitted]
   tacticUse._proof_1 [not emitted]
   viaNoRange

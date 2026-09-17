@@ -42,13 +42,16 @@ def isCompanionName : Name → Bool
 
     1. kind `axiom` — a kernel fact, applies to every project constant;
     2. `@[externally_verified]` — a human vouches for the declaration. `externallyVerified`
-       must mean the declaration's **own** annotation: probe-lean's attribute handle on
-       this exact name, or a tag scanned from the header of the declaration's own source
-       range whose head line names the declaration (`Analysis.declAttributes`,
-       `Taint.rule2Applies`). Constants without a range (`impl_def`, `addDecl`), internal
-       auxiliaries (`_proof_N`), generated companions and anything that merely shares a
-       tagged declaration's range (a `deriving` instance, a projection) cannot be tagged,
-       so the caller passes `false` for them;
+       is membership in the attribute's **tag set**, read from the environment
+       (`TagSet.externallyVerifiedTagSet`: the entries the target's own
+       `registerTagAttribute` extension stored in the olean, plus probe-lean's handle).
+       A tag is a tag, whatever syntax attached it — `@[…]` on the declaration or an
+       `attribute [externally_verified] foo` command — and whatever the constant is
+       (a range-less `impl_def`, a companion, an instance a macro tagged on purpose).
+       What the set does **not** contain: anything that merely shares a tagged
+       declaration's source range (a `deriving` instance, a projection, a generated
+       `.mvcgen_spec` companion, an `instX.field` helper). Those were exactly the
+       false-trust paths of the source scan, which no longer feeds trust;
     3. a non-proof in a `*External` module — Aeneas's trust-base convention for
        hand-written models of external functions and types. `isProof` is true for every
        `theorem` and for any other declaration whose type is a proposition (`def

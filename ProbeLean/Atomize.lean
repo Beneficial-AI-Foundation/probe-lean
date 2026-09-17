@@ -270,10 +270,13 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
   -- Preflight: abort with an actionable diagnostic if the modules cannot
   -- coexist in one environment, instead of paying for the import and
   -- surfacing a raw kernel error.
-  let (collisions, merged, skippedPreflight) ← detectCoimportCollisions modules
+  let pre ← detectCoimportCollisions modules
 
-  if !collisions.isEmpty then
-    return .error (formatCoimportError collisions skippedPreflight)
+  if !pre.proofless.isEmpty then
+    return .error (formatProoflessError pre.proofless)
+  if !pre.collisions.isEmpty then
+    return .error (formatCoimportError pre.collisions pre.skipped)
+  let merged := pre.merged
 
   let moduleNames := modules.map (·.name)
   let imports := moduleNames.map fun m => { module := m : Import }
@@ -295,16 +298,15 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
       -- Two imported modules declare the same name, and the preflight above
       -- found no collision among the scanned project modules. The duplicate
       -- therefore involves something the scan cannot see: a dependency
-      -- module, a module-system split part (.olean.private), an olean it had
-      -- to skip, or a stale orphan olean under a custom `srcDir` that
-      -- `getProjectModules`'s source check could not resolve.
+      -- module, an olean it had to skip, or a stale orphan olean under a custom
+      -- `srcDir` that `getProjectModules`'s source check could not resolve.
       let hint := "\n\nDuplicate declaration across imported modules. All built modules must be\n" ++
         "co-importable into a single Lean environment (see README \"Supported Projects\").\n" ++
         "Possible causes: a stale .olean from a renamed or deleted module that Lake\n" ++
         "did not remove (fix: run `lake clean` in the target project, then re-run\n" ++
         "extract), or a duplicate the preflight check cannot see. A non-conflicting\n" ++
         "subset can be extracted manually with `--module <exact.module.name>`." ++
-        skippedModulesNote skippedPreflight
+        skippedModulesNote pre.skipped
       return .error s!"Failed to import modules: {msg}{hint}"
     if containsSubstring msg "incompatible header" then
       let targetTC ← readToolchain projectPath
@@ -369,8 +371,10 @@ def importProjectEnvWithFallback (projectPath : System.FilePath)
       IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
       -- The preflight above scanned the selection only; the merged set has to
       -- cover every project module the environment actually holds.
-      let (_, merged, _) ← detectCoimportCollisions imported
-      return .ok (env, imported, merged)
+      let pre ← detectCoimportCollisions imported
+      if !pre.proofless.isEmpty then
+        return .error (formatProoflessError pre.proofless)
+      return .ok (env, imported, pre.merged)
 
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so
     viewify and the web UI omit it from the presented graph, split by origin:
@@ -450,6 +454,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
     (moduleCount := imported.size) (merged := merged)
   IO.println (formatTaintSummary pt)
+  IO.println (formatTagSetLine pt.tagSet)
   reportTaintWarnings pt
 
   -- One fold state per run: its closure cache is keyed to this `Environment`

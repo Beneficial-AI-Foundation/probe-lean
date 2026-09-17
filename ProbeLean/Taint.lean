@@ -12,6 +12,7 @@ import ProbeLean.Analysis
 import ProbeLean.AxiomCheck
 import ProbeLean.Trust
 import ProbeLean.Coimport
+import ProbeLean.TagSet
 
 namespace ProbeLean
 
@@ -34,20 +35,20 @@ structure ProjectTaint where
       (`crossMergedNames`): treated as resting on `sorry`, never trusted. Sorted by
       name; reported as a warning. -/
   crossMerged : Array Name := #[]
+  /-- The `externally_verified` tag set rule 2 was decided from (`TagSet`). -/
+  tagSet : TagSet := {}
+  /-- Tag audit (`tagAudit`): source-visible constants whose header shows the tag
+      naming them — what the source scan would have trusted — while the tag set does
+      not contain them. Sorted by name; each is reported. -/
+  scanOnlyTags : Array Name := #[]
+  /-- Tag audit: constants in the tag set whose header does not show the tag (an
+      `attribute [externally_verified] foo` command, a macro). Sorted; reported as a
+      note. -/
+  tagOnly : Array Name := #[]
   /-- |P|. -/
   pSize : Nat
   /-- Number of project modules imported. -/
   moduleCount : Nat
-
-/-- Whether rule 2 of the trusted base can apply to a constant: it is a
-    source-visible declaration (own range, not internal, not a constructor or
-    recursor), not a generated companion and not a structure projection. Everything
-    else cannot carry an `@[externally_verified]` mark of its own, however its source
-    range reads — a projection of a one-line `structure` shares the structure's range
-    *and* has its field name on the head line, which is why it is excluded by kind
-    rather than left to `headerNamesDecl`. -/
-def rule2Applies (env : Environment) (name : Name) (info : ConstantInfo) : Bool :=
-  isSourceVisible env name info && !isCompanionName name && !env.isProjectionFn name
 
 /-- The out-edges of a merged declaration: the union of `constInfoChildren` over
     every version the preflight read. The environment holds only one version's
@@ -64,28 +65,47 @@ def mergedChildren (m : MergedDecl) : Array Name := Id.run do
 def mergedChildrenMap (merged : Array MergedDecl) : Std.HashMap Name (Array Name) :=
   merged.foldl (init := {}) fun acc m => acc.insert m.declName (mergedChildren m)
 
+/-- What the preflight read per merged name: the owning modules of the versions it
+    has (`MergedDecl.versions`). A coverage record, not a name set — a discrepancy is
+    exempted only when both modules involved were read. -/
+def mergedOwners (merged : Array MergedDecl) : Std.HashMap Name (Array Name) :=
+  merged.foldl (init := {}) fun acc m => acc.insert m.declName (m.versions.map (·.1))
+
 /-- Names a project module declares that the walk cannot see every body of, found
     after the import from the environment header alone (no dependence on the olean
     preflight): (a) a name in a project module's `constNames` that the environment
     attributes to another module — `finalizeImport` keeps the **first** owner's index
     and the **last** subsuming body, so this catches a same-statement restatement of
     a dependency theorem imported after it, and any project/project pair the
-    preflight did not read (`knownMerged` are the ones it did, handled more precisely
-    by `mergedChildren`); (b) a name declared by both a project module and a
+    preflight did not read; (b) a name declared by both a project module and a
     non-project module, whichever order they were imported in. In every case one of
     the two bodies is gone and it may be the one with the `sorry`, so the caller
-    treats these names as direct carriers and trusts none of them. Sorted by name. -/
+    treats these names as direct carriers and trusts none of them. Sorted by name.
+
+    `knownMerged` (`mergedOwners`) exempts a project/project discrepancy only when
+    the preflight read **both** the declaring module and the module the environment
+    attributes the name to — those two versions are the ones `mergedChildren` walks.
+    A third declaring module whose olean the preflight skipped is not covered and
+    stays flagged: its discarded body was never walked. -/
 def crossMergedNames (env : Environment) (pFilter : ProjectFilter)
-    (knownMerged : Std.HashSet Name) : Array Name := Id.run do
+    (knownMerged : Std.HashMap Name (Array Name)) : Array Name := Id.run do
   let mods := env.header.moduleData
+  let modNames := env.header.moduleNames
   let mut declared : Std.HashSet Name := {}
   let mut flagged : Std.HashSet Name := {}
   for i in [:mods.size] do
     if pFilter.moduleIdxs.contains i then
       for n in mods[i]!.constNames do
         declared := declared.insert n
-        if env.getModuleIdxFor? n != some i && !knownMerged.contains n then
-          flagged := flagged.insert n
+        match env.getModuleIdxFor? n with
+        | some j =>
+          if j.toNat != i then
+            let covered := match knownMerged[n]? with
+              | some owners =>
+                owners.contains modNames[i]! && owners.contains (modNames[j.toNat]?.getD .anonymous)
+              | none => false
+            if !covered then flagged := flagged.insert n
+        | none => flagged := flagged.insert n
   for i in [:mods.size] do
     if !pFilter.moduleIdxs.contains i then
       for n in mods[i]!.constNames do
@@ -107,22 +127,35 @@ def mergedTrustedReason (env : Environment) (m : MergedDecl) (isProof : Bool := 
     trustedReason kind false owner (kind == .theorem || isProof)
   reasons[0]?
 
+/-- The `externally_verified` tag set over P: what the environment stores for the
+    target's own registration(s) of the attribute (`externallyVerifiedTagSet`), plus
+    probe-lean's handle for a target that imports `ProbeLean.Attrs`. -/
+def externallyVerifiedNames (env : Environment) (pFilter : ProjectFilter)
+    (consts : Array (Name × ConstantInfo)) : TagSet := Id.run do
+  let ts := externallyVerifiedTagSet env pFilter
+  let mut tagged := ts.tagged
+  for (name, _) in consts do
+    if externallyVerifiedAttr.hasTag env name then tagged := tagged.insert name
+  return { ts with tagged }
+
 /-- Attributes for the constants of P that can carry attributes: every
     source-visible declaration. Constants absent from the map have no attributes.
     With no `--module`/`--library` selection this is exactly the emitted atom set, so
-    the scan runs once and `declInfoToAtom` reuses the result.
+    the scan runs once and `declInfoToAtom` reuses the result. `tagged` is the
+    `externally_verified` tag set; it decides the `externally_verified` entry of the
+    `attributes` array, the scan supplies every other name.
 
     A constant that shares a tagged declaration's range — a generated companion
     (`X.mvcgen_spec`), a `deriving` instance or a projection of a one-line structure
     — *shows* the scanned attributes here, as it always has: the emitted `attributes`
     array is unchanged, and the primary-spec signals keep reading them (the companion
-    of a `@[step]` axiom is that axiom's spec proxy). What it does **not** get is
-    trust from them: `DeclAttrs.ownExternallyVerified` is false when the head line
-    does not name the constant, and `rule2Applies` is false for companions and
-    projections regardless, so `computeTrustBase` ignores the shown tag. -/
+    of a `@[step]` axiom is that axiom's spec proxy). It also shows
+    `externally_verified` if its neighbour's header carries it — and is not trusted by
+    it, since it is not in the tag set; `tagAudit` reports the ones whose head line
+    names them, the shapes the scan used to trust. -/
 def computeAttributes (env : Environment) (projectPath : System.FilePath) (fileCache : FileCache)
     (pathCache : ModulePathCache) (consts : Array (Name × ConstantInfo))
-    : IO (Std.HashMap Name DeclAttrs) := do
+    (tagged : Std.HashSet Name := {}) : IO (Std.HashMap Name DeclAttrs) := do
   let modNames := env.allImportedModuleNames
   let mut attrs : Std.HashMap Name DeclAttrs := {}
   for (name, info) in consts do
@@ -132,6 +165,7 @@ def computeAttributes (env : Environment) (projectPath : System.FilePath) (fileC
     let range := getDeclSourceLoc env name
     let a ← declAttributes env projectPath fileCache pathCache name moduleName range
       (scanSource := true) (isInstance := getDeclKind env name info == .instance)
+      (tagged := tagged.contains name)
     attrs := attrs.insert name a
   return attrs
 
@@ -150,7 +184,10 @@ def externalRule3Candidates (env : Environment) (consts : Array (Name × Constan
     `def admitted : False := by sorry` in an External module is a proof in disguise
     and must get its normal status, while a `def op : Nat := sorry` is the
     hand-written model the convention trusts. A candidate whose type cannot be checked
-    is reported and counted as a proof (fail closed). -/
+    — an elaboration error, or a heartbeat/recursion limit, which `Core.tryCatch`
+    would rethrow and which `tryCatchRuntimeEx` catches — is reported and counted as
+    a proof (fail closed). Each candidate gets its own heartbeat budget
+    (`withCurrHeartbeats`), so one pathological statement cannot starve the rest. -/
 def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
     : IO (Std.HashSet Name) := do
   if cands.isEmpty then return {}
@@ -158,9 +195,12 @@ def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
     let mut props : Std.HashSet Name := {}
     let mut failed : Array Name := #[]
     for (name, info) in cands do
-      try
-        if ← Meta.isProp info.type then props := props.insert name
-      catch _ =>
+      let verdict : Option Bool ← withCurrHeartbeats <|
+        tryCatchRuntimeEx (do return some (← Meta.isProp info.type)) (fun _ => return none)
+      match verdict with
+      | some true => props := props.insert name
+      | some false => pure ()
+      | none =>
         props := props.insert name
         failed := failed.push name
     return (props, failed)
@@ -173,12 +213,12 @@ def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
 
 /-- T over P: `Trust.trustedReason` applied to every project constant. Rules 1 and 3
     need the kind, the module and whether the type is a proposition (`propTyped`);
-    rule 2 needs `rule2Applies` and the declaration's own tag
-    (`DeclAttrs.ownExternallyVerified`). A name in `merged` is decided by
+    rule 2 is membership in `tagged`, the `externally_verified` tag set
+    (`externallyVerifiedNames`). A name in `merged` is decided by
     `mergedTrustedReason` over all of its versions instead, and a name in `excluded`
     (`crossMergedNames`) is never trusted. -/
 def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
-    (attrs : Std.HashMap Name DeclAttrs)
+    (tagged : Std.HashSet Name)
     (merged : Std.HashMap Name MergedDecl := {}) (propTyped : Std.HashSet Name := {})
     (excluded : Std.HashSet Name := {}) : Std.HashMap Name String := Id.run do
   let modNames := env.allImportedModuleNames
@@ -190,12 +230,34 @@ def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
       | none =>
         let kind := getDeclKind env name info
         let moduleName := (moduleNameOf modNames env name).getD .anonymous
-        let ownTag := (attrs.getD name default).ownExternallyVerified
-        trustedReason kind (rule2Applies env name info && ownTag) moduleName
+        trustedReason kind (tagged.contains name) moduleName
           (kind == .theorem || propTyped.contains name)
     if let some r := reason then
       trust := trust.insert name r
   return trust
+
+/-- The tag audit: where the source scan and the tag set disagree about
+    `externally_verified`. `scanOnly` — the header shows the tag and names the
+    constant (`DeclAttrs.headerNamesTag`), yet the tag set lacks it: either a shape
+    the scan gets wrong (a generated `instX.field` helper, two commands on one line)
+    or a registration the tag-set reader does not understand; either way the constant
+    is **not** trusted and the line says so. Projections and `.mvcgen_spec`
+    companions are left out of that side, as the scan-based rule left them out by
+    kind: a one-line structure's projection is named by its field on the head line,
+    which is known and benign. `tagOnly` — the set has it, the header does not show
+    it: an `attribute` command or a macro attached the tag; trusted. Both sorted by
+    name. -/
+def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : Std.HashSet Name)
+    : Array Name × Array Name := Id.run do
+  let mut scanOnly : Array Name := #[]
+  let mut tagOnly : Array Name := #[]
+  for (name, a) in attrs do
+    if a.headerNamesTag && !tagged.contains name && !isCompanionName name &&
+        !env.isProjectionFn name then
+      scanOnly := scanOnly.push name
+    if tagged.contains name && !a.headerShowsTag then tagOnly := tagOnly.push name
+  return (scanOnly.qsort (fun a b => a.toString < b.toString),
+          tagOnly.qsort (fun a b => a.toString < b.toString))
 
 /-- The walk over P with T blocked; merged declarations follow every version's
     dependencies (`mergedChildrenMap`), and cross-merged names (`crossMergedNames`)
@@ -224,21 +286,22 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
     : IO (ProjectTaint × Std.HashMap Name DeclAttrs) := do
   let mergedMap : Std.HashMap Name MergedDecl :=
     merged.foldl (init := {}) fun acc m => acc.insert m.declName m
-  let crossMerged := crossMergedNames env pFilter
-    (merged.foldl (init := {}) fun s m => s.insert m.declName)
+  let crossMerged := crossMergedNames env pFilter (mergedOwners merged)
   let consts := crossMerged.foldl (init := consts) fun acc n =>
     if pFilter.contains env n then acc
     else match env.find? n with
       | some ci => acc.push (n, ci)
       | none => acc
-  let attrs ← computeAttributes env projectPath fileCache pathCache consts
+  let tagSet := externallyVerifiedNames env pFilter consts
+  let attrs ← computeAttributes env projectPath fileCache pathCache consts tagSet.tagged
   let propTyped ← propTypedNames env (externalRule3Candidates env consts)
-  let trust := computeTrustBase env consts attrs mergedMap propTyped
+  let trust := computeTrustBase env consts tagSet.tagged mergedMap propTyped
     (Std.HashSet.ofArray crossMerged)
   let taint := runProjectTaint env pFilter consts trust merged crossMerged
   let constants := consts.foldl (init := ({} : Std.HashSet Name)) fun s (n, _) => s.insert n
+  let (scanOnlyTags, tagOnly) := tagAudit env attrs tagSet.tagged
   return ({ trust, taint, constants, merged := merged.map (·.declName), crossMerged,
-            pSize := consts.size, moduleCount }, attrs)
+            tagSet, scanOnlyTags, tagOnly, pSize := consts.size, moduleCount }, attrs)
 
 /-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
     unknown. Blocking still applies; this is a warning, not a status change. Only a
@@ -266,6 +329,15 @@ def formatUnknownAtomWarning (atom : String) : String :=
 def formatTaintSummary (pt : ProjectTaint) : String :=
   s!"Project constants: {pt.pSize} in {pt.moduleCount} module(s) | trusted: {pt.trust.size} | \
     direct sorry carriers: {pt.taint.direct.size} | tainted: {pt.taint.tainted.size}"
+
+/-- One-line account of where rule 2 got its tag set from. -/
+def formatTagSetLine (ts : TagSet) : String :=
+  if ts.extensions.isEmpty then
+    s!"externally_verified tag set: {ts.tagged.size} name(s); no registration of the attribute \
+      found in the project modules' olean entries"
+  else
+    s!"externally_verified tag set: {ts.tagged.size} name(s) from \
+      {", ".intercalate (ts.extensions.map (·.toString)).toList}"
 
 /-- A `check-axioms` report line. `[direct]`: the constant's own type or value names
     `sorryAx`. `[not emitted]`: not an atom — a constant `extract` never publishes
@@ -300,7 +372,18 @@ def formatCrossMergedWarning (names : Array Name) : String :=
       not read), and Lean kept one body: {listNames names}; they are treated as resting on \
       `sorry` (unverified, every caller verified) and no trust rule applies to them"
 
-/-- Print the type-taint, merged-declaration and cross-merge warnings to stderr. -/
+/-- Printed per `ProjectTaint.scanOnlyTags` entry. -/
+def formatScanOnlyTagLine (n : Name) : String :=
+  s!"Divergence(tag): {n} header shows @[externally_verified] naming it, but the attribute's \
+    tag set does not contain it; not trusted"
+
+/-- Printed per `ProjectTaint.tagOnly` entry. -/
+def formatTagOnlyLine (n : Name) : String :=
+  s!"Note(tag): {n} is tagged externally_verified by an `attribute` command or a macro; its \
+    header does not show the tag; trusted"
+
+/-- Print the type-taint, merged-declaration, cross-merge and tag-audit warnings to
+    stderr. -/
 def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
   for n in pt.taint.typeTainted do
     IO.eprintln (formatTypeTaintWarning n)
@@ -308,5 +391,9 @@ def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
     IO.eprintln (formatMergedWarning pt.merged)
   if !pt.crossMerged.isEmpty then
     IO.eprintln (formatCrossMergedWarning pt.crossMerged)
+  for n in pt.scanOnlyTags do
+    IO.eprintln (formatScanOnlyTagLine n)
+  for n in pt.tagOnly do
+    IO.eprintln (formatTagOnlyLine n)
 
 end ProbeLean
