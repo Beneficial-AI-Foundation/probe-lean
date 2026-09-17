@@ -151,6 +151,49 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+          # The split-part reader: three reads of one module-system module in one
+          # process (separate per-part reads segfaulted on the second), and a
+          # non-`module` base (the merge fixture, built above) next to stale part
+          # files, which must not be opened. Runs from the root: its `lake env`
+          # sees `ProbeLean.Coimport`.
+          cd "$GITHUB_WORKSPACE"
+          lake env lean --run tests/fixtures/module-merge/RepeatRead.lean
+
+      # The import fallback over module-system modules: the collision fixture with
+      # `module` headers. The fallback preflights the same modules three times in one
+      # process, the shape that segfaulted with per-part `readModuleData` calls.
+      - name: End-to-end module-system import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m ModColl.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m ModColl.Main | tee check-axioms.out
+          python3 check.py
+
+      # A stale orphan olean the import still loads: after `Orph/Dep.lean` is deleted
+      # the build cache stays valid, discovery drops `Orph.Dep`, and importing
+      # `Orph.Main` loads its olean anyway. Both commands must abort instead of
+      # trusting the orphan's `sorry` as a dependency's.
+      - name: End-to-end stale-orphan abort check
+        run: |
+          diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
+            || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/orphan
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          rm Orph/Dep.lean
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract2.stderr; then
+            echo "::error::extract succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          cat extract2.stderr >&2
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . >check-axioms2.out 2>check-axioms2.err; then
+            echo "::error::check-axioms succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          git checkout -- Orph/Dep.lean
+          python3 check.py
 
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
@@ -193,6 +236,8 @@ jobs:
           cp lean-toolchain tests/fixtures/merge/lean-toolchain
           cp lean-toolchain tests/fixtures/cross-merge/lean-toolchain
           cp lean-toolchain tests/fixtures/module-merge/lean-toolchain
+          cp lean-toolchain tests/fixtures/module-collision/lean-toolchain
+          cp lean-toolchain tests/fixtures/orphan/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -312,6 +357,49 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+          # The split-part reader: three reads of one module-system module in one
+          # process (separate per-part reads segfaulted on the second), and a
+          # non-`module` base (the merge fixture, built above) next to stale part
+          # files, which must not be opened. Runs from the root: its `lake env`
+          # sees `ProbeLean.Coimport`.
+          cd "$GITHUB_WORKSPACE"
+          lake env lean --run tests/fixtures/module-merge/RepeatRead.lean
+
+      # The import fallback over module-system modules: the collision fixture with
+      # `module` headers. The fallback preflights the same modules three times in one
+      # process, the shape that segfaulted with per-part `readModuleData` calls.
+      - name: End-to-end module-system import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m ModColl.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m ModColl.Main | tee check-axioms.out
+          python3 check.py
+
+      # A stale orphan olean the import still loads: after `Orph/Dep.lean` is deleted
+      # the build cache stays valid, discovery drops `Orph.Dep`, and importing
+      # `Orph.Main` loads its olean anyway. Both commands must abort instead of
+      # trusting the orphan's `sorry` as a dependency's.
+      - name: End-to-end stale-orphan abort check
+        run: |
+          diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
+            || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/orphan
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          rm Orph/Dep.lean
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract2.stderr; then
+            echo "::error::extract succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          cat extract2.stderr >&2
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . >check-axioms2.out 2>check-axioms2.err; then
+            echo "::error::check-axioms succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          git checkout -- Orph/Dep.lean
+          python3 check.py
 
   check-version:
     name: Version consistency

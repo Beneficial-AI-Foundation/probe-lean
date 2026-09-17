@@ -4524,7 +4524,7 @@ def testAttributeScanNegatives (result : TestResult) : IO TestResult := do
   result ← test "`instance` keyword does not name a non-instance"
     (!names #["instance : Foo Nat := ⟨1⟩"] 0 0 `instFooNat false) result
   -- The review's one-line structure: the structure is named, its derived instance
-  -- and (by kind, see rule2Applies) its projection are not.
+  -- and its projection are not (audit input only; trust reads the tag set).
   let oneLiner := #["@[externally_verified] structure S where x : Nat := by sorry deriving Inhabited"]
   result ← test "one-line structure: the structure itself" (names oneLiner 0 0 `S) result
   result ← test "one-line structure: the derived instance is not named"
@@ -4592,6 +4592,25 @@ def testLoadedProjectModules (result : TestResult) : IO TestResult := do
   result ← test "everything loaded → all of the inventory"
     ((loadedProjectModules all (names all)).size == all.size) result
   result ← test "nothing loaded → empty" (loadedProjectModules all #[`Init]).isEmpty result
+  return result
+
+def testLoadedOrphans (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing loadedOrphans (stale oleans the import loaded anyway)..."
+  let orphans := #[`App.Old, `App.Gone]
+  result ← test "no orphans → nothing" (loadedOrphans #[] #[`Init, `App.Main]).isEmpty result
+  result ← test "orphans nothing imported → nothing"
+    (loadedOrphans orphans #[`Init, `App.Main]).isEmpty result
+  result ← test "an imported orphan is reported"
+    (loadedOrphans orphans #[`Init, `App.Main, `App.Old] == #[`App.Old]) result
+  result ← test "sorted by name"
+    (loadedOrphans orphans #[`App.Old, `App.Gone] == #[`App.Gone, `App.Old]) result
+  result ← test "message names the modules and the remedy"
+    (formatLoadedOrphansError #[`App.Gone, `App.Old] ==
+      "2 stale module(s) with no .lean source were imported by a live module: App.Gone, \
+       App.Old. Their constants would sit outside the project boundary and be trusted. Run \
+       `lake clean` in the target project and rebuild.") result
   return result
 
 -- ============================================================
@@ -4916,6 +4935,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testAttributeScan result
   result ← testAttributeScanNegatives result
   result ← testLoadedProjectModules result
+  result ← testLoadedOrphans result
   result ← testTagSetLiterals result
   result ← testMergedDecls result
   result ← testProjectTaintEnv result

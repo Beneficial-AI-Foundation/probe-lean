@@ -108,9 +108,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   in one file); and `Warning: <n> declaration name(s) are declared by more than one project
   module with the same statement, and Lean kept one proof: …` is printed by `extract` and
   `check-axioms`. New fixture `tests/fixtures/merge` pins it in CI. Under the **module
-  system** the preflight reads the `.olean.private` part the importer reads (the parts are
-  incremental compacted regions, read in the importer's order): a module-system base
-  `.olean` is the exported level, where a `public theorem` is an axiom without its proof,
+  system** the preflight reads the `.olean.private` part the importer reads — all parts in
+  one `readModuleDataParts` call, as Lean requires (separate `readModuleData` calls work
+  once per process and segfault on the second read of the same module, which the import
+  fallback performs), and only when the base part's header says `module`, as the
+  importer does, so stale part files next to a rebuilt non-`module` base are ignored: a
+  module-system base `.olean` is the exported level, where a `public theorem` is an axiom without its proof,
   so two sorried public theorems restating one statement were seen as two same-type
   axioms — merged, and trusted as `axiom`. A module-system olean whose `.olean.server` or
   `.olean.private` part is missing aborts the extraction, since Lean would then import
@@ -142,13 +145,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   <n> declaration name(s) are declared by a project module and by a module the walk cannot
   see into …`. New fixture `tests/fixtures/cross-merge` (a path dependency) pins it in CI.
 
+  **A stale orphan olean the import loads aborts the extraction.** Module discovery drops
+  an `.olean` with no backing `.lean` source and says so, but `importModules` still loads
+  it when a kept module imports it; such a module was outside P — blocked, hence trusted
+  like a dependency package — and a `sorry` in it shielded its callers. Reachable after a
+  source is deleted while the build cache stays valid (it only looks for *newer* files),
+  so `lake build` is skipped. `extract` and `check-axioms` now check the dropped orphans
+  against the imported module set and abort with `<n> stale module(s) with no .lean source
+  were imported by a live module: …; run \`lake clean\` in the target project and rebuild`.
+  Aborting rather than adding the module to P: the walk would be fixed but the atoms would
+  point at a source that does not exist. New fixture `tests/fixtures/orphan` pins it in CI.
+
   The reachability core (`AxiomCheck.reachingNames`) also fixes #103: the shared memo
   finalised a frame's answer while a back-edge into it was still suppressed, so
   `check-axioms` could miss a `sorry` depending on root order. It now uses Tarjan-style
   SCC finalisation and is validated against `Lean.collectAxioms` in the unit suite.
 
-  **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch's final
-  revision (the round-3 fixes included), both built for Lean 4.31, three warm runs each,
+  **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch at the round-3
+  revision (the later round-4 changes — how olean parts are loaded and the orphan abort —
+  touch neither the walk, the trusted base nor the emitted arrays of a healthy project, and
+  were not re-measured), both built for Lean 4.31, three warm runs each,
   `tools/audit/compare-extract.py --status-policy taint` and
   `check-status-consistency.py` passing on both targets:
 
@@ -240,6 +256,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   under `--module`, and the selected module's transitively loaded project dependency is a
   `sorry`; `check.py` asserts the dependent reads `verified` and the fallback warning counts
   the two modules outside the import closure.
+- New fixture `tests/fixtures/module-collision`: the `collision` fixture with `module`
+  headers, so the import fallback preflights module-system modules three times in one
+  process — the shape that segfaulted with per-part `readModuleData` calls.
+  `tests/fixtures/module-merge/RepeatRead.lean` (run from the root) reads one module's parts
+  three times and checks that stale part files next to a non-`module` base are not opened.
+- New fixture `tests/fixtures/orphan`: `extract` once, delete a source, `extract` and
+  `check-axioms` again; both must abort with the stale-module message.
 
 ## [0.14.0] - 2026-09-15
 

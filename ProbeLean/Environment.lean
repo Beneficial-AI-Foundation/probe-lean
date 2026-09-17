@@ -229,10 +229,16 @@ structure ProjectModule where
     `sourceRoots` are the directories to resolve module paths against (a module
     `A/B/C` is source-backed if `<root>/A/B/C.lean` exists under some root). It
     must include `"."` plus every library `srcDir`; the caller supplies it. The
-    `lake env` call validates that the Lake environment is usable before scanning. -/
+    `lake env` call validates that the Lake environment is usable before scanning.
+
+    Returns the kept modules and the dropped orphan names (sorted). Dropping an orphan
+    from the inventory does not stop `importModules` from loading it when a kept module
+    still imports it, and a loaded module outside the inventory would sit outside P and
+    be trusted like a dependency package; the caller checks the orphans against the
+    imported module set after the import (`Atomize.loadedOrphans`) and aborts. -/
 def getProjectModules (projectPath : System.FilePath)
     (nixMode : Option NixMode := none) (sourceRoots : Array String := #["."])
-    : IO (Except String (Array ProjectModule)) := do
+    : IO (Except String (Array ProjectModule × Array Lean.Name)) := do
   let (_, stderr, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] projectPath nixMode
   if exitCode != 0 then
     return .error s!"Failed to get LEAN_PATH:\n{stderr}"
@@ -262,15 +268,15 @@ def getProjectModules (projectPath : System.FilePath)
     for (name, relPath) in kept do
       modules := modules.push { name, oleanPath := projectBuildPath / (relPath ++ ".olean") }
 
-  if !orphans.isEmpty then
-    let sorted := orphans.qsort fun a b => a.toString < b.toString
-    IO.println s!"Ignoring {sorted.size} orphan module(s) with no backing .lean source (stale build artifacts):"
-    for o in sorted do
+  let sortedOrphans := orphans.qsort fun a b => a.toString < b.toString
+  if !sortedOrphans.isEmpty then
+    IO.println s!"Ignoring {sortedOrphans.size} orphan module(s) with no backing .lean source (stale build artifacts):"
+    for o in sortedOrphans do
       IO.println s!"  - {o}"
 
   -- Sort for deterministic import order (P14)
   let sortedModules := modules.qsort fun a b => a.name.toString < b.name.toString
-  return .ok sortedModules
+  return .ok (sortedModules, sortedOrphans)
 
 /-- Information about a loaded project -/
 structure ProjectInfo where

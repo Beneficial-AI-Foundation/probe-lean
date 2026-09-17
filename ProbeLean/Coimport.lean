@@ -137,25 +137,36 @@ structure CoimportPreflight where
 
 /-- The module data the importer will use for `m` under `OLeanLevel.private`, and
     whether it came from the module's `.olean.private` part. A module built under the
-    module system has three parts; the importer (`findOLeanParts`) loads `.olean`,
-    then — only when **both** exist — `.olean.server` and `.olean.private`, and uses
-    the private part, which holds every constant with its body. The base part alone is
-    the *exported* level, where a `public theorem` is an axiom without its proof; the
-    preflight used to read it and filed two sorried public theorems restating one
-    statement as two same-type axioms — merged, and trusted as `"axiom"` by every
-    rule. The parts are **incremental compacted regions**: the private part's objects
-    point into the base part's, so they are read in the importer's order and none of
-    the regions is freed (the `ConstantInfo`s returned point into them; the process is
-    short-lived). Reading the private part on its own segfaults. -/
+    module system has three parts; the importer loads `.olean`, then — only when
+    **both** exist — `.olean.server` and `.olean.private`, and uses the private part,
+    which holds every constant with its body. The base part alone is the *exported*
+    level, where a `public theorem` is an axiom without its proof; the preflight used
+    to read it and filed two sorried public theorems restating one statement as two
+    same-type axioms — merged, and trusted as `"axiom"` by every rule.
+
+    Two rules of the importer are mirrored here. The parts are read only when the base
+    part's header says `isModule` (`ImportedModule.getData?` uses the exported level for
+    anything else, whatever part files sit on disk — stale parts next to a rebuilt
+    non-`module` base are ignored). And the parts are loaded **together**, in one
+    `readModuleDataParts` call: Lean stores them as one incremental compacted region
+    split over files ("the data cannot be loaded with individual `readModuleData` calls",
+    `saveModuleDataParts`). Separate calls happen to work for the first read in a
+    process and segfault on the second read of the same module — which the fallback
+    import path performs, preflighting the same modules up to three times. None of
+    the regions is freed: the `ConstantInfo`s returned point into them and the process
+    is short-lived. -/
 def readImportedModuleData (m : ProjectModule) : IO (ModuleData × Bool) := do
   let (base, _) ← readModuleData m.oleanPath
+  if !base.isModule then
+    return (base, false)
   let server := m.oleanPath.addExtension "server"
   let priv := m.oleanPath.addExtension "private"
-  if (← server.pathExists) && (← priv.pathExists) then
-    let _ ← readModuleData server
-    let (data, _) ← readModuleData priv
-    return (data, true)
-  return (base, false)
+  if !((← server.pathExists) && (← priv.pathExists)) then
+    return (base, false)
+  let parts ← readModuleDataParts #[m.oleanPath, server, priv]
+  match parts.back? with
+  | some (data, _) => return (data, true)
+  | none => return (base, false)
 
 /-- Run the preflight over the (already filtered) project modules: read each
     module's olean — the part the importer will read, `readImportedModuleData` — and

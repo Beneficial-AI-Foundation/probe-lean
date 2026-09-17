@@ -340,6 +340,23 @@ def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
   let set := Std.HashSet.ofArray loaded
   all.filter fun m => set.contains m.name
 
+/-- The orphan modules (oleans discovery dropped for lack of a source,
+    `getProjectModules`) that the import loaded anyway, sorted by name. Discovery
+    dropping a module does not stop `importModules` from loading it when a kept module
+    imports it; such a module is then outside P — blocked, hence trusted like a
+    dependency package — and a `sorry` in it would shield its callers. Non-empty means
+    the extraction must abort (`formatLoadedOrphansError`): the artifact is stale and
+    there is no source to build its atoms from. -/
+def loadedOrphans (orphans loaded : Array Name) : Array Name :=
+  let set := Std.HashSet.ofArray loaded
+  (orphans.filter set.contains).qsort fun a b => a.toString < b.toString
+
+/-- The abort message for a non-empty `loadedOrphans`. -/
+def formatLoadedOrphansError (names : Array Name) : String :=
+  s!"{names.size} stale module(s) with no .lean source were imported by a live module: \
+    {", ".intercalate (names.map (·.toString)).toList}. Their constants would sit outside \
+    the project boundary and be trusted. Run `lake clean` in the target project and rebuild."
+
 /-- Import the project for the taint walk: **all** built project modules (P must
     cover the whole project, whatever `--module`/`--library` selected for output),
     falling back to the selected modules when the full set cannot be co-imported.
@@ -353,9 +370,11 @@ def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
     duplicate the preflight cannot see, and stale oleans of an unselected library.
     Under the fallback the modules left out are exactly those outside the selection's
     import closure: no emitted status can depend on them, only the `check-axioms`
-    audit loses them (`formatFallbackWarning`). -/
-def importProjectEnvWithFallback (projectPath : System.FilePath)
-    (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
+    audit loses them (`formatFallbackWarning`).
+
+    This is the import without the orphan check; `importProjectEnvWithFallback` adds it. -/
+private def importProjectEnvSelecting (projectPath : System.FilePath)
+    (all selected : Array ProjectModule) (nixMode : Option NixMode)
     : IO (Except String (Environment × Array ProjectModule × Array MergedDecl)) := do
   if selected.size == all.size then
     return (← importProjectEnv projectPath all nixMode).map fun (env, merged) => (env, all, merged)
@@ -375,6 +394,21 @@ def importProjectEnvWithFallback (projectPath : System.FilePath)
       if !pre.proofless.isEmpty then
         return .error (formatProoflessError pre.proofless)
       return .ok (env, imported, pre.merged)
+
+/-- `importProjectEnvSelecting` (all modules, falling back to the selection), then the
+    orphan check: whichever import succeeded, an orphan module among `orphans` that it
+    loaded (`loadedOrphans`) is fatal — see `formatLoadedOrphansError`. -/
+def importProjectEnvWithFallback (projectPath : System.FilePath)
+    (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
+    (orphans : Array Name := #[])
+    : IO (Except String (Environment × Array ProjectModule × Array MergedDecl)) := do
+  match ← importProjectEnvSelecting projectPath all selected nixMode with
+  | .error e => return .error e
+  | .ok r =>
+    let stale := loadedOrphans orphans r.1.allImportedModuleNames
+    if !stale.isEmpty then
+      return .error (formatLoadedOrphansError stale)
+    return .ok r
 
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so
     viewify and the web UI omit it from the presented graph, split by origin:
@@ -435,9 +469,10 @@ private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
     and which dependencies count as project-internal. Atoms carry `leanName`, the
     join key for `applyTaintStatus`. -/
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
-    (crate : String) (nixMode : Option NixMode := none)
+    (crate : String) (nixMode : Option NixMode := none) (orphans : Array Name := #[])
     : IO (Except String (Array Atom × ProjectTaint)) := do
-  let (env, imported, merged) ← match ← importProjectEnvWithFallback projectPath all selected nixMode with
+  let (env, imported, merged) ← match ← importProjectEnvWithFallback projectPath all selected
+      nixMode orphans with
     | .error msg => return .error msg
     | .ok r => pure r
   -- P is decided by the imported project modules; emission by the selection.

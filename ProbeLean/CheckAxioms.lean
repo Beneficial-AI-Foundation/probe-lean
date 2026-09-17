@@ -36,7 +36,7 @@ def runCheckAxiomsInProject (projectPath : System.FilePath)
     | .ok r => pure r
 
   let (env, imported, merged) ← match ← importProjectEnvWithFallback projectPath
-      prepared.allModules prepared.selectedModules prepared.nixMode with
+      prepared.allModules prepared.selectedModules prepared.nixMode prepared.orphans with
     | .error msg => IO.eprintln s!"Import failed: {msg}"; return 1
     | .ok r => pure r
 

@@ -132,6 +132,11 @@ not show).
 A module built under the module system (`module` header) is read from its `.olean.private`
 part, as the importer does; a module-system olean without its split parts aborts the
 extraction, because the exported level shows a `public theorem` as a proof-less axiom.
+A stale `.olean` with no backing `.lean` source is dropped from the inventory (`Ignoring
+<n> orphan module(s) …`); if a live module still imports it, the extraction aborts with
+`<n> stale module(s) with no .lean source were imported by a live module: …`, because its
+constants would otherwise sit outside the project boundary and be trusted like a
+dependency's — run `lake clean` in the target project and rebuild.
 
 To check an artifact against the `check-axioms` report in both directions (every `unverified`
 atom is a listed direct carrier *and* every listed emitted carrier is `unverified`, likewise for

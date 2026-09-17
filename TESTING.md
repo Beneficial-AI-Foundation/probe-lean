@@ -50,11 +50,12 @@ All tests run without external tools.
 | `testApplyTaintStatus` | `applyTaintStatus` verdict matrix (trusted / trusted direct carrier / direct / tainted / clean / unknown name), `--skip-enrich` cap, `--skip-verify` shape, `unifyAtom` carries `leanName` and no status, `leanName` not serialised |
 | `testDivergenceLines` | Graph-vs-oracle divergence text in both directions, `demoteTransitive`, `statusCounts` |
 | `testTaintFormatting` | Fallback / type-taint / unknown-atom / cross-merge warnings, `check-axioms` report lines, summary line, `Divergence(log):` lines (aux-carried sorry is agreement; generated and trusted atoms skipped) |
-| `testAttributeScan` | Header-only `@[…]` scan: the `stripLine` lexer (nested block comments, docstrings, strings across lines, escaped quotes, raw strings, char literals, `«…»`, `stripLines` from the top), head-line detection, look-back window, 1-based range conversion (the old scan read the *next* declaration's tag) |
+| `testAttributeScan` | Header-only `@[…]` scan: the `stripLine` lexer (nested block comments, docstrings, strings across lines, escaped quotes, raw strings, interpolated strings, char literals, `«…»`, `stripLines` from the top), head-line detection, no look-back above the range, 1-based range conversion (the old scan read the *next* declaration's tag) |
 | `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; block comment / module docstring / multi-line string opened above the window; raw string, char literal, guillemet identifier spelling the tag; the declaration's own tag still survives. `headerNamesDecl`: dotted names, private names, anonymous instances, range-sharers (derived instance, companion) not named |
 | `testLoadedProjectModules` | Fallback P: `all` restricted to the modules the environment loaded |
+| `testLoadedOrphans` | Orphan oleans the import loaded anyway (`loadedOrphans`): none, disjoint, one hit, sorted; the abort message |
 | `testMergedDecls` | `classifyDuplicates` splits tolerated restatements (merged) from collisions; `mergedChildren` is the union over versions; `formatMergedWarning` text and cap |
-| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `rule2Applies` (companion and projection excluded), `computeTrustBase` (shown-but-not-own tag, excluded names), `propTypedNames`, `crossMergedNames` on a clean environment, and agreement with `Lean.collectAxioms` on every root |
+| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `computeTrustBase` (a range-sharer that only *shows* a neighbour's tag is not trusted; a name in the tag set is; excluded names), `propTypedNames`, `crossMergedNames` on a clean environment, and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
 
@@ -96,8 +97,15 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
    `tests/fixtures/cross-merge`, where a project module restates a path dependency's
    theorem with a `sorry` and the importer attributes the name to the dependency, and runs
    its `check.py` (both callers `verified`, the cross-merge warning is printed, `shared` is
-   listed `[direct] [not emitted]`); repeated on the newest supported Lean by the
-   `test-newest` job
+   listed `[direct] [not emitted]`); then `tests/fixtures/module-merge` (two `module` files
+   export the same `public theorem`, one sorried; the preflight must read the private part)
+   plus `RepeatRead.lean`, run from the root, which reads one module's split parts three
+   times in one process and checks that stale part files next to a non-`module` base are
+   not opened; then `tests/fixtures/module-collision` (the collision fixture with `module`
+   headers, so the fallback preflights module-system modules repeatedly); then
+   `tests/fixtures/orphan` (`extract`, delete a source, `extract` and `check-axioms` again:
+   both must abort with the stale-module message); repeated on the newest supported Lean by
+   the `test-newest` job
 
 The CI uses `lean-action` which automatically installs elan, sets up the
 Lean toolchain from `lean-toolchain`, and caches the `.lake` directory.

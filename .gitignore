@@ -51,3 +51,13 @@ tests/fixtures/cross-merge/lake-manifest.json
 tests/fixtures/cross-merge/dep/lake-manifest.json
 tests/fixtures/cross-merge/extract.stderr
 tests/fixtures/cross-merge/check-axioms.out
+tests/fixtures/module-collision/.verilib/
+tests/fixtures/module-collision/lake-manifest.json
+tests/fixtures/module-collision/extract.stderr
+tests/fixtures/module-collision/check-axioms.out
+tests/fixtures/orphan/.verilib/
+tests/fixtures/orphan/lake-manifest.json
+tests/fixtures/orphan/extract.stderr
+tests/fixtures/orphan/extract2.stderr
+tests/fixtures/orphan/check-axioms2.out
+tests/fixtures/orphan/check-axioms2.err

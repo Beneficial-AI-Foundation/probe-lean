@@ -219,6 +219,9 @@ structure PreparedProject where
   allModules : Array ProjectModule
   /-- The `--library`/`--module` selection: which declarations become atoms. -/
   selectedModules : Array ProjectModule
+  /-- Oleans discovery dropped for lack of a `.lean` source. If the import loads one
+      of them anyway, the extraction aborts (`Atomize.loadedOrphans`). -/
+  orphans : Array Lean.Name := #[]
   nixMode : Option NixMode
   /-- Captured `lake build` output (or the cached copy). -/
   buildOutput : String
@@ -280,11 +283,11 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
 
   IO.println "Getting project modules..."
   let sourceRoots ← getSourceRoots projectPath
-  let modules ← match ← getProjectModules projectPath nixMode sourceRoots with
+  let (modules, orphans) ← match ← getProjectModules projectPath nixMode sourceRoots with
     | .error msg =>
       IO.eprintln msg
       return .error 1
-    | .ok mods => pure mods
+    | .ok r => pure r
 
   if modules.isEmpty then
     IO.eprintln "Error: No modules found in project"
@@ -313,7 +316,7 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     return .error 1
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
-  return .ok { allModules := modules, selectedModules := filteredModules, nixMode, buildOutput }
+  return .ok { allModules := modules, selectedModules := filteredModules, orphans, nixMode, buildOutput }
 
 /-- Where the build log and the kernel disagree about an atom. The log is matched to
     atoms by file and line range, so a `sorry` abstracted into an auxiliary
@@ -418,7 +421,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let crate := loadRelevantCrate userConfig
 
   let (atoms, pt) ← match ← runAnalysisViaLakeEnv config.projectPath prepared.allModules
-      prepared.selectedModules crate prepared.nixMode with
+      prepared.selectedModules crate prepared.nixMode prepared.orphans with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1
