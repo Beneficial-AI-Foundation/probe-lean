@@ -40,10 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   statuses (partially addresses #88). `docs/SCHEMA.md` states the contract.
 
   The old graph-BFS still runs, as a **cross-check**: every atom on which it disagrees
-  with the walk is printed as `Divergence: <atom> graph says clean, oracle says tainted`
-  (or the reverse) on stderr and never reconciled — a divergence localises a node or
-  edge the emitted graph is missing. The build log is likewise still parsed and compared
-  with the walk's direct carriers. `--skip-verify` keeps its shape (no status except
+  with the walk is printed as `Divergence(graph): <atom> graph says clean, oracle says
+  tainted` (or the reverse) on stderr, followed by a `Graph cross-check: <n> atom(s) …`
+  summary, and never reconciled — a divergence localises a node or edge the emitted graph
+  is missing. The build log is likewise still parsed and compared with the walk's direct
+  carriers (`Divergence(log): <atom> build log says sorry, kernel says clean modulo trust`
+  / `… kernel says sorry, no warning in the log`); trusted atoms are skipped there, since
+  a `sorry` under a trusted declaration is excused, not missed. `--skip-verify` keeps its shape (no status except
   `trusted`); `--skip-enrich` caps clean atoms at `verified`. If the full module set
   cannot be co-imported under a selection, the walk runs over the selected modules and
   every project module they import transitively (P is the project inventory restricted to
@@ -55,10 +58,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   covered` line, instead of being read as clean.
 
   The `@[externally_verified]` source scan, which feeds the trusted base, reads only the
-  declaration **header**: comments (docstrings included) and string literals are stripped
-  and the scan stops after the line that opens the declaration, so a tag quoted in a
-  docstring or body comment, or a tagged one-liner on the line above, no longer makes a
-  declaration trusted.
+  declaration **header**, and the head line must **name the declaration**. The source file
+  is lexed once from the top (`Analysis.stripLines`, cached per file), so block comments,
+  docstrings and string literals opened *above* the declaration are gone too — the old
+  per-window lexer started every declaration in code state and read a tag inside a block
+  comment above (a commented-out `@[externally_verified]`, a module docstring listing the
+  tag on its own line) as a pure attribute line. The lexer also knows raw strings
+  (`r#"…"#`), char literals (`'"'`) and `«…»` identifiers, each of which could smuggle a
+  `@[…]` into code text. And a scanned tag counts only when the header's head line names
+  the declaration (`Analysis.headerNamesDecl`: its user-facing name or a dotted suffix,
+  or the `instance` keyword for an anonymous instance) — a `deriving` instance or a
+  projection of a one-line `@[externally_verified] structure … deriving …` shares the
+  structure's range and used to inherit its trust, so a derived instance resting on a
+  project `sorry` was a trusted leaf shielding every caller. Projections are additionally
+  excluded from rule 2 by kind. Such range-sharers still *show* the tag in `attributes`.
+
+  **The `*External` rule excludes proofs, not only `theorem`s.** A `def admitted : False :=
+  by sorry` or an `opaque` of Prop type in a `*External` module used to be trusted as a
+  non-theorem; rule 3 now runs `Meta.isProp` on the statement of every non-theorem,
+  non-axiom constant there and gives such proofs-in-disguise their normal status. A
+  Prop-*valued* `def p : Prop` stays a trusted model.
 
   **Merged declarations fail closed.** Lean's importer accepts two project modules that
   restate a theorem with the same name and statement and keeps *one* proof without
@@ -72,6 +91,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   in one file); and `Warning: <n> declaration name(s) are declared by more than one project
   module with the same statement, and Lean kept one proof: …` is printed by `extract` and
   `check-axioms`. New fixture `tests/fixtures/merge` pins it in CI.
+
+  That preflight reads project oleans only, so a project theorem restating a
+  **dependency's** theorem (or a pair involving an olean the preflight skipped) was still
+  fail-open: `finalizeImport` attributes the name to the first module imported and keeps
+  the last body, so in one import order the sorried project body sat under a non-project
+  name (blocked, "trusted wholesale") and in the other the project name carried the
+  dependency's clean body. Both left the caller clean. A post-import scan of the
+  environment header (`Taint.crossMergedNames`) now flags every name a project module
+  declares that the environment attributes elsewhere, and every name a non-project module
+  declares too; they are added to P, given `sorryAx` as an out-edge (the invisible body is
+  taken to be the sorried one), excluded from every trust rule, and reported as `Warning:
+  <n> declaration name(s) are declared by a project module and by a module the walk cannot
+  see into …`. New fixture `tests/fixtures/cross-merge` (a path dependency) pins it in CI.
 
   The reachability core (`AxiomCheck.reachingNames`) also fixes #103: the shared memo
   finalised a frame's answer while a back-edge into it was still suppressed, so
@@ -122,6 +154,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the fixtures; the one-directional "every `unverified` atom is a direct carrier" check
   passed vacuously.
 
+### Removed
+
+- The dead `proofs` vocabulary: `VerifyStatus` (`success`/`sorries`/`failure`), `ProofEntry`,
+  `ProofsOutput` and `atomToProofEntry`. Nothing has constructed or serialised them since
+  the status moved to the kernel walk, and a second status vocabulary next to
+  `verification-status` invited drift. `SorryInfo` and the log parser stay (they feed the
+  build-log cross-check).
+
 ### Internal
 
 - `Environment.allImportedModuleNames` builds its array on every call; the per-constant
@@ -130,11 +170,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   children once for both the walk and the direct-carrier test, this kept the whole pass
   under a second on dalek.
 - The aux-fold fixture (`tests/fixtures/aux-fold`) gained a target-registered
-  `externally_verified` tag, a `step_theorem` companion macro, a `*External` module, a
-  range-less `addDecl` carrier and three fabricated-trust shapes (tagged one-liner above an
-  untagged neighbour, tag quoted in a docstring and a body comment); `TaintCheck.lean`
-  asserts the statuses, the `Divergence:` line and the `check-axioms` report on both CI
-  toolchains.
+  `externally_verified` tag, a `step_theorem` companion macro, a `*External` module (with
+  a Prop-typed `def` and a Prop-valued `def`), a range-less `addDecl` carrier, a tagged
+  one-line `structure … deriving Repr` whose derived instance rests on a sorried project
+  instance, and four fabricated-trust shapes (tagged one-liner above an untagged
+  neighbour, tag quoted in a docstring and a body comment, tag commented out in a block
+  comment above); `TaintCheck.lean` asserts the statuses, the `Divergence(graph):` line
+  and the `check-axioms` report on both CI toolchains. CI now keeps `extract`'s stderr in
+  the job log when `extract` fails.
 - New fixture `tests/fixtures/collision`: two colliding modules force the import fallback
   under `--module`, and the selected module's transitively loaded project dependency is a
   `sorry`; `check.py` asserts the dependent reads `verified` and the fallback warning counts

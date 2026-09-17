@@ -32,8 +32,7 @@ All tests run without external tools.
 | `testAtomsOutputJson` | Keyed-dict serialization, `probe:` prefixed dependencies, boolean flags |
 | `testAtomSpecsJson` | Optional `specs` field presence/absence, round-trip |
 | `testAtomLanguageField` | Default `"lean"` language in atom and output JSON |
-| `testSorryDetection` | Sorry warning parsing (file, line, column), path normalization, path matching, `VerifyStatus` serialization, `atomToProofEntry` |
-| `testProofsOutputJson` | Keyed-dict proofs format, round-trip |
+| `testSorryDetection` | Sorry warning parsing (file, line, column), path normalization, path matching, `findSorriesForAtom` range matching |
 | `testUnifiedAtomJson` | `WebVerificationStatus` round-trip, `UnifiedAtomsOutput` round-trip with optional fields (rustSource, verificationStatus), specs serialization |
 | `testViewHelpers` | `getLastNamePart`, `parseLines` (ranges, L-prefix) |
 | `testStubEntryJson` | `StubEntry` serialization with nullable fields |
@@ -45,17 +44,17 @@ All tests run without external tools.
 | `testPrimarySpecHeuristic` | `_spec` suffix heuristic, `@[primary_spec]` attribute override, no-match fallback |
 | `testPrimarySpecKnownAttribute` | Known-attribute boost (`@[progress]`, `@[pspec]`, `@[step]`), ambiguity fallthrough, precedence vs `_spec` and `@[primary_spec]` |
 | `testPrimarySpecSoleSpec` | Sole-spec inference, multiple-specs no-match, `_spec` beats sole-spec, invariant check |
-| `testTrustedStatus` | `Trust.trustedReason` rules 1–3 and precedence (axiom, `@[externally_verified]` gated on a range of its own, non-theorem in a `*External` module, negatives incl. theorem-in-External and `External` as a non-final component), `isCompanionName`, `isExternalModule` |
+| `testTrustedStatus` | `Trust.trustedReason` rules 1–3 and precedence (axiom, the declaration's own `@[externally_verified]`, non-proof in a `*External` module — Prop-typed `def`/`opaque` excluded, negatives incl. theorem-in-External and `External` as a non-final component), `isCompanionName`, `isExternalModule` |
 | `testAxiomReachability` | `reaches`/`reachingNames` on a fabricated graph: transitive hit, cycles, diamond; the #103 case `f → {g, SORRY}, g → f` in both root orders |
 | `testReachabilityBlocked` | The blocked set: blocked node not expanded, blocked direct carrier shields its caller, target reached although blocked (target-before-block), target outside P reached through a P chain, cycle with a blocked sibling, root-order independence |
 | `testApplyTaintStatus` | `applyTaintStatus` verdict matrix (trusted / trusted direct carrier / direct / tainted / clean / unknown name), `--skip-enrich` cap, `--skip-verify` shape, `unifyAtom` carries `leanName` and no status, `leanName` not serialised |
 | `testDivergenceLines` | Graph-vs-oracle divergence text in both directions, `demoteTransitive`, `statusCounts` |
-| `testTaintFormatting` | Fallback / type-taint / unknown-atom warnings, `check-axioms` report lines, summary line, build-log divergences (aux-carried sorry is agreement; generated atoms skipped) |
-| `testAttributeScan` | Header-only `@[…]` scan: comment/string stripping (nested block comments, docstrings, escaped quotes), head-line detection, look-back window, 1-based range conversion (the old scan read the *next* declaration's tag) |
-| `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; the declaration's own tag still survives |
+| `testTaintFormatting` | Fallback / type-taint / unknown-atom / cross-merge warnings, `check-axioms` report lines, summary line, `Divergence(log):` lines (aux-carried sorry is agreement; generated and trusted atoms skipped) |
+| `testAttributeScan` | Header-only `@[…]` scan: the `stripLine` lexer (nested block comments, docstrings, strings across lines, escaped quotes, raw strings, char literals, `«…»`, `stripLines` from the top), head-line detection, look-back window, 1-based range conversion (the old scan read the *next* declaration's tag) |
+| `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; block comment / module docstring / multi-line string opened above the window; raw string, char literal, guillemet identifier spelling the tag; the declaration's own tag still survives. `headerNamesDecl`: dotted names, private names, anonymous instances, range-sharers (derived instance, companion) not named |
 | `testLoadedProjectModules` | Fallback P: `all` restricted to the modules the environment loaded |
 | `testMergedDecls` | `classifyDuplicates` splits tolerated restatements (merged) from collisions; `mergedChildren` is the union over versions; `formatMergedWarning` text and cap |
-| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `rule2Applies`, `computeTrustBase`, and agreement with `Lean.collectAxioms` on every root |
+| `testProjectTaintEnv` | Environment-backed (`run_cmd` + `addDecl`): direct carriers, range-less carrier taints its caller, trusted sorried lemma shields caller and companion, `typeTainted`, `rule2Applies` (companion and projection excluded), `computeTrustBase` (shown-but-not-own tag, excluded names), `propTypedNames`, `crossMergedNames` on a clean environment, and agreement with `Lean.collectAxioms` on every root |
 
 ## Integration tests (example JSON)
 
@@ -86,15 +85,19 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
 2. **Test** -- builds `tests` target, then runs `.lake/build/bin/tests`
 3. **End-to-end** -- builds `tests/fixtures/aux-fold`, runs `probe-lean extract` and
    `probe-lean check-axioms` on it, then `AuxFoldCheck.lean` (recovered auxiliary edges)
-   and `TaintCheck.lean` (kernel-backed statuses, the `Divergence:` line, the
+   and `TaintCheck.lean` (kernel-backed statuses, the `Divergence(graph):` line, the
    `check-axioms` report) and `tools/audit/check-status-consistency.py` (artifact and
    report agree on every atom in both directions); then builds `tests/fixtures/collision`,
    whose two colliding modules force the import fallback under `--module`, and runs
    `check.py` (a transitively loaded sorried module still taints the selected caller);
    then builds `tests/fixtures/merge`, where two modules restate one theorem and the
    importer keeps one proof, and runs its `check.py` (the merged name reads `unverified`,
-   both callers `verified`, the warning is printed); repeated on the newest supported Lean
-   by the `test-newest` job
+   both callers `verified`, the warning is printed); then builds
+   `tests/fixtures/cross-merge`, where a project module restates a path dependency's
+   theorem with a `sorry` and the importer attributes the name to the dependency, and runs
+   its `check.py` (both callers `verified`, the cross-merge warning is printed, `shared` is
+   listed `[direct] [not emitted]`); repeated on the newest supported Lean by the
+   `test-newest` job
 
 The CI uses `lean-action` which automatically installs elan, sets up the
 Lean toolchain from `lean-toolchain`, and caches the `.lake` directory.

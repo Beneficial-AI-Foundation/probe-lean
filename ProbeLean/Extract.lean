@@ -321,22 +321,25 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     rather than direct — that is agreement, not divergence. Generated atoms share
     their range with the declaration that produced them (a `.mvcgen_spec` companion
     with its parent, a derived instance with its type), so the log cannot speak about
-    them and they are skipped. Reported: the log flags an atom the kernel finds clean
+    them and they are skipped. So are trusted atoms: a `sorry` inside one is excused
+    by trust, not missed by the kernel, and when it sits in an auxiliary the host is
+    neither direct nor tainted (it is blocked), so the log's finding is moot rather
+    than a disagreement. Reported: the log flags an atom the kernel finds clean
     modulo T, or the kernel finds a direct carrier the log never warned about (a
     module with errors, `warn.sorry` off). -/
 def logDivergences (warnings : Array SorryWarning) (atoms : Array Atom) (pt : ProjectTaint)
     : Array String := Id.run do
   let mut out : Array String := #[]
   for atom in atoms do
-    if atom.isLeanGenerated || atom.isAeneasGenerated then
+    if atom.isLeanGenerated || atom.isAeneasGenerated || pt.trust.contains atom.leanName then
       continue
     let logSorry := !(findSorriesForAtom warnings atom).isEmpty
     let direct := pt.taint.direct.contains atom.leanName
     let restsOnSorry := direct || pt.taint.tainted.contains atom.leanName
     if logSorry && !restsOnSorry then
-      out := out.push s!"Divergence: {atom.name} build log says sorry, kernel says clean"
+      out := out.push s!"Divergence(log): {atom.name} build log says sorry, kernel says clean modulo trust"
     else if direct && !logSorry then
-      out := out.push s!"Divergence: {atom.name} kernel says sorry, build log says clean"
+      out := out.push s!"Divergence(log): {atom.name} kernel says sorry, no warning in the log"
   return out
 
 /-- Step 2. The build log decides nothing — the kernel walk does — but it is parsed
@@ -386,7 +389,7 @@ private def runEnrichStep (config : ExtractConfig) (oracle : Array UnifiedAtom) 
   for d in divs do
     IO.eprintln d
   if !divs.isEmpty then
-    IO.eprintln s!"Divergence: {divs.size} atom(s) where the emitted graph disagrees with the kernel walk"
+    IO.eprintln s!"Graph cross-check: {divs.size} atom(s) where the emitted graph disagrees with the kernel walk"
   let (transitive, local_, notVerified) := statusCounts oracle
   IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
 

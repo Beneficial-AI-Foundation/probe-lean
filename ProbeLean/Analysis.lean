@@ -484,18 +484,139 @@ def getProjectDecls (env : Environment) (projectModules : Array Name)
     (projFilter : ProjectFilter := mkProjectFilter env projectModules) : Array DeclInfo :=
   getProjectDeclsFrom env (projectConstants env projFilter) projFilter
 
-/-- File content cache to avoid re-reading the same file for every declaration. -/
-abbrev FileCache := IO.Ref (Std.HashMap String (Array String))
+/-- The lexical state `stripLine` carries from one source line to the next: outside
+    any literal, inside a block comment nested `depth` deep (docstrings included),
+    inside a string literal, or inside a raw string literal `r#"…"#` opened with that
+    many hashes. Block comments and both string forms span lines in Lean, so a scan
+    that starts mid-file in `.code` misreads whatever is open there — which is why
+    `stripLines` always starts at line 0 and the result is cached per file
+    (`SourceFile`). -/
+inductive LexState where
+  | code
+  | comment (depth : Nat)
+  | string
+  | rawString (hashes : Nat)
+  deriving BEq, Repr, Inhabited
+
+/-- Whether `cs[i]` starts a token: it is the first character, or the previous one
+    cannot continue an identifier (`x'` is one identifier, `'x'` is a char literal;
+    `bar"` is not a raw string opener, `r"…"` is). -/
+private def atTokenStart (cs : Array Char) (i : Nat) : Bool :=
+  i == 0 || !(Lean.isIdRest cs[i - 1]!)
+
+/-- Number of consecutive `#` from `cs[i]`. -/
+private def countHashes (cs : Array Char) (i : Nat) : Nat := Id.run do
+  let mut n := 0
+  while cs[i + n]? == some '#' do n := n + 1
+  return n
+
+/-- The code text of one source line: line comments, (nested) block comments —
+    docstrings included — string literals, raw string literals, char literals and
+    `«…»` identifiers removed. `st` is the state at the start of the line; the state
+    at its end is returned. A guillemet identifier's *content* is dropped because it
+    may spell `@[…]`; a declaration whose name needs guillemets therefore cannot be
+    matched by `headerNamesDecl` and gets rule-2 trust only through the attribute
+    handle. -/
+def stripLine (line : String) (st : LexState) : String × LexState := Id.run do
+  let cs := line.toList.toArray
+  let mut out : String := ""
+  let mut st := st
+  let mut i := 0
+  while i < cs.size do
+    let c := cs[i]!
+    let next := cs[i + 1]?
+    match st with
+    | .comment depth =>
+      if c == '/' && next == some '-' then
+        st := .comment (depth + 1)
+        i := i + 2
+      else if c == '-' && next == some '/' then
+        st := if depth ≤ 1 then .code else .comment (depth - 1)
+        i := i + 2
+      else
+        i := i + 1
+    | .string =>
+      if c == '\\' then
+        i := i + 2
+      else
+        if c == '"' then st := .code
+        i := i + 1
+    | .rawString hashes =>
+      if c == '"' && countHashes cs (i + 1) ≥ hashes then
+        st := .code
+        i := i + 1 + hashes
+      else
+        i := i + 1
+    | .code =>
+      if c == '-' && next == some '-' then
+        break
+      else if c == '/' && next == some '-' then
+        st := .comment 1
+        i := i + 2
+      else if c == '"' then
+        st := .string
+        i := i + 1
+      else if c == 'r' && atTokenStart cs i && cs[i + 1 + countHashes cs (i + 1)]? == some '"' then
+        let hashes := countHashes cs (i + 1)
+        st := .rawString hashes
+        i := i + 2 + hashes
+      else if c == '\'' && atTokenStart cs i then
+        -- A char literal: `'"'`, `'\n'`, `'\''`, `'\u{2200}'`. Anything else spelled
+        -- with a leading quote is left as code.
+        if next == some '\\' then
+          let mut j := i + 3
+          while j < cs.size && cs[j]! != '\'' do j := j + 1
+          i := j + 1
+        else if cs[i + 2]? == some '\'' then
+          i := i + 3
+        else
+          out := out.push c
+          i := i + 1
+      else if c == '«' then
+        let mut j := i + 1
+        while j < cs.size && cs[j]! != '»' do j := j + 1
+        i := j + 1
+      else
+        out := out.push c
+        i := i + 1
+  return (out, st)
+
+/-- The code text of every line of a file, lexed once from the top so the comment and
+    string state is right at every line. -/
+def stripLines (lines : Array String) : Array String := Id.run do
+  let mut out : Array String := Array.mkEmpty lines.size
+  let mut st : LexState := .code
+  for l in lines do
+    let (code, st') := stripLine l st
+    out := out.push code
+    st := st'
+  return out
+
+/-- A cached source file: its lines, and their code text (`stripLines`). -/
+structure SourceFile where
+  lines : Array String
+  code : Array String
+
+def SourceFile.ofLines (lines : Array String) : SourceFile :=
+  { lines, code := stripLines lines }
+
+/-- File content cache to avoid re-reading (and re-lexing) the same file for every
+    declaration. -/
+abbrev FileCache := IO.Ref (Std.HashMap String SourceFile)
+
+/-- Read a source file, using the cache. -/
+def readSourceFile (cache : FileCache) (path : String) : IO SourceFile := do
+  let map ← cache.get
+  if let some f := map[path]? then
+    return f
+  let content ← IO.FS.readFile ⟨path⟩
+  let f := SourceFile.ofLines (content.splitOn "\n" |>.toArray)
+  cache.modify fun m => m.insert path f
+  return f
 
 /-- Read a file's lines, using the cache. -/
-def readFileLines (cache : FileCache) (path : String) : IO (Array String) := do
-  let map ← cache.get
-  if let some lines := map[path]? then
-    return lines
-  let content ← IO.FS.readFile ⟨path⟩
-  let lines := content.splitOn "\n" |>.toArray
-  cache.modify fun m => m.insert path lines
-  return lines
+def readFileLines (cache : FileCache) (path : String) : IO (Array String) :=
+  (·.lines) <$> readSourceFile cache path
 
 /-- Parse attribute names out of a single `@[...]` block's inner content.
     E.g. `"progress, externally_verified"` → `#["progress", "externally_verified"]`. -/
@@ -525,47 +646,6 @@ private def extractAttrsFromLine (line : String) : Array String := Id.run do
           result := result.push attr
   return result
 
-/-- The code text of one source line: line comments, (nested) block comments —
-    docstrings included — and string literals removed. `depth` is the block-comment
-    nesting depth carried in from the previous line; the new depth is returned.
-    A string literal does not carry across lines. -/
-def stripCommentsAndStrings (line : String) (depth : Nat) : String × Nat := Id.run do
-  let cs := line.toList.toArray
-  let mut out : String := ""
-  let mut depth := depth
-  let mut inString := false
-  let mut i := 0
-  while i < cs.size do
-    let c := cs[i]!
-    let next := cs[i + 1]?
-    if depth > 0 then
-      if c == '/' && next == some '-' then
-        depth := depth + 1
-        i := i + 2
-      else if c == '-' && next == some '/' then
-        depth := depth - 1
-        i := i + 2
-      else
-        i := i + 1
-    else if inString then
-      if c == '\\' then
-        i := i + 2
-      else
-        if c == '"' then inString := false
-        i := i + 1
-    else if c == '"' then
-      inString := true
-      i := i + 1
-    else if c == '-' && next == some '-' then
-      break
-    else if c == '/' && next == some '-' then
-      depth := depth + 1
-      i := i + 2
-    else
-      out := out.push c
-      i := i + 1
-  return (out, depth)
-
 /-- `code` with every `@[…]` block removed (an unclosed block runs to the end). -/
 def removeAttrBlocks (code : String) : String := Id.run do
   let parts := code.splitOn "@["
@@ -583,59 +663,91 @@ private def declHeadKeywords : Array String :=
   #["theorem", "lemma", "def", "abbrev", "instance", "axiom", "opaque", "structure",
     "inductive", "class", "example", "where"]
 
-/-- Whether a line of code text (see `stripCommentsAndStrings`) is a declaration
-    head: outside its `@[…]` blocks it contains `:`, `|` or a declaration keyword. -/
+/-- Whether a line of code text (see `stripLine`) is a declaration head: outside its
+    `@[…]` blocks it contains `:`, `|` or a declaration keyword. -/
 def isDeclHeadLine (code : String) : Bool :=
   let rest := removeAttrBlocks code
   rest.any (fun c => c == ':' || c == '|') ||
     (rest.split Char.isWhitespace).any fun tok => declHeadKeywords.contains tok.toString
 
-/-- The attribute names of a declaration whose source range is lines
-    `[startLine, endLine]` (0-based) of `lines`. Only the declaration **header** is
-    read, because the result feeds the trusted base (`@[externally_verified]`): line
-    and block comments (docstrings) and string literals are stripped first, and the
-    scan stops after the head line (`isDeclHeadLine`), so an annotation quoted in a
-    docstring or a body comment is never attributed to the declaration.
+/-- What the header scan reads for one declaration: the attribute names, and the code
+    text of the head lines — from the range's first line through the head line
+    (`isDeclHeadLine`), `@[…]` blocks removed. The head text is what the declaration's
+    own name must appear in for a scanned `externally_verified` to count as its own
+    (`headerNamesDecl`). -/
+structure HeaderScan where
+  attributes : Array String := #[]
+  headCode : String := ""
+  deriving Repr, BEq, Inhabited
 
-    The two lines before `startLine` are still looked at, for ranges that start at
-    the keyword, but only a *pure* attribute line counts there — one that is nothing
-    but `@[…]` blocks — and a head line in that window is the previous declaration's:
-    it resets whatever was gathered, so a tagged one-line neighbour just above cannot
-    lend its tag. -/
-def attributesFromLines (lines : Array String) (startLine endLine : Nat) : Array String :=
-  Id.run do
+/-- The header of a declaration whose source range is lines `[startLine, endLine]`
+    (0-based) of a file's **code text** (`SourceFile.code`: the whole file lexed from
+    the top, so a block comment, docstring or string literal that opened above the
+    window is already gone). Only the declaration **header** is read, because the
+    result feeds the trusted base (`@[externally_verified]`): the scan stops after the
+    head line, so an annotation in the body is never attributed to the declaration.
+
+    The two lines before `startLine` are still looked at, for macro-generated shapes
+    whose range starts at the keyword, but only a *pure* attribute line counts there —
+    one that is nothing but `@[…]` blocks — and a head line in that window is the
+    previous declaration's: it resets whatever was gathered, so a tagged one-line
+    neighbour just above cannot lend its tag. -/
+def scanHeader (code : Array String) (startLine endLine : Nat) : HeaderScan := Id.run do
   let mut attrs : Array String := #[]
+  let mut head : String := ""
   let scanFrom := if startLine > 2 then startLine - 2 else 0
-  let scanTo := min (endLine + 1) lines.size
-  let mut depth := 0
+  let scanTo := min (endLine + 1) code.size
   for i in [scanFrom:scanTo] do
-    if h : i < lines.size then
-      let (code, d) := stripCommentsAndStrings lines[i] depth
-      depth := d
-      let isHead := isDeclHeadLine code
+    if h : i < code.size then
+      let line := code[i]
+      let isHead := isDeclHeadLine line
       if i < startLine then
         if isHead then attrs := #[]
-        else if (removeAttrBlocks code).trimAscii.isEmpty then
-          for attr in extractAttrsFromLine code do
+        else if (removeAttrBlocks line).trimAscii.isEmpty then
+          for attr in extractAttrsFromLine line do
             if !attrs.contains attr then attrs := attrs.push attr
       else
-        for attr in extractAttrsFromLine code do
+        for attr in extractAttrsFromLine line do
           if !attrs.contains attr then attrs := attrs.push attr
+        head := head ++ removeAttrBlocks line ++ " "
         if isHead then break
-  return attrs
+  return { attributes := attrs, headCode := head }
 
-/-- Extract attribute names from the source text of a declaration; see
-    `attributesFromLines` for what is and is not read. `startLine`/`endLine` are the
-    declaration range's **1-based** lines (`Lean.Position.line`, as in
-    `CodeTextInfo`); they are converted to 0-based indices here. The old scan indexed
-    the line array with the 1-based numbers directly, which shifted its window one
-    line down — onto the *next* declaration's first line, whose `@[…]` it then read
-    as this declaration's. -/
+/-- `scanHeader` over raw source lines: lexes the whole file first. -/
+def attributesFromLines (lines : Array String) (startLine endLine : Nat) : Array String :=
+  (scanHeader (stripLines lines) startLine endLine).attributes
+
+/-- Whether the head text of a declaration's header names the declaration: some
+    identifier token equals the declaration's user-facing name or a dotted suffix of
+    it (`theorem foo.bar` inside `namespace N` declares `N.foo.bar`). An anonymous
+    `instance : …` is named by the keyword instead, since its `inst…` name never
+    appears in the source. This is what stops a constant that merely *shares* a
+    tagged declaration's range — a `deriving` instance or a projection of a one-line
+    structure, a `.mvcgen_spec` companion — from inheriting the tag: their names are
+    not on the head line. -/
+def headerNamesDecl (headCode : String) (name : Name) (isInstance : Bool) : Bool :=
+  let user := (privateToUserName name).toString
+  let tokens := headCode.split fun c => !(Lean.isIdRest c || c == '.')
+  tokens.any fun tok =>
+    let t := tok.toString
+    !t.isEmpty && (t == user || user.endsWith ("." ++ t) || (isInstance && t == "instance"))
+
+/-- Scan the header of a declaration from its source file; see `scanHeader` for what
+    is and is not read. `startLine`/`endLine` are the declaration range's **1-based**
+    lines (`Lean.Position.line`, as in `CodeTextInfo`); they are converted to 0-based
+    indices here. The old scan indexed the line array with the 1-based numbers
+    directly, which shifted its window one line down — onto the *next* declaration's
+    first line, whose `@[…]` it then read as this declaration's. -/
+def scanDeclHeader (cache : FileCache) (projectPath : System.FilePath)
+    (codePath : String) (startLine endLine : Nat) : IO HeaderScan := do
+  if codePath.isEmpty then return {}
+  let file ← readSourceFile cache (projectPath / codePath).toString
+  return scanHeader file.code (startLine - 1) (endLine - 1)
+
+/-- `scanDeclHeader`'s attribute names alone. -/
 def extractAttributesFromSource (cache : FileCache) (projectPath : System.FilePath)
-    (codePath : String) (startLine endLine : Nat) : IO (Array String) := do
-  if codePath.isEmpty then return #[]
-  let lines ← readFileLines cache (projectPath / codePath).toString
-  return attributesFromLines lines (startLine - 1) (endLine - 1)
+    (codePath : String) (startLine endLine : Nat) : IO (Array String) :=
+  (·.attributes) <$> scanDeclHeader cache projectPath codePath startLine endLine
 
 /-- Strip leading "./" from a path string -/
 def stripLeadingDotSlash (path : String) : String :=
@@ -995,30 +1107,44 @@ def moduleSourcePathCached (cache : ModulePathCache) (env : Environment)
   cache.modify (·.insert modName p)
   return p
 
-/-- The attribute names of a declaration: handle-based detection for the tags
-    probe-lean registers itself (works when the target imports `ProbeLean.Attrs`),
-    plus — when `scanSource` — the `@[…]` blocks scanned from the source text around
-    `range`. The scan is the mechanism that actually fires on targets that register
-    `externally_verified` under their own extension name. The **one** place
-    attributes are computed: the atom's `attributes` array and the trusted base both
-    read this. -/
+/-- A declaration's attributes, as `declAttributes` computes them. -/
+structure DeclAttrs where
+  /-- The emitted `attributes` array: handle tags plus every scanned `@[…]` name. -/
+  attributes : Array String := #[]
+  /-- Rule 2's input: the declaration carries `externally_verified` **of its own** —
+      probe-lean's attribute handle has this exact name, or the header the tag was
+      scanned from names the declaration (`headerNamesDecl`). A tag that is merely
+      *shown* because the declaration shares a tagged declaration's source range
+      (a `deriving` instance, a projection, a companion) leaves this `false`. -/
+  ownExternallyVerified : Bool := false
+  deriving Repr, BEq, Inhabited
+
+/-- The attributes of a declaration: handle-based detection for the tags probe-lean
+    registers itself (works when the target imports `ProbeLean.Attrs`), plus — when
+    `scanSource` — the `@[…]` blocks scanned from the header of `range`. The scan is
+    the mechanism that actually fires on targets that register `externally_verified`
+    under their own extension name. The **one** place attributes are computed: the
+    atom's `attributes` array and the trusted base both read this. -/
 def declAttributes (env : Environment) (projectPath : System.FilePath) (fileCache : FileCache)
     (pathCache : ModulePathCache) (name moduleName : Name) (range : Option CodeTextInfo)
-    (scanSource : Bool) : IO (Array String) := do
+    (scanSource : Bool) (isInstance : Bool := false) : IO DeclAttrs := do
   let mut attrs : Array String := #[]
+  let mut ownEV := externallyVerifiedAttr.hasTag env name
   if primarySpecAttr.hasTag env name then
     attrs := attrs.push "primary_spec"
-  if externallyVerifiedAttr.hasTag env name then
+  if ownEV then
     attrs := attrs.push "externally_verified"
   if scanSource then
     if let some r := range then
       let sourcePathStr ← moduleSourcePathCached pathCache env projectPath moduleName
-      let sourceAttrs ← extractAttributesFromSource fileCache projectPath sourcePathStr
-        r.linesStart r.linesEnd
-      for sa in sourceAttrs do
+      let header ← scanDeclHeader fileCache projectPath sourcePathStr r.linesStart r.linesEnd
+      for sa in header.attributes do
         if !attrs.contains sa then
           attrs := attrs.push sa
-  return attrs.qsort (· < ·)
+      if header.attributes.contains "externally_verified" &&
+          headerNamesDecl header.headCode name isInstance then
+        ownEV := true
+  return { attributes := attrs.qsort (· < ·), ownExternallyVerified := ownEV }
 
 /-- Convert a DeclInfo to an Atom. `attrs` is the declaration's attribute list from
     `declAttributes`, computed once by the caller for every project constant that

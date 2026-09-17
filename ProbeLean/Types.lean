@@ -363,58 +363,6 @@ instance : Lean.FromJson SorryInfo where
     let message ← json.getObjValAs? String "message"
     return { line, message }
 
-/-- Verification status -/
-inductive VerifyStatus where
-  | success
-  | sorries
-  | failure
-  deriving Repr, BEq
-
-instance : Lean.ToJson VerifyStatus where
-  toJson
-    | .success => "success"
-    | .sorries => "sorries"
-    | .failure => "failure"
-
-instance : Lean.FromJson VerifyStatus where
-  fromJson? json := do
-    let s ← json.getStr?
-    match s with
-    | "success" => return .success
-    | "sorries" => return .sorries
-    | "failure" => return .failure
-    | _ => throw s!"Unknown VerifyStatus: {s}"
-
-/-- A proof entry for proofs output -/
-structure ProofEntry where
-  verified : Bool
-  status : VerifyStatus
-  codePath : String
-  codeLine : Nat
-  sorries : Array SorryInfo
-  deriving Repr, BEq
-
-instance : Lean.ToJson ProofEntry where
-  toJson entry :=
-    let base := [
-      ("verified", Lean.toJson entry.verified),
-      ("status", Lean.toJson entry.status),
-      ("code-path", Lean.toJson entry.codePath),
-      ("code-line", Lean.toJson entry.codeLine)
-    ]
-    let withSorries := if entry.sorries.isEmpty then base
-      else base ++ [("sorries", Lean.toJson entry.sorries)]
-    Lean.Json.mkObj withSorries
-
-instance : Lean.FromJson ProofEntry where
-  fromJson? json := do
-    let verified ← json.getObjValAs? Bool "verified"
-    let status ← json.getObjValAs? VerifyStatus "status"
-    let codePath ← json.getObjValAs? String "code-path"
-    let codeLine ← json.getObjValAs? Nat "code-line"
-    let sorries ← json.getObjValAs? (Array SorryInfo) "sorries" <|> pure #[]
-    return { verified, status, codePath, codeLine, sorries }
-
 /-- Verification status as consumed by the web frontend -/
 inductive WebVerificationStatus where
   | verified
@@ -644,25 +592,6 @@ instance : Lean.FromJson SpecsOutput where
   fromJson? json := do
     let obj ← json.getObj?
     let mut entries : Array (String × SpecEntry) := #[]
-    for (name, value) in obj.toArray do
-      let entry ← Lean.FromJson.fromJson? value
-      entries := entries.push (name, entry)
-    return { entries }
-
-/-- Output format for proofs - an object keyed by atom name -/
-structure ProofsOutput where
-  entries : Array (String × ProofEntry)
-  deriving Repr
-
-instance : Lean.ToJson ProofsOutput where
-  toJson output :=
-    let pairs := output.entries.map fun (name, entry) => (name, Lean.toJson entry)
-    Lean.Json.mkObj pairs.toList
-
-instance : Lean.FromJson ProofsOutput where
-  fromJson? json := do
-    let obj ← json.getObj?
-    let mut entries : Array (String × ProofEntry) := #[]
     for (name, value) in obj.toArray do
       let entry ← Lean.FromJson.fromJson? value
       entries := entries.push (name, entry)

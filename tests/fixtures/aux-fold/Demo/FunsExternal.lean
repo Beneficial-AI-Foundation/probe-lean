@@ -1,6 +1,7 @@
 /-!
-Rule 3 of the trusted base: a non-theorem declared in a `*External` module is
-trusted (reason `external`), theorems there are not.
+Rule 3 of the trusted base: a non-proof declared in a `*External` module is
+trusted (reason `external`); theorems, and any other declaration whose type is a
+proposition, are not.
 -/
 
 /-- Trusted by the module convention although its body is a `sorry`. -/
@@ -11,3 +12,12 @@ theorem usesExternal : externalOp = externalOp := rfl
 
 /-- A theorem in an `External` module gets its normal status: `unverified`. -/
 theorem extThm : (0 : Nat) < 1 := by sorry
+
+/-- A proof in disguise: a `def` whose *type* is a proposition. Rule 3 excludes it
+(the convention trusts models of external functions and types, not admitted facts):
+`unverified`. -/
+def admittedFact : (0 : Nat) < 1 := by sorry
+
+/-- A Prop-*valued* definition — its type is `Prop`, which is not itself a
+proposition — is a model like any other: `trusted`. -/
+def externalPred : Prop := sorry

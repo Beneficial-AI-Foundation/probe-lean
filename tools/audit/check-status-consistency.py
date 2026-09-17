@@ -41,7 +41,9 @@ def user_name(raw):
 
 
 def parse_report(path):
-    """{name: (direct, emitted)} for every listed constant."""
+    """{name: (direct, emitted, stripped)} for every listed constant; `stripped` records
+    that a `_private.<module>.0.` prefix was removed, so an unmatched name can still be
+    told apart from a genuine inconsistency after the prefix is gone."""
     listed = {}
     with open(path) as fh:
         for line in fh:
@@ -50,7 +52,7 @@ def parse_report(path):
             parts = line.strip().split(" ")
             name = user_name(parts[0])
             flags = " ".join(parts[1:])
-            listed[name] = ("[direct]" in flags, "[not emitted]" not in flags)
+            listed[name] = ("[direct]" in flags, "[not emitted]" not in flags, name != parts[0])
     return listed
 
 
@@ -110,9 +112,9 @@ def main():
             bad.append(f"{name}: unexpected status {status!r}")
 
     unresolved = []
-    for name, (direct, emitted) in sorted(listed.items()):
+    for name, (direct, emitted, stripped) in sorted(listed.items()):
         if emitted and name not in atoms:
-            (unresolved if "_private" in name else bad).append(
+            (unresolved if stripped else bad).append(
                 f"{name}: listed as emitted but not an atom of the artifact")
         if not emitted and name in atoms:
             bad.append(f"{name}: listed [not emitted] but is an atom")

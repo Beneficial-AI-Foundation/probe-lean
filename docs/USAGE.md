@@ -81,13 +81,16 @@ Before importing, `extract` runs a **co-importability preflight**: it reads each
 
 The preflight tolerates exactly what Lean's importer tolerates: two modules restating a theorem with the same name and statement (a problem file and its solution file, say). The importer then keeps **one** proof without comparing the bodies, so the name no longer identifies one project proof. `extract` and `check-axioms` fail closed on such *merged* declarations: the walk follows the union of every version's dependencies — a `sorry` in any version makes the name `unverified` and every caller `verified` — no `@[externally_verified]` on them is honoured, and they are announced with `Warning: <n> declaration name(s) are declared by more than one project module with the same statement, and Lean kept one proof: <names>`. Give each variant its own namespace if the proved version's callers should read clean.
 
+The preflight reads project modules only, so a restatement of a **dependency's** theorem (or a pair involving a module whose `.olean` it could not read) is found after the import instead, from the environment header: a name a project module declares that the environment attributes to another module, or that a non-project module declares too. The walk cannot see the discarded body, so such a name is treated as resting on `sorry` — `unverified` (or `[not emitted]` in `check-axioms`, when the importer attributed it to the dependency), every caller `verified`, no trust rule applied — and announced with `Warning: <n> declaration name(s) are declared by a project module and by a module the walk cannot see into (a dependency package, or a module the preflight could not read), and Lean kept one body: <names>; …`.
+
 `verification-status` is decided by a **kernel walk**, not by the build log or the emitted
 dependency graph. `sorry` elaborates to the `sorryAx` axiom; `extract` walks the constant graph
 of every constant of every built project module — including constants it never emits as atoms
 (auxiliaries, constructors, range-less `addDecl`/`impl_def` constants) — stopping at the project
 boundary (Lean and every dependency package are trusted wholesale) and at the **trusted base**:
-axioms, declarations tagged `@[externally_verified]` on their own source range, and non-theorems
-in `*External` modules. A `sorry` inside or below a trusted declaration does not taint its
+axioms, declarations tagged `@[externally_verified]` on their own source range, and non-proofs
+in `*External` modules (theorems, and `def`/`opaque`s whose type is a proposition, get their
+normal status there). A `sorry` inside or below a trusted declaration does not taint its
 callers. See [SCHEMA.md](SCHEMA.md) for the exact meaning of each status value. The pass prints
 its totals:
 
@@ -95,20 +98,27 @@ its totals:
 Project constants: 11293 in 231 module(s) | trusted: 151 | direct sorry carriers: 4 | tainted: 112
 ```
 
-Two cross-checks run alongside it and print `Divergence:` lines on stderr, never changing a
-status: the build log's `sorry` warnings against the walk's direct carriers, and the old
-reverse-BFS over the emitted graph against the walk's verdicts. A
-`Divergence: <atom> graph says clean, oracle says tainted` line localises a node or edge the
-emitted graph is missing (typically a carrier with no declaration range, which is never an
-atom). A trusted declaration whose *statement* names `sorry` directly is reported with
+Two cross-checks run alongside it and print lines on stderr, never changing a status: the
+build log's `sorry` warnings against the walk's direct carriers (`Divergence(log): <atom>
+build log says sorry, kernel says clean modulo trust`, or `… kernel says sorry, no warning
+in the log`; trusted atoms are skipped, since a `sorry` under them is excused, not missed),
+and the old reverse-BFS over the emitted graph against the walk's verdicts
+(`Divergence(graph): <atom> graph says clean, oracle says tainted`, or the reverse, followed
+by a `Graph cross-check: <n> atom(s) …` summary). A graph divergence localises a node or edge
+the emitted graph is missing (typically a carrier with no declaration range, which is never
+an atom). A trusted declaration whose *statement* names `sorry` directly is reported with
 `Warning: trusted declaration <n> names \`sorry\` directly in its statement`. An atom the walk
 did not cover (its Lean name is not a project constant — a bug, since every emitted atom is
 one) gets no status and `Warning: atom <name> is not a project constant the kernel walk
 covered; no verification-status assigned`.
 
-`@[externally_verified]` is read from the declaration's **header only**: comments, docstrings
-and string literals are ignored and the scan stops at the line that opens the declaration, so
-a tag quoted in a docstring or body comment, or a tagged one-liner on the line above, does not
+`@[externally_verified]` is read from the declaration's **header only**: the source file is
+lexed from the top, so comments, docstrings, string and raw string literals, char literals
+and `«…»` identifiers are ignored wherever they open; the scan stops at the line that opens
+the declaration; and the head line must **name the declaration**. So a tag quoted in a
+docstring or body comment, a tagged one-liner on the line above, a tag commented out in a
+block comment above, or the tag of a one-line `structure … deriving …` (whose derived
+instance and projections share its source range and *show* the tag in `attributes`) does not
 make a declaration trusted.
 
 To check an artifact against the `check-axioms` report in both directions (every `unverified`
@@ -182,10 +192,14 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 | `--module <PREFIX>` | `-m` | Restrict which constants count as *emitted* (the `[not emitted]` marker); the walk always covers every built module it can import |
 | `--library <LIBS>` | `-l` | Comma-separated library names to build **and** restrict the emitted set to |
 
+On `tests/fixtures/aux-fold` (abridged; the full report has one line per listed constant):
+
 ```
-Project constants: 19 in 6 module(s) | trusted: 2 | direct sorry carriers: 5 | tainted: 8
-8 constant(s) rest on an unexcused project sorry:
+Project constants: 61 in 6 module(s) | trusted: 5 | direct sorry carriers: 12 | tainted: 16
+16 constant(s) rest on an unexcused project sorry:
+  admittedFact [direct]
   extThm [direct]
+  instReprTagged
   noRangeMid [direct] [not emitted]
   tacticUse._proof_1 [not emitted]
   viaNoRange

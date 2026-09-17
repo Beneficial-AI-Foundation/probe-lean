@@ -380,7 +380,7 @@ def importProjectEnvWithFallback (projectPath : System.FilePath)
     atom set (not dropped), so the emitted graph still carries it. -/
 private def buildAtoms (env : Environment) (projectPath : System.FilePath)
     (selFilter : ProjectFilter) (crate : String) (pathCache : ModulePathCache)
-    (auxCache : AuxDepCache) (attrs : Std.HashMap Name (Array String))
+    (auxCache : AuxDepCache) (attrs : Std.HashMap Name DeclAttrs)
     (decls : Array DeclInfo) : IO (Array Atom) := do
   -- Auto-detected `deriving`-generated instance clusters and attribute-macro
   -- companion theorems (names only).
@@ -394,7 +394,7 @@ private def buildAtoms (env : Environment) (projectPath : System.FilePath)
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath selFilter crate pathCache auxCache
-      (attrs.getD decl.name #[]) decl
+      (attrs.getD decl.name default).attributes decl
     let isLeanGen := derivedNames.contains decl.name || decl.kind == .projection
     let isAeneasGen := companionNames.contains decl.name
     let atom :=
@@ -448,9 +448,9 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (importedAll := imported.size == all.size) (moduleCount := imported.size) (merged := merged)
+    (moduleCount := imported.size) (merged := merged)
   IO.println (formatTaintSummary pt)
-  reportTypeTainted pt
+  reportTaintWarnings pt
 
   -- One fold state per run: its closure cache is keyed to this `Environment`
   -- and this project filter, and extraction is sequential (see `FoldState`).

@@ -5,7 +5,7 @@ The SPQR `impl_def` shape: a `sorry` carrier added with `addDecl` and no declara
 range. `extract` never emits it as an atom, so the emitted dependency graph cannot
 see the edge from `viaNoRange` to it and the graph-BFS reports `viaNoRange` clean;
 the kernel walk sees the constant like any other and reports it tainted. That
-disagreement is the `Divergence:` line the end-to-end check asserts on.
+disagreement is the `Divergence(graph):` line the end-to-end check asserts on.
 -/
 
 open Lean Elab Command Term in

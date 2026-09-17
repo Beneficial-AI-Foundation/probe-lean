@@ -57,7 +57,7 @@ def main():
     # see the edge and the graph-BFS reports `thm` clean; the walk sees it. That
     # disagreement is exactly what the divergence line exists for.
     check("the graph-BFS disagreement on thm is printed",
-          "Divergence: probe:thm graph says clean, oracle says tainted" in stderr)
+          "Divergence(graph): probe:thm graph says clean, oracle says tainted" in stderr)
 
     print("check-axioms report")
     check("bad is listed as a direct carrier that is not emitted",

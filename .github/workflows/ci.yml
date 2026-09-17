@@ -68,7 +68,7 @@ jobs:
       # The same fixture also carries the sorry-taint end-to-end check
       # (`TaintCheck.lean`): the trusted base, a range-less carrier, a generated
       # companion, fabricated-trust shapes the source scan must not read, the
-      # `Divergence:` line on stderr and the `check-axioms` report.
+      # `Divergence(graph):` line on stderr and the `check-axioms` report.
       # `check-status-consistency.py` then asserts the artifact and the report
       # agree in *both* directions on every atom.
       - name: End-to-end aux-fold and sorry-taint extract checks
@@ -77,8 +77,9 @@ jobs:
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           lake build probe-lean
           cd tests/fixtures/aux-fold
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
-          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
           lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
@@ -93,8 +94,9 @@ jobs:
             || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/collision
           lake build
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr
-          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
           python3 check.py
 
@@ -107,8 +109,27 @@ jobs:
             || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/merge
           lake build
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
-          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # A declaration merged across the project boundary: a project module restates
+      # a theorem of a (path) dependency with the same statement and a `sorry`. The
+      # olean preflight reads project modules only and cannot see the pair; the
+      # importer attributes the name to the dependency and keeps the sorried body.
+      # The post-import scan must flag it and taint both callers.
+      - name: End-to-end cross-boundary merge check
+        run: |
+          diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/cross-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
@@ -152,6 +173,7 @@ jobs:
           cp lean-toolchain tests/fixtures/aux-fold/lean-toolchain
           cp lean-toolchain tests/fixtures/collision/lean-toolchain
           cp lean-toolchain tests/fixtures/merge/lean-toolchain
+          cp lean-toolchain tests/fixtures/cross-merge/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -200,8 +222,9 @@ jobs:
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/aux-fold
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
-          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
           lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
@@ -213,8 +236,9 @@ jobs:
             || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/collision
           lake build
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr
-          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
           python3 check.py
 
@@ -227,8 +251,27 @@ jobs:
             || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/merge
           lake build
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr
-          cat extract.stderr
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # A declaration merged across the project boundary: a project module restates
+      # a theorem of a (path) dependency with the same statement and a `sorry`. The
+      # olean preflight reads project modules only and cannot see the pair; the
+      # importer attributes the name to the dependency and keeps the sorried body.
+      # The post-import scan must flag it and taint both callers.
+      - name: End-to-end cross-boundary merge check
+        run: |
+          diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/cross-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out

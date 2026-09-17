@@ -74,9 +74,9 @@ def divergenceLines (oracle graph : Array UnifiedAtom) : Array String := Id.run 
     let some g := graph[i]? | break
     match o.verificationStatus, g.verificationStatus with
     | some .transitivelyVerified, some .verified =>
-      out := out.push s!"Divergence: {o.name} graph says tainted, oracle says clean"
+      out := out.push s!"Divergence(graph): {o.name} graph says tainted, oracle says clean"
     | some .verified, some .transitivelyVerified =>
-      out := out.push s!"Divergence: {o.name} graph says clean, oracle says tainted"
+      out := out.push s!"Divergence(graph): {o.name} graph says clean, oracle says tainted"
     | _, _ => pure ()
   return out
 

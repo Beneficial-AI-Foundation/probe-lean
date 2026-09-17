@@ -25,3 +25,33 @@ is not on this declaration: `unverified`. -/
 theorem docMention : (0 : Nat) < 5 := by
   -- not this one either: @[externally_verified]
   sorry
+
+/-
+@[externally_verified]
+-/
+/-- A commented-out tag in the block comment just above (the way one removes trust
+temporarily). The scan lexes the file from the top, so the comment's content is not a
+pure attribute line: `unverified`. -/
+theorem commentedOutTag : (0 : Nat) < 5 := by sorry
+
+/-!
+Range-sharers. A one-line `structure … deriving …` puts the structure, its derived
+instance and its projection on the same declaration range, so all three *show* the
+structure's scanned `@[externally_verified]` in `attributes`. Only the structure is
+named on that line, so only the structure is trusted; the instance, which rests on
+a project `sorry`, must not become a trusted leaf that shields its callers.
+-/
+
+/-- A field type whose `Repr` instance is a project `sorry`. -/
+structure Payload where
+  v : Nat
+
+/-- `unverified`: the `sorry` the derived instance below rests on. -/
+instance : Repr Payload := ⟨fun _ _ => sorry⟩
+
+/-- Tagged, one line: the structure is `trusted`. Its derived `instReprTagged` shares
+the range and shows the tag, but rests on the sorried `Repr Payload`: `verified`. -/
+@[externally_verified] structure Tagged where p : Payload deriving Repr
+
+/-- Renders through the derived instance: `verified`, never `transitively-verified`. -/
+def showTagged (t : Tagged) : String := reprStr t

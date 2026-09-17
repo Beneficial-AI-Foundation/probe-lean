@@ -41,21 +41,27 @@ def isCompanionName : Name → Bool
 /-- Rules 1–3 of the trusted base, in precedence order:
 
     1. kind `axiom` — a kernel fact, applies to every project constant;
-    2. `@[externally_verified]` — a human vouches for the declaration; applies only
-       to a **source-visible** declaration, i.e. one with a declaration range of its
-       own (`hasRange`). Constants without a range (`impl_def`, `addDecl`), internal
-       auxiliaries (`_proof_N`) and generated companions cannot be tagged, so the
-       caller passes `hasRange := false` for them;
-    3. a non-theorem in a `*External` module — Aeneas's trust-base convention.
-       Theorems there carry real proofs and get their normal status.
+    2. `@[externally_verified]` — a human vouches for the declaration. `externallyVerified`
+       must mean the declaration's **own** annotation: probe-lean's attribute handle on
+       this exact name, or a tag scanned from the header of the declaration's own source
+       range whose head line names the declaration (`Analysis.declAttributes`,
+       `Taint.rule2Applies`). Constants without a range (`impl_def`, `addDecl`), internal
+       auxiliaries (`_proof_N`), generated companions and anything that merely shares a
+       tagged declaration's range (a `deriving` instance, a projection) cannot be tagged,
+       so the caller passes `false` for them;
+    3. a non-proof in a `*External` module — Aeneas's trust-base convention for
+       hand-written models of external functions and types. `isProof` is true for every
+       `theorem` and for any other declaration whose type is a proposition (`def
+       admitted : False := sorry`, an `opaque` of Prop type); those carry proofs and get
+       their normal status.
 
     Returns the `trusted-reason` string, or `none` when the declaration is not
     trusted. -/
-def trustedReason (kind : DeclKind) (attributes : Array String) (moduleName : Name)
-    (hasRange : Bool) : Option String :=
+def trustedReason (kind : DeclKind) (externallyVerified : Bool) (moduleName : Name)
+    (isProof : Bool) : Option String :=
   if kind == .axiom then some "axiom"
-  else if hasRange && attributes.contains "externally_verified" then some "externally_verified"
-  else if isExternalModule moduleName && kind != .theorem then some "external"
+  else if externallyVerified then some "externally_verified"
+  else if isExternalModule moduleName && !isProof then some "external"
   else none
 
 end ProbeLean

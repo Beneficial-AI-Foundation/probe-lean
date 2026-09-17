@@ -1,0 +1,16 @@
+name = "crossmerge"
+defaultTargets = ["CrossMerge"]
+
+# `CrossMerge.Restate` restates the dependency's `Dep.Shared.shared` (same name,
+# same statement) with a `sorry`. Lean's importer tolerates the pair and keeps ONE
+# body, attributing the name to whichever module was imported first — here the
+# dependency, loaded through `CrossMerge.Other`. The olean preflight reads project
+# modules only, so it cannot see this merge; the post-import scan of the
+# environment header must.
+[[require]]
+name = "dep"
+path = "dep"
+
+[[lean_lib]]
+name = "CrossMerge"
+globs = ["CrossMerge.+"]

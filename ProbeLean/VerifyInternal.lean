@@ -104,24 +104,4 @@ def findSorriesForAtom (warnings : Array SorryWarning) (atom : Atom) : Array Sor
       none
   matched.qsort fun a b => a.line < b.line
 
-/-- Convert an atom and its sorries to a ProofEntry.
-    Atoms without source location (codeText = none) cannot be checked for sorry,
-    so they are conservatively marked as unverified (sorries status). -/
-def atomToProofEntry (atom : Atom) (sorries : Array SorryInfo) : ProofEntry :=
-  let hasLocation := atom.codeText.isSome
-  let verified := sorries.isEmpty && hasLocation
-  let status := if !hasLocation then VerifyStatus.sorries
-    else if sorries.isEmpty then VerifyStatus.success
-    else VerifyStatus.sorries
-  let codeLine := match atom.codeText with
-    | some range => range.linesStart
-    | none => 0
-  {
-    verified := verified
-    status := status
-    codePath := atom.codePath
-    codeLine := codeLine
-    sorries := sorries
-  }
-
 end ProbeLean

@@ -30,12 +30,10 @@ structure ProjectTaint where
       statement (`Coimport.MergedDecl`): the importer kept one proof, the walk
       followed the union of all of them. Sorted by name; reported as a warning. -/
   merged : Array Name := #[]
-  /-- `false` when the full project module set could not be co-imported and P is
-      the selection's import closure only. Every emitted atom's dependency closure
-      is still inside P (see `Atomize.loadedProjectModules`); what is lost is the
-      `check-axioms` audit of the modules left out, and the caller has printed
-      `formatFallbackWarning`. -/
-  importedAll : Bool
+  /-- Names a project module declares whose other version the walk cannot see
+      (`crossMergedNames`): treated as resting on `sorry`, never trusted. Sorted by
+      name; reported as a warning. -/
+  crossMerged : Array Name := #[]
   /-- |P|. -/
   pSize : Nat
   /-- Number of project modules imported. -/
@@ -43,10 +41,13 @@ structure ProjectTaint where
 
 /-- Whether rule 2 of the trusted base can apply to a constant: it is a
     source-visible declaration (own range, not internal, not a constructor or
-    recursor) and not a generated companion. Everything else cannot carry an
-    `@[externally_verified]` mark of its own, however its source range reads. -/
+    recursor), not a generated companion and not a structure projection. Everything
+    else cannot carry an `@[externally_verified]` mark of its own, however its source
+    range reads — a projection of a one-line `structure` shares the structure's range
+    *and* has its field name on the head line, which is why it is excluded by kind
+    rather than left to `headerNamesDecl`. -/
 def rule2Applies (env : Environment) (name : Name) (info : ConstantInfo) : Bool :=
-  isSourceVisible env name info && !isCompanionName name
+  isSourceVisible env name info && !isCompanionName name && !env.isProjectionFn name
 
 /-- The out-edges of a merged declaration: the union of `constInfoChildren` over
     every version the preflight read. The environment holds only one version's
@@ -63,85 +64,180 @@ def mergedChildren (m : MergedDecl) : Array Name := Id.run do
 def mergedChildrenMap (merged : Array MergedDecl) : Std.HashMap Name (Array Name) :=
   merged.foldl (init := {}) fun acc m => acc.insert m.declName (mergedChildren m)
 
+/-- Names a project module declares that the walk cannot see every body of, found
+    after the import from the environment header alone (no dependence on the olean
+    preflight): (a) a name in a project module's `constNames` that the environment
+    attributes to another module — `finalizeImport` keeps the **first** owner's index
+    and the **last** subsuming body, so this catches a same-statement restatement of
+    a dependency theorem imported after it, and any project/project pair the
+    preflight did not read (`knownMerged` are the ones it did, handled more precisely
+    by `mergedChildren`); (b) a name declared by both a project module and a
+    non-project module, whichever order they were imported in. In every case one of
+    the two bodies is gone and it may be the one with the `sorry`, so the caller
+    treats these names as direct carriers and trusts none of them. Sorted by name. -/
+def crossMergedNames (env : Environment) (pFilter : ProjectFilter)
+    (knownMerged : Std.HashSet Name) : Array Name := Id.run do
+  let mods := env.header.moduleData
+  let mut declared : Std.HashSet Name := {}
+  let mut flagged : Std.HashSet Name := {}
+  for i in [:mods.size] do
+    if pFilter.moduleIdxs.contains i then
+      for n in mods[i]!.constNames do
+        declared := declared.insert n
+        if env.getModuleIdxFor? n != some i && !knownMerged.contains n then
+          flagged := flagged.insert n
+  for i in [:mods.size] do
+    if !pFilter.moduleIdxs.contains i then
+      for n in mods[i]!.constNames do
+        if declared.contains n then flagged := flagged.insert n
+  flagged.toArray.qsort fun a b => a.toString < b.toString
+
 /-- Trust for a merged declaration: every version must be trusted on its own by
     rules 1 and 3 (kind and owning module). Rule 2 never applies — an
     `@[externally_verified]` sits in one file and vouches for one body, and the
     environment does not say which body survived. A theorem/axiom pair is
     therefore not trusted: the theorem version carries a proof the axiom version
-    would excuse. Returns the reason of the first version when all agree. -/
-def mergedTrustedReason (env : Environment) (m : MergedDecl) : Option String := do
+    would excuse. `isProof` is the name's rule-3 input (`propTypedNames`); every
+    version has the same statement, so it is shared. Returns the reason of the first
+    version when all agree. -/
+def mergedTrustedReason (env : Environment) (m : MergedDecl) (isProof : Bool := false)
+    : Option String := do
   let reasons ← m.versions.mapM fun (owner, ci) =>
-    trustedReason (getDeclKind env m.declName ci) #[] owner false
+    let kind := getDeclKind env m.declName ci
+    trustedReason kind false owner (kind == .theorem || isProof)
   reasons[0]?
 
-/-- Attribute lists for the constants of P that can carry attributes: every
+/-- Attributes for the constants of P that can carry attributes: every
     source-visible declaration. Constants absent from the map have no attributes.
     With no `--module`/`--library` selection this is exactly the emitted atom set, so
     the scan runs once and `declInfoToAtom` reuses the result.
 
-    A generated companion (`X.mvcgen_spec`) shares its parent's range and therefore
-    *shows* the parent's scanned attributes here, as it always has — the emitted
-    `attributes` array is unchanged, and the primary-spec signals keep reading them
-    (the companion of a `@[step]` axiom is that axiom's spec proxy). What the
-    companion does **not** get is trust from them: `rule2Applies` is false for it, so
-    `computeTrustBase` ignores a scanned `externally_verified` on a companion. -/
+    A constant that shares a tagged declaration's range — a generated companion
+    (`X.mvcgen_spec`), a `deriving` instance or a projection of a one-line structure
+    — *shows* the scanned attributes here, as it always has: the emitted `attributes`
+    array is unchanged, and the primary-spec signals keep reading them (the companion
+    of a `@[step]` axiom is that axiom's spec proxy). What it does **not** get is
+    trust from them: `DeclAttrs.ownExternallyVerified` is false when the head line
+    does not name the constant, and `rule2Applies` is false for companions and
+    projections regardless, so `computeTrustBase` ignores the shown tag. -/
 def computeAttributes (env : Environment) (projectPath : System.FilePath) (fileCache : FileCache)
     (pathCache : ModulePathCache) (consts : Array (Name × ConstantInfo))
-    : IO (Std.HashMap Name (Array String)) := do
+    : IO (Std.HashMap Name DeclAttrs) := do
   let modNames := env.allImportedModuleNames
-  let mut attrs : Std.HashMap Name (Array String) := {}
+  let mut attrs : Std.HashMap Name DeclAttrs := {}
   for (name, info) in consts do
     if !isSourceVisible env name info then
       continue
     let moduleName := (moduleNameOf modNames env name).getD .anonymous
     let range := getDeclSourceLoc env name
     let a ← declAttributes env projectPath fileCache pathCache name moduleName range
-      (scanSource := true)
+      (scanSource := true) (isInstance := getDeclKind env name info == .instance)
     attrs := attrs.insert name a
   return attrs
 
+/-- The constants rule 3 has to look at more closely: non-theorem, non-axiom
+    constants of `*External` modules (`propTypedNames`). -/
+def externalRule3Candidates (env : Environment) (consts : Array (Name × ConstantInfo))
+    : Array (Name × ConstantInfo) :=
+  let modNames := env.allImportedModuleNames
+  consts.filter fun (name, info) =>
+    let kind := getDeclKind env name info
+    kind != .theorem && kind != .axiom &&
+      isExternalModule ((moduleNameOf modNames env name).getD .anonymous)
+
+/-- Of `cands`, those whose **type is a proposition** (`Meta.isProp` on the statement,
+    run once per candidate) — rule 3's proof test for `externalRule3Candidates`. A
+    `def admitted : False := by sorry` in an External module is a proof in disguise
+    and must get its normal status, while a `def op : Nat := sorry` is the
+    hand-written model the convention trusts. A candidate whose type cannot be checked
+    is reported and counted as a proof (fail closed). -/
+def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
+    : IO (Std.HashSet Name) := do
+  if cands.isEmpty then return {}
+  let act : MetaM (Std.HashSet Name × Array Name) := do
+    let mut props : Std.HashSet Name := {}
+    let mut failed : Array Name := #[]
+    for (name, info) in cands do
+      try
+        if ← Meta.isProp info.type then props := props.insert name
+      catch _ =>
+        props := props.insert name
+        failed := failed.push name
+    return (props, failed)
+  let ctx : Core.Context := { fileName := "<probe-lean>", fileMap := default }
+  let ((props, failed), _) ← (act.run' {} {}).toIO ctx { env }
+  for n in failed do
+    IO.eprintln s!"Warning: could not decide whether the type of {n} is a proposition; \
+      it is not trusted by the External-module rule"
+  return props
+
 /-- T over P: `Trust.trustedReason` applied to every project constant. Rules 1 and 3
-    need only the kind and module; rule 2 is gated by `rule2Applies`. A name in
-    `merged` is decided by `mergedTrustedReason` over all of its versions instead. -/
+    need the kind, the module and whether the type is a proposition (`propTyped`);
+    rule 2 needs `rule2Applies` and the declaration's own tag
+    (`DeclAttrs.ownExternallyVerified`). A name in `merged` is decided by
+    `mergedTrustedReason` over all of its versions instead, and a name in `excluded`
+    (`crossMergedNames`) is never trusted. -/
 def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
-    (attrs : Std.HashMap Name (Array String))
-    (merged : Std.HashMap Name MergedDecl := {}) : Std.HashMap Name String := Id.run do
+    (attrs : Std.HashMap Name DeclAttrs)
+    (merged : Std.HashMap Name MergedDecl := {}) (propTyped : Std.HashSet Name := {})
+    (excluded : Std.HashSet Name := {}) : Std.HashMap Name String := Id.run do
   let modNames := env.allImportedModuleNames
   let mut trust : Std.HashMap Name String := {}
   for (name, info) in consts do
+    if excluded.contains name then continue
     let reason := match merged[name]? with
-      | some m => mergedTrustedReason env m
+      | some m => mergedTrustedReason env m (propTyped.contains name)
       | none =>
         let kind := getDeclKind env name info
         let moduleName := (moduleNameOf modNames env name).getD .anonymous
-        trustedReason kind (attrs.getD name #[]) moduleName (rule2Applies env name info)
+        let ownTag := (attrs.getD name default).ownExternallyVerified
+        trustedReason kind (rule2Applies env name info && ownTag) moduleName
+          (kind == .theorem || propTyped.contains name)
     if let some r := reason then
       trust := trust.insert name r
   return trust
 
 /-- The walk over P with T blocked; merged declarations follow every version's
-    dependencies (`mergedChildrenMap`). -/
+    dependencies (`mergedChildrenMap`), and cross-merged names (`crossMergedNames`)
+    count as project constants whatever module the environment attributes them to,
+    with `sorryAx` added to their out-edges: the body the walk cannot see is taken to
+    be the sorried one. -/
 def runProjectTaint (env : Environment) (pFilter : ProjectFilter)
     (consts : Array (Name × ConstantInfo)) (trust : Std.HashMap Name String)
-    (merged : Array MergedDecl := #[]) : TaintResult :=
-  projectTaint env (pFilter.contains env) trust.contains (consts.map (·.1))
-    (childrenOverride := mergedChildrenMap merged)
+    (merged : Array MergedDecl := #[]) (crossMerged : Array Name := #[]) : TaintResult :=
+  let crossSet := Std.HashSet.ofArray crossMerged
+  let override := crossMerged.foldl (init := mergedChildrenMap merged) fun m n =>
+    m.insert n ((m.getD n (constChildren env n)).push sorryAxiomName)
+  projectTaint env (fun n => pFilter.contains env n || crossSet.contains n) trust.contains
+    (consts.map (·.1)) (childrenOverride := override)
 
 /-- P, T and the walk in one call. Returns the attribute map too, so the atom builder
     does not scan the sources a second time. `merged` is what the co-import preflight
-    read for the imported modules (`Atomize.importProjectEnvWithFallback`). -/
+    read for the imported modules (`Atomize.importProjectEnvWithFallback`); the
+    cross-boundary merges are found here from the environment itself, and the names
+    among them that the environment attributes to a non-project module are added to
+    P so they are walked and reported. -/
 def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
     (pFilter : ProjectFilter) (fileCache : FileCache) (pathCache : ModulePathCache)
-    (consts : Array (Name × ConstantInfo)) (importedAll : Bool) (moduleCount : Nat)
+    (consts : Array (Name × ConstantInfo)) (moduleCount : Nat)
     (merged : Array MergedDecl := #[])
-    : IO (ProjectTaint × Std.HashMap Name (Array String)) := do
-  let attrs ← computeAttributes env projectPath fileCache pathCache consts
+    : IO (ProjectTaint × Std.HashMap Name DeclAttrs) := do
   let mergedMap : Std.HashMap Name MergedDecl :=
     merged.foldl (init := {}) fun acc m => acc.insert m.declName m
-  let trust := computeTrustBase env consts attrs mergedMap
-  let taint := runProjectTaint env pFilter consts trust merged
+  let crossMerged := crossMergedNames env pFilter
+    (merged.foldl (init := {}) fun s m => s.insert m.declName)
+  let consts := crossMerged.foldl (init := consts) fun acc n =>
+    if pFilter.contains env n then acc
+    else match env.find? n with
+      | some ci => acc.push (n, ci)
+      | none => acc
+  let attrs ← computeAttributes env projectPath fileCache pathCache consts
+  let propTyped ← propTypedNames env (externalRule3Candidates env consts)
+  let trust := computeTrustBase env consts attrs mergedMap propTyped
+    (Std.HashSet.ofArray crossMerged)
+  let taint := runProjectTaint env pFilter consts trust merged crossMerged
   let constants := consts.foldl (init := ({} : Std.HashSet Name)) fun s (n, _) => s.insert n
-  return ({ trust, taint, constants, merged := merged.map (·.declName), importedAll,
+  return ({ trust, taint, constants, merged := merged.map (·.declName), crossMerged,
             pSize := consts.size, moduleCount }, attrs)
 
 /-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
@@ -181,22 +277,36 @@ def formatTaintedLine (n : Name) (direct emitted : Bool) : String :=
 /-- How many merged names the warning lists individually. -/
 def maxListedMerged : Nat := 10
 
+/-- `a, b, c, … and N more`, capped at `maxListedMerged`. -/
+private def listNames (names : Array Name) : String :=
+  let shown := names.extract 0 maxListedMerged
+  let listed := ", ".intercalate (shown.map (·.toString)).toList
+  let more := if names.size > shown.size then s!", … and {names.size - shown.size} more" else ""
+  listed ++ more
+
 /-- Printed when project modules restate a theorem with the same statement and the
     importer kept one proof (`ProjectTaint.merged`). Empty when there are none. -/
 def formatMergedWarning (names : Array Name) : String :=
   if names.isEmpty then "" else
-    let shown := names.extract 0 maxListedMerged
-    let listed := ", ".intercalate (shown.map (·.toString)).toList
-    let more := if names.size > shown.size then s!", … and {names.size - shown.size} more" else ""
     s!"Warning: {names.size} declaration name(s) are declared by more than one project module \
-      with the same statement, and Lean kept one proof: {listed}{more}; the walk follows every \
+      with the same statement, and Lean kept one proof: {listNames names}; the walk follows every \
       version's dependencies and no `@[externally_verified]` on them is honoured"
 
-/-- Print the type-taint and merged-declaration warnings to stderr. -/
-def reportTypeTainted (pt : ProjectTaint) : IO Unit := do
+/-- Printed for `ProjectTaint.crossMerged`. Empty when there are none. -/
+def formatCrossMergedWarning (names : Array Name) : String :=
+  if names.isEmpty then "" else
+    s!"Warning: {names.size} declaration name(s) are declared by a project module and by a \
+      module the walk cannot see into (a dependency package, or a module the preflight could \
+      not read), and Lean kept one body: {listNames names}; they are treated as resting on \
+      `sorry` (unverified, every caller verified) and no trust rule applies to them"
+
+/-- Print the type-taint, merged-declaration and cross-merge warnings to stderr. -/
+def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
   for n in pt.taint.typeTainted do
     IO.eprintln (formatTypeTaintWarning n)
   if !pt.merged.isEmpty then
     IO.eprintln (formatMergedWarning pt.merged)
+  if !pt.crossMerged.isEmpty then
+    IO.eprintln (formatCrossMergedWarning pt.crossMerged)
 
 end ProbeLean

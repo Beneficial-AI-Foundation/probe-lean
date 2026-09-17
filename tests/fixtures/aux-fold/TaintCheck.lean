@@ -74,6 +74,24 @@ def checkPrecondition (fs : Failures) : IO Unit := do
   match env.find? `externalOp with
   | none => check fs "externalOp exists" false
   | some ci => check fs "externalOp carries a sorry" (usesSorry ci)
+  -- The one-line structure: its derived instance and its projection share its range
+  -- (the head line names only `Tagged`), and the instance reaches the sorried
+  -- `Repr Payload` — the shape in which a range-sharer used to be a trusted leaf.
+  match declRangeExt.find? env `Tagged, declRangeExt.find? env `instReprTagged,
+        declRangeExt.find? env `Tagged.p with
+  | some r1, some r2, some r3 =>
+    check fs "Tagged, instReprTagged and Tagged.p share the head line"
+      (r1.range.endPos.line == r2.range.pos.line && r2.range.pos.line == r3.range.pos.line)
+  | _, _, _ => check fs "Tagged, instReprTagged and Tagged.p all have ranges" false
+  match env.find? `instReprPayload with
+  | none => check fs "instReprPayload exists" false
+  | some ci => check fs "instReprPayload carries a sorry" (usesSorry ci)
+  let (_, axs) := ((CollectAxioms.collect `instReprTagged).run env).run {}
+  check fs "instReprTagged rests on a sorry (through the derived implementation)"
+    (axs.axioms.contains ``sorryAx)
+  match env.find? `admittedFact with
+  | none => check fs "admittedFact exists" false
+  | some ci => check fs "admittedFact carries a sorry" (usesSorry ci)
 
 def findArtifact (fs : Failures) : IO (Option System.FilePath) := do
   let dir : System.FilePath := ".verilib/probes"
@@ -133,11 +151,33 @@ def checkStatuses (fs : Failures) (data : Json) : IO Unit := do
   expect "probe:docMention" "unverified"
   check fs "docMention shows no externally_verified (docstring and body comment are not read)"
     (!(strArray data "probe:docMention" "attributes").contains "externally_verified")
+  expect "probe:commentedOutTag" "unverified"
+  check fs "commentedOutTag shows no externally_verified (a block comment opened above the window)"
+    (!(strArray data "probe:commentedOutTag" "attributes").contains "externally_verified")
+  -- Range-sharers of a tagged one-line structure: they show the tag, only the
+  -- structure is trusted by it.
+  expect "probe:Tagged" "trusted"
+  check fs "Tagged trusted-reason is externally_verified"
+    (reasonOf data "probe:Tagged" == some "externally_verified")
+  expect "probe:instReprPayload" "unverified"
+  expect "probe:instReprTagged" "verified"
+  check fs "instReprTagged has no trusted-reason" (reasonOf data "probe:instReprTagged").isNone
+  check fs "instReprTagged shows the structure's scanned externally_verified (shared range)"
+    ((strArray data "probe:instReprTagged" "attributes").contains "externally_verified")
+  check fs "instReprTagged is flagged as Lean-generated" (boolOf data "probe:instReprTagged" "is-lean-generated")
+  expect "probe:Tagged.p" "transitively-verified"
+  check fs "Tagged.p has no trusted-reason" (reasonOf data "probe:Tagged.p").isNone
+  expect "probe:showTagged" "verified"
   -- Rule 3: the `*External` module convention.
   expect "probe:externalOp" "trusted"
   check fs "externalOp trusted-reason is external" (reasonOf data "probe:externalOp" == some "external")
   expect "probe:usesExternal" "transitively-verified"
   expect "probe:extThm" "unverified"
+  -- …excludes proofs whatever their keyword, and keeps Prop-*valued* models.
+  expect "probe:admittedFact" "unverified"
+  check fs "admittedFact has no trusted-reason" (reasonOf data "probe:admittedFact").isNone
+  expect "probe:externalPred" "trusted"
+  check fs "externalPred trusted-reason is external" (reasonOf data "probe:externalPred" == some "external")
   -- The range-less carrier: not an atom, but its caller is tainted.
   check fs "noRangeMid is not an atom" (data.getObjVal? "probe:noRangeMid").toOption.isNone
   expect "probe:viaNoRange" "verified"
@@ -151,19 +191,21 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
   IO.println s!"Extract stderr ({path}): the graph-BFS disagreement is printed"
   let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
   check fs "divergence on viaNoRange is reported"
-    (lines.contains "Divergence: probe:viaNoRange graph says clean, oracle says tainted")
+    (lines.contains "Divergence(graph): probe:viaNoRange graph says clean, oracle says tainted")
   check fs "no divergence on viaVouched (trust shields the graph and the walk alike)"
-    (!lines.any fun l => l.startsWith "Divergence: probe:viaVouched")
+    (!lines.any fun l => l.startsWith "Divergence(graph): probe:viaVouched")
   check fs "no divergence on the companion"
-    (!lines.any fun l => l.startsWith "Divergence: probe:vouched.mvcgen_spec")
+    (!lines.any fun l => l.startsWith "Divergence(graph): probe:vouched.mvcgen_spec")
   check fs "exactly one graph divergence"
-    (lines.contains "Divergence: 1 atom(s) where the emitted graph disagrees with the kernel walk")
+    (lines.contains "Graph cross-check: 1 atom(s) where the emitted graph disagrees with the kernel walk")
   check fs "the full module set was imported (no fallback warning)"
     (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
   check fs "every atom was covered by the walk (no unknown-atom warning)"
     (!lines.any fun l => l.startsWith "Warning: atom ")
-  check fs "no build-log divergence (log and kernel agree on the direct carriers)"
-    (!lines.any fun l => l.startsWith "Divergence:" && (l.splitOn "build log").length > 1)
+  check fs "no build-log divergence (log and kernel agree on the direct carriers; trusted hosts are moot)"
+    (!lines.any fun l => l.startsWith "Divergence(log):")
+  check fs "no cross-merge warning (nothing here restates a dependency)"
+    (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "cannot see into").length > 1)
 
 def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   IO.println ""
@@ -176,15 +218,19 @@ def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   check fs "External-module theorem is listed as direct" (has "  extThm [direct]")
   check fs "sorried_bound is listed as direct" (has "  sorried_bound [direct]")
   check fs "the fold's auxiliary is listed and not emitted" (has "  tacticUse._proof_1 [not emitted]")
-  check fs "the untagged neighbour and the docstring-mention are listed as direct"
-    (has "  neighbour [direct]" && has "  docMention [direct]")
+  check fs "the untagged neighbour, the docstring-mention and the commented-out tag are listed as direct"
+    (has "  neighbour [direct]" && has "  docMention [direct]" && has "  commentedOutTag [direct]")
+  check fs "the range-sharing derived instance and its caller are listed"
+    (has "  instReprTagged" && has "  showTagged")
+  check fs "the Prop-typed External def is listed as direct" (has "  admittedFact [direct]")
   check fs "trusted declarations are not listed"
     (!lines.any fun l => l.startsWith "  vouched" || l.startsWith "  externalOp" ||
-      l.startsWith "  taggedOneLiner")
+      l.startsWith "  taggedOneLiner" || l.startsWith "  Tagged " || l == "  Tagged" ||
+      l.startsWith "  externalPred")
   check fs "clean-modulo-T declarations are not listed"
     (!lines.any fun l => l.startsWith "  viaVouched" || l.startsWith "  usesExternal" ||
-      l.startsWith "  cleanUse")
-  check fs "the count line matches" (has "10 constant(s) rest on an unexcused project sorry:")
+      l.startsWith "  cleanUse" || l.startsWith "  Tagged.p")
+  check fs "the count line matches" (has "16 constant(s) rest on an unexcused project sorry:")
 
 def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]
