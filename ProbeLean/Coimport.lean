@@ -13,20 +13,23 @@
   Exactness: the check replicates the importer's duplicate-tolerance rule
   (`subsumesInfo` in core `Lean.Environment`, a private def) so it never
   rejects a project the importer would accept. Known misses — collisions
-  involving dependency modules, or oleans the scan had to skip — are
+  involving dependency modules, oleans the scan had to skip, or duplicates
+  inside module-system modules that the exported level hides — are
   under-detection only: the import then fails as before and lands on the
-  fallback hint in `Atomize.lean`. Module-system modules are read from the part
-  the importer reads (`readImportedModuleData`), so their theorems are seen with
-  their proofs, not as the proof-less axioms of the exported level.
+  fallback hint in `Atomize.lean`. Only the base `.olean` of each module is
+  read. For a module-system module that is the exported level: a `public
+  theorem` appears as an axiom of the same type (tolerated exactly as the
+  importer tolerates the pair), but so does a non-exposed `public def`, and two
+  same-type axioms are tolerated here while the importer's `isPropCheap` rejects
+  them (`constSubsumes`), so a def/def collision between module-system modules
+  is found at import time (the `module-collision` fixture). The split parts are
+  checked for existence only (`CoimportPreflight.proofless`).
 
-  The tolerated duplicates are not harmless for the taint walk. The importer
-  keeps **one** version of a restated theorem without comparing proof bodies, so
-  after co-import a `Name` no longer identifies one project proof: a sorried
-  problem-file `theorem shared` and a proved solution-file `theorem shared`
-  merge into whichever the importer kept. The preflight therefore also returns
-  these *merged* names with every version it read (`MergedDecl`), and the taint
-  pass walks the union of their dependencies (`Taint.mergedChildren`) and
-  refuses rule-2 trust for them — fail closed, whichever proof survived.
+  This is a diagnostic, nothing more: the bodies it reads are not used by the
+  taint pass. The tolerated duplicates — a name two modules declare with the
+  same statement, of which the importer keeps one body — are found after the
+  import from the environment header (`Taint.headerMerges`), which keeps every
+  module's own constants.
 -/
 import Lean
 import ProbeLean.Environment
@@ -70,43 +73,23 @@ def constSubsumes (a b : ConstantInfo) : Bool :=
 def isDisplayableCollisionName (n : Name) : Bool :=
   !n.isInternal && !n.hasMacroScopes
 
-/-- A declaration name the importer collapsed to one body: declared by more than one
-    project module where every owner pair *is* subsumable (the importer accepts the
-    set and keeps one version, discarding the others' proof bodies), or declared by a
-    project module and a module outside the project (`Taint.splitCrossMerged`, where
-    the project-owned versions are the ones walked). `versions` holds every
-    `(owning module, constant info)` the preflight read, sorted by module; at least
-    one, two or more for a project/project pair. -/
-structure MergedDecl where
-  declName : Name
-  versions : Array (Name × ConstantInfo)   -- sorted by module name, ≥ 1 entry
-  deriving Inhabited
-
-/-- Every declared name with the `(owning module, constant info)` pairs the preflight
-    read for it, in the order of `moduleDecls`. `classifyDuplicates` reads it for the
-    merged/collision classification; the taint pass reads it for names the environment
-    header shows are also declared outside the project (`Taint.splitCrossMerged`), whose
-    project-owned bodies would otherwise be lost as singletons. -/
-def ownersByName (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
-    Std.HashMap Name (Array (Name × ConstantInfo)) :=
-  moduleDecls.foldl (init := {}) fun owners (modName, decls) =>
-    decls.foldl (init := owners) fun owners (cname, cinfo) =>
-      owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
-
 /-- Pure core of the preflight: given each module's own declarations as
     `(declared name, constant info)` pairs — the positional pairing of
     `ModuleData.constNames` with `ModuleData.constants`, which is exactly how
-    the importer iterates them — classify the names owned by more than one
-    module: a *collision* when some owner pair is not mutually subsumable (the
-    import would fail), *merged* otherwise (the import keeps one version).
-    Detection keys on the raw declared `Name` from the olean — display filtering
-    happens in `formatCoimportError`, never here. Both results and their module
-    lists are sorted for deterministic output (P14). -/
-def classifyDuplicates (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
-    Array DeclCollision × Array MergedDecl := Id.run do
-  let owners := ownersByName moduleDecls
+    the importer iterates them — the names owned by more than one module where
+    some owner pair is not mutually subsumable, so the import would fail. A
+    duplicated name whose every owner pair *is* subsumable is tolerated by the
+    importer (one version kept) and is not a collision. Detection keys on the raw
+    declared `Name` from the olean — display filtering happens in
+    `formatCoimportError`, never here. The result and its module lists are sorted
+    for deterministic output (P14). -/
+def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
+    Array DeclCollision := Id.run do
+  let owners : Std.HashMap Name (Array (Name × ConstantInfo)) :=
+    moduleDecls.foldl (init := {}) fun owners (modName, decls) =>
+      decls.foldl (init := owners) fun owners (cname, cinfo) =>
+        owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
   let mut collisions : Array DeclCollision := #[]
-  let mut merged : Array MergedDecl := #[]
   for (declName, os) in owners.toList do
     if os.size > 1 then
       let mut fatal := false
@@ -116,81 +99,40 @@ def classifyDuplicates (moduleDecls : Array (Name × Array (Name × ConstantInfo
           let b := os[j]!.2
           if !(constSubsumes a b || constSubsumes b a) then
             fatal := true
-      let sorted := os.qsort fun a b => a.1.toString < b.1.toString
       if fatal then
+        let sorted := os.qsort fun a b => a.1.toString < b.1.toString
         collisions := collisions.push { declName, modules := sorted.map (·.1) }
-      else
-        merged := merged.push { declName, versions := sorted }
-  return (collisions.qsort (fun a b => a.declName.toString < b.declName.toString),
-          merged.qsort (fun a b => a.declName.toString < b.declName.toString))
-
-/-- The collisions of `classifyDuplicates`: the names that make the import fail. -/
-def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
-    Array DeclCollision :=
-  (classifyDuplicates moduleDecls).1
+  return collisions.qsort fun a b => a.declName.toString < b.declName.toString
 
 /-- What the preflight found. -/
 structure CoimportPreflight where
   /-- Names that make the import fail. -/
   collisions : Array DeclCollision := #[]
-  /-- Names the importer merges (one body kept), with every version read. -/
-  merged : Array MergedDecl := #[]
-  /-- Every project-declared name with the versions read for it (`ownersByName`), so
-      the taint pass can walk a project body the environment discarded in favour of a
-      dependency's (`Taint.splitCrossMerged`). -/
-  owned : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
   /-- Modules whose olean could not be read; the scan is partial for them. -/
   skipped : Array ProjectModule := #[]
   /-- Module-system modules (`module` header) whose `.olean.server` or
-      `.olean.private` part is missing. `importModules` loads the private part only
-      when both exist (`findOLeanParts`); without it the *exported* level is loaded,
-      where a `public theorem` is represented as an **axiom** without its proof, so
-      the walk would see no `sorry` and rule 1 would trust it. Fatal for the
-      extraction — there is no sound reading of such a module. -/
+      `.olean.private` part is missing. `importModules` at `OLeanLevel.private`
+      loads the private part only when both exist (`findOLeanParts`) and otherwise
+      fails with "missing data file" for the module; the abort here is the readable
+      form of that failure, with the remedy. -/
   proofless : Array ProjectModule := #[]
   deriving Inhabited
 
-/-- The module data the importer will use for `m` under `OLeanLevel.private`, and
-    whether it came from the module's `.olean.private` part. A module built under the
-    module system has three parts; the importer loads `.olean`, then — only when
-    **both** exist — `.olean.server` and `.olean.private`, and uses the private part,
-    which holds every constant with its body. The base part alone is the *exported*
-    level, where a `public theorem` is an axiom without its proof; the preflight used
-    to read it and filed two sorried public theorems restating one statement as two
-    same-type axioms — merged, and trusted as `"axiom"` by every rule.
-
-    Two rules of the importer are mirrored here. The parts are read only when the base
-    part's header says `isModule` (`ImportedModule.getData?` uses the exported level for
-    anything else, whatever part files sit on disk — stale parts next to a rebuilt
-    non-`module` base are ignored). And the parts are loaded **together**, in one
-    `readModuleDataParts` call: Lean stores them as one incremental compacted region
-    split over files ("the data cannot be loaded with individual `readModuleData` calls",
-    `saveModuleDataParts`). Separate calls happen to work for the first read in a
-    process and segfault on the second read of the same module — which the fallback
-    import path performs, preflighting the same modules up to three times. None of
-    the regions is freed: the `ConstantInfo`s returned point into them and the process
-    is short-lived. -/
-def readImportedModuleData (m : ProjectModule) : IO (ModuleData × Bool) := do
-  let (base, _) ← readModuleData m.oleanPath
-  if !base.isModule then
-    return (base, false)
+/-- Whether a module-system module's split parts are both next to its base olean.
+    Mirrors `findOLeanParts`: the private part is used only when `.olean.server`
+    and `.olean.private` both exist. -/
+def hasOLeanParts (m : ProjectModule) : IO Bool := do
   let server := m.oleanPath.addExtension "server"
   let priv := m.oleanPath.addExtension "private"
-  if !((← server.pathExists) && (← priv.pathExists)) then
-    return (base, false)
-  let parts ← readModuleDataParts #[m.oleanPath, server, priv]
-  match parts.back? with
-  | some (data, _) => return (data, true)
-  | none => return (base, false)
+  return (← server.pathExists) && (← priv.pathExists)
 
 /-- Run the preflight over the (already filtered) project modules: read each
-    module's olean — the part the importer will read, `readImportedModuleData` — and
-    classify duplicated names into collisions and merged declarations. A module
+    module's base olean and classify duplicated names into collisions. A module
     whose olean cannot be read is skipped with a stderr warning and returned in
     `skipped`, so callers can surface that the scan was partial — a skip alone must
-    never fail the extraction (the taint pass fails closed on any name a skipped
-    module shares with another). A module-system module without its private part is
-    returned in `proofless`, which callers must treat as fatal. -/
+    never fail the extraction. A module-system module without its split parts is
+    returned in `proofless`, which callers must treat as fatal (the import would
+    fail on it). -/
 def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPreflight := do
   let mut moduleDecls : Array (Name × Array (Name × ConstantInfo)) := #[]
   let mut skipped : Array ProjectModule := #[]
@@ -201,8 +143,8 @@ def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPrefli
       -- the ConstantInfo values point into it, and extract is short-lived.
       -- Only the project's own (small) modules are read here — dependency
       -- oleans, which dominate memory, are never touched by the preflight.
-      let (data, fromPrivate) ← readImportedModuleData m
-      if data.isModule && !fromPrivate then
+      let (data, _) ← readModuleData m.oleanPath
+      if data.isModule && !(← hasOLeanParts m) then
         proofless := proofless.push m
       else
         moduleDecls := moduleDecls.push (m.name, data.constNames.zip data.constants)
@@ -210,17 +152,16 @@ def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPrefli
       IO.eprintln s!"Warning: co-importability preflight could not read {m.oleanPath} (module {m.name}): {e}"
       IO.eprintln "  The module is skipped, so the preflight may be incomplete."
       skipped := skipped.push m
-  let (collisions, merged) := classifyDuplicates moduleDecls
-  return { collisions, merged, owned := ownersByName moduleDecls, skipped, proofless }
+  return { collisions := findCoimportCollisions moduleDecls, skipped, proofless }
 
 /-- The abort message for `CoimportPreflight.proofless`. -/
 def formatProoflessError (proofless : Array ProjectModule) : String :=
   let names := (proofless.map (·.name.toString)).qsort (· < ·)
   s!"{proofless.size} module-system module(s) have no `.olean.private`/`.olean.server` part next to \
     their `.olean`: {", ".intercalate names.toList}.\n\
-    Lean would import their exported level, where a `public theorem` is an axiom without its \
-    proof, so no `sorry` in it could be seen and it would be trusted. Rebuild the project \
-    (`lake build`) so the split parts exist, or remove the stale oleans."
+    Lean loads a `module` file's proofs from its private part and fails the import without it \
+    (\"missing data file\"). Rebuild the project (`lake build`) so the split parts exist, or \
+    remove the stale oleans."
 
 /-- How many duplicated names are listed individually in the diagnostic. -/
 def maxDisplayedCollisions : Nat := 10

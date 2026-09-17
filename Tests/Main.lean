@@ -2703,17 +2703,6 @@ def testCoimportCollisions (result : TestResult) : IO TestResult := do
   let def3 := (`M3, toOwned #[mkTestDefn `shared_thm prop])
   result ← test "exempt pair plus def owner: collision" ((findCoimportCollisions #[thm1, thm2, def3]).size == 1) result
 
-  -- The exempt pairs are the *merged* declarations: the importer keeps one body.
-  let (cols, merged) := classifyDuplicates #[thm1, thm2]
-  result ← test "restated theorem: merged, not a collision"
-    (cols.isEmpty && merged.size == 1 && merged[0]!.declName == `shared_thm) result
-  result ← test "merged versions list every owner, sorted by module"
-    (merged[0]!.versions.map (·.1) == #[`M1, `M2]) result
-  result ← test "theorem/axiom restatement is merged too" ((classifyDuplicates #[thm1, ax2]).2.size == 1) result
-  result ← test "a collision is never also merged"
-    ((classifyDuplicates #[thm1, thm2, def3]).2.isEmpty) result
-  result ← test "disjoint modules: nothing merged" ((classifyDuplicates #[disjointA, disjointB]).2.isEmpty) result
-
   let int1 := (`M1, toOwned #[mkTestDefn `_internalDup prop])
   let int2 := (`M2, toOwned #[mkTestDefn `_internalDup prop])
   result ← test "internal-name duplicate: still detected" ((findCoimportCollisions #[int1, int2]).size == 1) result
@@ -4268,8 +4257,7 @@ def testDivergenceLines (result : TestResult) : IO TestResult := do
   result ← test "statusCounts" (statusCounts oracle == (2, 1, 3)) result
   return result
 
-/-- The `check-axioms` listing of T, the generated-axiom note and the olean identity
-    abort message. -/
+/-- The `check-axioms` listing of T and the generated-axiom note. -/
 def testTrustListingFormat (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -4284,13 +4272,6 @@ def testTrustListingFormat (result : TestResult) : IO TestResult := do
     (formatGeneratedAxiomNote `t._native.native_decide.ax_1_1 ==
       "Note(axiom): t._native.native_decide.ax_1_1 is a generated project axiom (not a \
        source-visible declaration, e.g. from native_decide); trusted by rule 1") result
-  result ← test "olean identity abort names both files and the remedy"
-    (formatOleanIdentityError `App.Main "/shadow/App/Main.olean" "/proj/.lake/build/lib/App/Main.olean" ==
-      "module App.Main was imported from /shadow/App/Main.olean, but the co-import preflight \
-       read /proj/.lake/build/lib/App/Main.olean. The preflight's bodies stand in for the \
-       environment's for merged declarations, so the two must be the same file: a LEAN_PATH \
-       entry shadows the project's build directory, or the project was rebuilt between the \
-       two reads. Fix the search path or rebuild, then re-run.") result
   return result
 
 def testTaintFormatting (result : TestResult) : IO TestResult := do
@@ -4375,12 +4356,7 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   let pe := formatProoflessError pl
   result ← test "proofless error names the modules, sorted, and the cause"
     (pe.startsWith "2 module-system module(s) have no `.olean.private`/`.olean.server` part next to their `.olean`: M.A, M.B." &&
-     (pe.splitOn "is an axiom without its proof").length == 2) result
-  result ← test "cross-merge warning: none for an empty list" (formatCrossMergedWarning #[] == "") result
-  let cw := formatCrossMergedWarning #[`shared]
-  result ← test "cross-merge warning names the declaration and the treatment"
-    (cw.startsWith "Warning: 1 declaration name(s) are declared by a project module whose olean the preflight could not read" &&
-     (cw.splitOn "one body: shared;").length == 2 && (cw.splitOn "resting on `sorry`").length == 2) result
+     (pe.splitOn "missing data file").length == 2 && (pe.splitOn "lake build").length == 2) result
   result ← test "cross-walked note: none for an empty list" (formatCrossWalkedNote #[] == "") result
   let nt := formatCrossWalkedNote #[`shared]
   result ← test "cross-walked note names the declaration and the treatment"
@@ -4778,12 +4754,12 @@ run_cmd do
   -- The tag-set reader on this binary's own registration (`ProbeLean.Attrs`).
   let ownReg := tagAttributeOf? env ``ProbeLean.externallyVerifiedAttr
   let attrsFilter := mkProjectFilter env #[`ProbeLean.Attrs]
-  -- Rule 3's proof test and the cross-merge scan, on this environment. `thmLike` is
+  -- Rule 3's proof test and the header merge scan, on this environment. `thmLike` is
   -- a `def` whose type is the proposition `0 < 5`; `natDef` a `def` of type `Nat`.
   let thmLike := mkTestDefn `A.FunsExternal.p (env.find? `TaintEnv.clean |>.get!).type
   let natDef := mkTestDefn `A.FunsExternal.n (mkConst ``Nat)
   let propTyped ← propTypedNames env #[(`A.FunsExternal.p, thmLike), (`A.FunsExternal.n, natDef)]
-  let noCross := crossMergedNames env (mkProjectFilter env #[`Init.Prelude]) {}
+  let noDup := headerMerges env (mkProjectFilter env #[`Init.Prelude])
   -- Merged declarations (co-import kept one of several same-statement versions).
   let thmSorried := env.find? `TaintEnv.sorried |>.get!
   let thmClean := env.find? `TaintEnv.clean |>.get!
@@ -4876,11 +4852,10 @@ run_cmd do
       trustAttrs[`TaintEnv.noRangeMid]? == some "externally_verified"),
     ("computeTrustBase: a constant that only shows a neighbour's tag is not in the set, so not trusted",
       trustAttrs[`TaintEnv.viaProof]? == none),
-    ("computeTrustBase: an excluded (cross-merged) axiom is not trusted",
-      (computeTrustBase env consts {} (excluded := Std.HashSet.ofArray #[`TaintEnv.trustAx]))[`TaintEnv.trustAx]? == none),
     ("propTypedNames: a def whose type is a proposition, not a def of type Nat",
       propTyped.contains `A.FunsExternal.p && !propTyped.contains `A.FunsExternal.n),
-    ("crossMergedNames: an environment with no duplicated names flags nothing", noCross.isEmpty),
+    ("headerMerges: a project module with no duplicated names yields neither merged nor cross names",
+      noDup.1.isEmpty && noDup.2.isEmpty),
     ("projectConstants-style membership: non-project roots are blocked",
       !(projectTaint env (fun _ => false) (fun _ => false) roots).tainted.contains `TaintEnv.sorried)]
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
@@ -4917,49 +4892,68 @@ def testMergedDecls (result : TestResult) : IO TestResult := do
   result ← test "warning: capped list with a remainder count"
     (w.startsWith "Warning: 12 declaration name(s)" && (w.splitOn ", … and 2 more").length == 2 &&
      (w.splitOn "d11").length == 1) result
+  result ← test "realised note: none for an empty list" (formatRealisedMergedNote #[] == "") result
+  result ← test "realised note: names the theorems and the treatment"
+    (formatRealisedMergedNote #[`Std.Array.make.eq_1, `Foo.f.congr_simp] ==
+      "Note: 2 Lean-realised equational/congruence theorem(s) were realised in more than one \
+       module: Std.Array.make.eq_1, Foo.f.congr_simp; the walk follows every version's \
+       dependencies") result
   return result
 
-/-- `splitCrossMerged`: a cross-boundary name is walked from the project's own versions
-    when the preflight read every project module declaring it, and taken to rest on
-    `sorry` otherwise. -/
-def testCrossMergeSplit (result : TestResult) : IO TestResult := do
+/-- `classifyHeaderVersions`: the merged and cross-boundary declarations read off the
+    imported modules' header data, and the realised-theorem name classifier. -/
+def testHeaderMerges (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing the cross-boundary merge split (walk the project's bodies vs assume sorry)..."
+  IO.println "Testing the header merge classification (project/project vs cross-boundary)..."
   let prop : Lean.Expr := .sort .zero
   let mkThm (n : Lean.Name) (body : Lean.Expr) : Lean.ConstantInfo :=
     .thmInfo { name := n, levelParams := [], type := prop, value := body, all := [n] }
   let proved := mkThm `shared (.const ``True.intro [])
   let sorried := mkThm `shared (.const ``sorryAx [])
-  let owned : Std.HashMap Lean.Name (Array (Lean.Name × Lean.ConstantInfo)) := Id.run do
-    let mut m : Std.HashMap Lean.Name (Array (Lean.Name × Lean.ConstantInfo)) := {}
-    m := m.insert `shared #[(`P.Restate, proved)]
-    m := m.insert `both #[(`P.B, sorried), (`P.A, proved)]
-    m := m.insert `partial #[(`P.Read, proved)]
-    return m
-  -- Every declaring module read: walked from that version, whichever body the env kept.
-  let (w1, a1) := splitCrossMerged #[(`shared, #[`P.Restate])] owned
-  result ← test "all owners read: walked, none assumed" (w1.size == 1 && a1.isEmpty) result
-  result ← test "the walked versions are the project's"
-    (w1[0]!.declName == `shared && w1[0]!.versions.map (·.1) == #[`P.Restate]) result
-  result ← test "the walked children are the project body's"
-    ((mergedChildren w1[0]!).contains ``True.intro && !(mergedChildren w1[0]!).contains ``sorryAx) result
-  -- Two project owners plus a dependency owner: both project versions, sorted by module.
-  let (w2, a2) := splitCrossMerged #[(`both, #[`P.A, `P.B])] owned
-  result ← test "two project owners: both versions walked"
-    (w2.size == 1 && a2.isEmpty && w2[0]!.versions.map (·.1) == #[`P.A, `P.B]) result
-  result ← test "a sorry in any project version is followed" ((mergedChildren w2[0]!).contains ``sorryAx) result
-  -- A declaring module the preflight skipped: its body is invisible, assume sorry.
-  let (w3, a3) := splitCrossMerged #[(`partial, #[`P.Read, `P.Skipped])] owned
-  result ← test "an unread owner: assumed sorried" (w3.isEmpty && a3 == #[`partial]) result
-  let (w4, a4) := splitCrossMerged #[(`unknown, #[`P.X])] owned
-  result ← test "no version read at all: assumed" (w4.isEmpty && a4 == #[`unknown]) result
-  let (w5, a5) := splitCrossMerged #[(`ghost, #[])] owned
-  result ← test "no declaring module known: assumed" (w5.isEmpty && a5 == #[`ghost]) result
-  -- Order is the input's (sorted by name upstream).
-  let (w6, a6) := splitCrossMerged #[(`both, #[`P.A, `P.B]), (`partial, #[`P.Skipped]), (`shared, #[`P.Restate])] owned
-  result ← test "mixed input keeps name order in both outputs"
-    (w6.map (·.declName) == #[`both, `shared] && a6 == #[`partial]) result
+  let inP (_ : Lean.Name) : Bool := true
+  -- Two project modules, no dependency: merged, versions sorted by module.
+  let (m1, c1) := classifyHeaderVersions
+    #[(`P.B, true, #[`shared], #[sorried]), (`P.A, true, #[`shared], #[proved])] inP
+  result ← test "project/project: merged, not cross" (m1.size == 1 && c1.isEmpty) result
+  result ← test "merged versions are both, sorted by module"
+    (m1[0]!.declName == `shared && m1[0]!.versions.map (·.1) == #[`P.A, `P.B]) result
+  result ← test "the union of the merged children carries the sorry"
+    ((mergedChildren m1[0]!).contains ``sorryAx && (mergedChildren m1[0]!).contains ``True.intro) result
+  -- A project module and a dependency listing the name: cross, walked from the project body.
+  -- The dependency's `constants` are left empty: only project constants are ever read.
+  let (m2, c2) := classifyHeaderVersions
+    #[(`P.Restate, true, #[`shared], #[proved]), (`Dep, false, #[`shared, `other], #[])] inP
+  result ← test "project + dependency: cross, not merged" (m2.isEmpty && c2.size == 1) result
+  result ← test "the cross versions are the project's only"
+    (c2[0]!.declName == `shared && c2[0]!.versions.map (·.1) == #[`P.Restate]) result
+  result ← test "the cross children are the project body's"
+    ((mergedChildren c2[0]!).contains ``True.intro && !(mergedChildren c2[0]!).contains ``sorryAx) result
+  -- Declared once by a project module but attributed outside the project by the environment.
+  let (m3, c3) := classifyHeaderVersions #[(`P.X, true, #[`shared], #[proved])] (fun _ => false)
+  result ← test "attributed outside the project: cross" (m3.isEmpty && c3.map (·.declName) == #[`shared]) result
+  -- A single un-duplicated name owned by the project: nothing.
+  let (m4, c4) := classifyHeaderVersions #[(`P.X, true, #[`shared], #[proved])] inP
+  result ← test "one project owner, no other declarer: nothing" (m4.isEmpty && c4.isEmpty) result
+  -- Two project owners plus a dependency: cross with both project versions.
+  let (m5, c5) := classifyHeaderVersions
+    #[(`P.B, true, #[`shared], #[sorried]), (`Dep, false, #[`shared], #[]), (`P.A, true, #[`shared], #[proved])] inP
+  result ← test "two project owners plus a dependency: cross with both versions"
+    (m5.isEmpty && c5.size == 1 && c5[0]!.versions.map (·.1) == #[`P.A, `P.B]) result
+  result ← test "a sorry in any project version is followed" ((mergedChildren c5[0]!).contains ``sorryAx) result
+  -- Several names: both outputs sorted by name; unrelated names stay out.
+  let (m6, c6) := classifyHeaderVersions
+    #[(`P.A, true, #[`zed, `alpha, `solo], #[proved, proved, proved]),
+      (`P.B, true, #[`alpha, `zed, `mid], #[sorried, sorried, proved]),
+      (`Dep, false, #[`mid], #[])] inP
+  result ← test "merged sorted by name" (m6.map (·.declName) == #[`alpha, `zed]) result
+  result ← test "cross holds the dependency-shared name only" (c6.map (·.declName) == #[`mid]) result
+  result ← test "realised theorem names: equation and congruence lemmas"
+    ([`F.f.eq_1, `F.f.eq_12, `F.f.eq_def, `F.f.eq_unfold, `F.f.congr_simp, `F.f.hcongr_5, `F.f.congr_2,
+      `F.f.match_1.congr_eq_3].all isRealisedTheoremName) result
+  result ← test "realised theorem names: hand-written names are not"
+    (![`F.f, `F.eq_lemma, `F.f.eq_, `F.f.eq_1a, `F.congr, `F.f.hcongr_, `F.f.congr_eq_, `shared, .anonymous].any
+      isRealisedTheoremName) result
   return result
 
 def testProjectTaintEnv (result : TestResult) : IO TestResult := do
@@ -5069,7 +5063,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testLoadedOrphans result
   result ← testTagSetLiterals result
   result ← testMergedDecls result
-  result ← testCrossMergeSplit result
+  result ← testHeaderMerges result
   result ← testProjectTaintEnv result
   return result
 

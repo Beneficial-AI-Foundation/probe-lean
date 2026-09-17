@@ -246,7 +246,7 @@ def findProbeLeanLib : IO (List System.FilePath) := do
     Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command so both see the
     exact same environment. -/
 def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectModule)
-    (nixMode : Option NixMode := none) : IO (Except String (Environment × CoimportPreflight)) := do
+    (nixMode : Option NixMode := none) : IO (Except String Environment) := do
   let absProjectPath ← IO.FS.realPath projectPath
 
   Lean.initSearchPath (← Lean.findSysroot)
@@ -290,7 +290,7 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
     -- same failure shape as the `ConstantInfo.value?` default that emptied
     -- theorem proof edges. `.private` is the current upstream default; it is
     -- spelled out so a future default change cannot regress soundness.
-    return .ok (← importModules imports {} 0 (level := OLeanLevel.private), pre)
+    return .ok (← importModules imports {} 0 (level := OLeanLevel.private))
   catch e =>
     let msg := toString e
     if containsSubstring msg "already contains" then
@@ -359,9 +359,7 @@ def formatLoadedOrphansError (names : Array Name) : String :=
 /-- Import the project for the taint walk: **all** built project modules (P must
     cover the whole project, whatever `--module`/`--library` selected for output),
     falling back to the selected modules when the full set cannot be co-imported.
-    Returns the environment, the project modules it holds (`loadedProjectModules`)
-    and the merged declarations among them (`Coimport.MergedDecl`: same-statement
-    restatements the importer collapsed to one proof).
+    Returns the environment and the project modules it holds (`loadedProjectModules`).
 
     The full import is attempted only when the cheap olean-header preflight passes,
     so a project that relies on the selection to dodge a collision pays one
@@ -374,67 +372,35 @@ def formatLoadedOrphansError (names : Array Name) : String :=
     This is the import without the orphan check; `importProjectEnvWithFallback` adds it. -/
 private def importProjectEnvSelecting (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode)
-    : IO (Except String (Environment × Array ProjectModule × CoimportPreflight)) := do
+    : IO (Except String (Environment × Array ProjectModule)) := do
   if selected.size == all.size then
-    return (← importProjectEnv projectPath all nixMode).map fun (env, pre) => (env, all, pre)
+    return (← importProjectEnv projectPath all nixMode).map fun env => (env, all)
   match ← importProjectEnv projectPath all nixMode with
-  | .ok (env, pre) => return .ok (env, all, pre)
+  | .ok env => return .ok (env, all)
   | .error msg =>
     match ← importProjectEnv projectPath selected nixMode with
     | .error e => return .error e
-    | .ok (env, _) =>
+    | .ok env =>
       let imported := loadedProjectModules all env.allImportedModuleNames
       if imported.size < all.size then
         IO.eprintln (formatFallbackWarning (all.size - imported.size))
       IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
-      -- The preflight above scanned the selection only; the merged set and the
-      -- owned versions have to cover every project module the environment holds.
-      let pre ← detectCoimportCollisions imported
-      if !pre.proofless.isEmpty then
-        return .error (formatProoflessError pre.proofless)
-      return .ok (env, imported, pre)
-
-/-- The abort message for an imported project module whose olean the search path
-    resolves to a different file than discovery found (`checkOleanIdentity`). -/
-def formatOleanIdentityError (m : Name) (imported discovered : System.FilePath) : String :=
-  s!"module {m} was imported from {imported}, but the co-import preflight read {discovered}. \
-    The preflight's bodies stand in for the environment's for merged declarations, so the \
-    two must be the same file: a LEAN_PATH entry shadows the project's build directory, or \
-    the project was rebuilt between the two reads. Fix the search path or rebuild, then \
-    re-run."
-
-/-- Artifact identity: the preflight read each project module's olean by the path
-    discovery found under the build directory (`ProjectModule.oleanPath`), while
-    `importModules` resolved the module *name* through `LEAN_PATH`. The merged-declaration
-    policy walks the preflight's bodies in place of whatever the environment retained,
-    which is only sound if both reads saw the same file. `Lean.findOLean` is the importer's
-    own resolution; its real path must equal the discovered olean's real path for every
-    imported project module. -/
-def checkOleanIdentity (imported : Array ProjectModule) : IO (Option String) := do
-  for m in imported do
-    let found ← Lean.findOLean m.name
-    if (← IO.FS.realPath found) != (← IO.FS.realPath m.oleanPath) then
-      return some (formatOleanIdentityError m.name found m.oleanPath)
-  return none
+      return .ok (env, imported)
 
 /-- `importProjectEnvSelecting` (all modules, falling back to the selection), then the
     orphan check — whichever import succeeded, an orphan module among `orphans` that it
-    loaded (`loadedOrphans`) is fatal, see `formatLoadedOrphansError` — and the olean
-    identity check (`checkOleanIdentity`). Returns the environment, the project modules
-    it holds and the preflight over exactly those modules (`CoimportPreflight.merged`,
-    `.owned`). -/
+    loaded (`loadedOrphans`) is fatal, see `formatLoadedOrphansError`. Returns the
+    environment and the project modules it holds. -/
 def importProjectEnvWithFallback (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
     (orphans : Array Name := #[])
-    : IO (Except String (Environment × Array ProjectModule × CoimportPreflight)) := do
+    : IO (Except String (Environment × Array ProjectModule)) := do
   match ← importProjectEnvSelecting projectPath all selected nixMode with
   | .error e => return .error e
   | .ok r =>
     let stale := loadedOrphans orphans r.1.allImportedModuleNames
     if !stale.isEmpty then
       return .error (formatLoadedOrphansError stale)
-    if let some msg ← checkOleanIdentity r.2.1 then
-      return .error msg
     return .ok r
 
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so
@@ -498,7 +464,7 @@ private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
     (crate : String) (nixMode : Option NixMode := none) (orphans : Array Name := #[])
     : IO (Except String (Array Atom × ProjectTaint)) := do
-  let (env, imported, pre) ← match ← importProjectEnvWithFallback projectPath all selected
+  let (env, imported) ← match ← importProjectEnvWithFallback projectPath all selected
       nixMode orphans with
     | .error msg => return .error msg
     | .ok r => pure r
@@ -514,7 +480,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (moduleCount := imported.size) (merged := pre.merged) (owned := pre.owned)
+    (moduleCount := imported.size)
   IO.println (formatTaintSummary pt)
   IO.println (formatTagSetLine pt.tagSet)
   reportTaintWarnings pt
