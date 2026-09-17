@@ -171,6 +171,12 @@ externally_verified tag set: 7 name(s) from externallyVerifiedAttr
   noRangeMid [direct] [not emitted]
   viaNoRange
   ...
+9 trusted constant(s) (T):
+  Box [externally_verified] Demo.Trust
+  externalOp [external] Demo.FunsExternal : Nat
+  externalPred [external] Demo.FunsExternal : Prop
+  vouched [externally_verified] Demo.Trust
+  ...
 ```
 
 `[direct]`: the constant's own type or value names `sorryAx`. `[not emitted]`: not
@@ -178,8 +184,10 @@ an atom — a constant `extract` never publishes (no declaration range, internal
 name, constructor, unselected module). Because the walk is shared, the listed
 atoms are exactly those `extract` marks `"verified"` or `"unverified"`; a listed
 `[not emitted]` constant is the kind of node the old graph-based status silently
-trusted. The walk stops at the project boundary and at the trusted base, so it
-costs about a second on a 230-module project.
+trusted. The trusted base T follows: every trusted constant with its
+`trusted-reason`, its module and, for a `*External` model, its statement — the
+constants the "clean modulo T" claim rests on. The walk stops at the project
+boundary and at the trusted base, so it costs milliseconds on a 230-module project.
 
 ### Codomain facts & downstream classification
 

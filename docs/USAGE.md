@@ -89,8 +89,8 @@ of every constant of every built project module — including constants it never
 (auxiliaries, constructors, range-less `addDecl`/`impl_def` constants) — stopping at the project
 boundary (Lean and every dependency package are trusted wholesale) and at the **trusted base**:
 axioms, declarations in the `externally_verified` **tag set** (read from the environment, however
-the tag was attached), and non-proofs in `*External` modules (theorems, and `def`/`opaque`s
-whose type is a proposition, get their normal status there). A `sorry` inside or below a trusted declaration does not taint its
+the tag was attached), and non-proofs in `*External` modules (theorems and Prop-typed declarations get their normal
+status there; every other declaration in such a module is trusted as a model, whatever its type). A `sorry` inside or below a trusted declaration does not taint its
 callers. See [SCHEMA.md](SCHEMA.md) for the exact meaning of each status value. The pass prints
 its totals:
 
@@ -139,7 +139,11 @@ A stale `.olean` with no backing `.lean` source is dropped from the inventory (`
 <n> orphan module(s) …`); if a live module still imports it, the extraction aborts with
 `<n> stale module(s) with no .lean source were imported by a live module: …`, because its
 constants would otherwise sit outside the project boundary and be trusted like a
-dependency's — run `lake clean` in the target project and rebuild.
+dependency's — run `lake clean` in the target project and rebuild. After the import, every
+imported project module's olean as the search path resolves it (`Lean.findOLean`) must be the
+file the preflight read; otherwise the extraction aborts with `module <m> was imported from <a>,
+but the co-import preflight read <b> …` (a `LEAN_PATH` entry shadowing the project's build
+directory, or a rebuild between the two reads).
 
 To check an artifact against the `check-axioms` report in both directions (every `unverified`
 atom is a listed direct carrier *and* every listed emitted carrier is `unverified`, likewise for
@@ -226,12 +230,24 @@ externally_verified tag set: 7 name(s) from externallyVerifiedAttr
   tacticUse._proof_1 [not emitted]
   viaNoRange
   ...
+9 trusted constant(s) (T):
+  Box [externally_verified] Demo.Trust
+  externalOp [external] Demo.FunsExternal : Nat
+  externalPred [external] Demo.FunsExternal : Prop
+  vouched [externally_verified] Demo.Trust
+  ...
 ```
 
 `[direct]`: the constant's own type or value names `sorryAx`. `[not emitted]`: not an atom.
 Because the walk is shared with `extract`, the listed atoms are exactly those `extract` marks
-`"verified"` or `"unverified"`, and nothing `"transitively-verified"` can appear here. The walk is
-memoized and stops at the project boundary and the trusted base, so it costs about a second even on
+`"verified"` or `"unverified"`, and nothing `"transitively-verified"` can appear here. The trusted
+base T is listed next — `<name> [<trusted-reason>] <module>`, with the statement appended for a
+rule-3 (`external`) model — so the constants the "clean modulo T" claim rests on can be reviewed;
+`extract` shows only the trusted constants that are atoms. Generated axioms among them (a
+`native_decide` proof on Lean ≥ 4.31 adds `X._native.native_decide.ax_N`, trusted by rule 1) are
+also announced on stderr, one `Note(axiom): <n> is a generated project axiom (not a source-visible
+declaration, e.g. from native_decide); trusted by rule 1` each, by both commands. The walk is
+memoized and stops at the project boundary and the trusted base, so it costs milliseconds even on
 a 230-module Mathlib-backed project; `-m`/`-l` no longer narrow it.
 
 ---

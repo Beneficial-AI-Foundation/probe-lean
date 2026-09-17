@@ -4268,6 +4268,31 @@ def testDivergenceLines (result : TestResult) : IO TestResult := do
   result ← test "statusCounts" (statusCounts oracle == (2, 1, 3)) result
   return result
 
+/-- The `check-axioms` listing of T, the generated-axiom note and the olean identity
+    abort message. -/
+def testTrustListingFormat (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the trusted-base listing and generated-axiom note formatting..."
+  result ← test "trust header" (formatTrustHeader 9 == "9 trusted constant(s) (T):") result
+  result ← test "trusted line: axiom, no type"
+    (formatTrustedLine `Foo.ax "axiom" `Pkg.Basic none == "  Foo.ax [axiom] Pkg.Basic") result
+  result ← test "trusted line: external with its statement"
+    (formatTrustedLine `Foo.op "external" `Pkg.FunsExternal (some "Nat → Nat") ==
+      "  Foo.op [external] Pkg.FunsExternal : Nat → Nat") result
+  result ← test "generated-axiom note"
+    (formatGeneratedAxiomNote `t._native.native_decide.ax_1_1 ==
+      "Note(axiom): t._native.native_decide.ax_1_1 is a generated project axiom (not a \
+       source-visible declaration, e.g. from native_decide); trusted by rule 1") result
+  result ← test "olean identity abort names both files and the remedy"
+    (formatOleanIdentityError `App.Main "/shadow/App/Main.olean" "/proj/.lake/build/lib/App/Main.olean" ==
+      "module App.Main was imported from /shadow/App/Main.olean, but the co-import preflight \
+       read /proj/.lake/build/lib/App/Main.olean. The preflight's bodies stand in for the \
+       environment's for merged declarations, so the two must be the same file: a LEAN_PATH \
+       entry shadows the project's build directory, or the project was rebuilt between the \
+       two reads. Fix the search path or rebuild, then re-run.") result
+  return result
+
 def testTaintFormatting (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -4709,11 +4734,17 @@ run_cmd do
   mkDecl `TaintEnv.evSorried.mvcgen_spec (ref `TaintEnv.evSorried) false true
   -- A trusted axiom whose *statement* is a sorry.
   mkDecl `TaintEnv.badAx (← `((sorry : Prop))) true true
+  -- Generated axioms: one with no declaration range (`addDecl` from a macro), one with
+  -- an internal name *and* a range — the `native_decide` shape on Lean ≥ 4.31, which
+  -- inherits the theorem's range.
+  mkDecl `TaintEnv.genAx (← `(((0 : Nat) < 5 : Prop))) true false
+  mkDecl `TaintEnv.nd._native.native_decide.ax_1_1 (← `(((0 : Nat) < 5 : Prop))) true true
 
   let env ← getEnv
   let roots : Array Name := #[`TaintEnv.sorried, `TaintEnv.viaProof, `TaintEnv.noRangeMid,
     `TaintEnv.callerOfNoRange, `TaintEnv.clean, `TaintEnv.trustAx, `TaintEnv.viaAx,
-    `TaintEnv.evSorried, `TaintEnv.viaEv, `TaintEnv.evSorried.mvcgen_spec, `TaintEnv.badAx]
+    `TaintEnv.evSorried, `TaintEnv.viaEv, `TaintEnv.evSorried.mvcgen_spec, `TaintEnv.badAx,
+    `TaintEnv.genAx, `TaintEnv.nd._native.native_decide.ax_1_1]
   let isProject : Name → Bool := (`TaintEnv).isPrefixOf
   let trusted : Name → Bool := fun n =>
     n == `TaintEnv.trustAx || n == `TaintEnv.evSorried || n == `TaintEnv.badAx
@@ -4771,7 +4802,19 @@ run_cmd do
   -- version's `sorryAx`.
   let overridden := projectTaint env isProject (fun _ => false) roots
     (childrenOverride := mergedChildrenMap #[mkMerged `TaintEnv.clean #[(`M1, thmClean), (`M2, thmSorried)]])
+  -- `projectConstants` enumerates the project modules' `constNames`; the scan of the
+  -- whole constant map it replaced must give the same P on a real environment.
+  let pfAttrs := mkProjectFilter env #[`ProbeLean.Attrs, `ProbeLean.Trust]
+  let scanned := (env.constants.map₁.fold (init := #[]) fun acc name info =>
+    if pfAttrs.contains env name then acc.push (name, info) else acc).qsort
+    fun a b => Name.lt a.1 b.1
+  let enumerated := projectConstants env pfAttrs
   let checks : Array (String × Bool) := #[
+    ("projectConstants agrees with a scan of the whole constant map",
+      !enumerated.isEmpty && enumerated.map (·.1) == scanned.map (·.1)),
+    ("generatedTrustedAxioms: the range-less and the internally named axiom, not the written ones",
+      generatedTrustedAxioms env consts trustNoAttrs ==
+        #[`TaintEnv.genAx, `TaintEnv.nd._native.native_decide.ax_1_1]),
     ("merged thm/thm: the union of children carries the sorry",
       (mergedChildren thmThm).contains ``sorryAx),
     ("merged thm/thm is never trusted", (mergedTrustedReason env thmThm).isNone),
@@ -4824,8 +4867,9 @@ run_cmd do
       has `TaintEnv.evSorried.mvcgen_spec (isSourceVisible env `TaintEnv.evSorried.mvcgen_spec ·)),
     ("isSourceVisible: a constructor is not", has `Nat.succ (!isSourceVisible env `Nat.succ ·)),
     ("computeTrustBase: only the axioms without attributes",
-      trustNoAttrs.size == 2 && trustNoAttrs[`TaintEnv.trustAx]? == some "axiom" &&
-      trustNoAttrs[`TaintEnv.badAx]? == some "axiom"),
+      trustNoAttrs.size == 4 && trustNoAttrs[`TaintEnv.trustAx]? == some "axiom" &&
+      trustNoAttrs[`TaintEnv.badAx]? == some "axiom" && trustNoAttrs[`TaintEnv.genAx]? == some "axiom" &&
+      trustNoAttrs[`TaintEnv.nd._native.native_decide.ax_1_1]? == some "axiom"),
     ("computeTrustBase: the tagged lemma and the tagged range-less constant are trusted (a tag is a tag), the untagged companion is not",
       trustAttrs[`TaintEnv.evSorried]? == some "externally_verified" &&
       trustAttrs[`TaintEnv.evSorried.mvcgen_spec]? == none &&
@@ -5014,6 +5058,8 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testFoldClassifierEnv result
   result ← testPrimarySpecFoldFallback result
   result ← testReachabilityBlocked result
+  result ← testReachabilityScaling result
+  result ← testTrustListingFormat result
   result ← testApplyTaintStatus result
   result ← testDivergenceLines result
   result ← testTaintFormatting result

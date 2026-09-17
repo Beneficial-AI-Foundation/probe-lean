@@ -52,6 +52,14 @@ structure ProjectTaint where
       `attribute [externally_verified] foo` command, a macro). Sorted; reported as a
       note. -/
   tagOnly : Array Name := #[]
+  /-- Trusted project axioms (rule 1) that are not source-visible declarations — an
+      internal name or no declaration range — so not written by a human and never an
+      atom. Since Lean 4.31 `native_decide` adds one per proof
+      (`X._native.native_decide.ax_N`, which *does* carry the theorem's range) instead
+      of referencing `Lean.ofReduceBool`, so the proof rests on compiled code behind a
+      trusted, otherwise invisible constant (`generatedTrustedAxioms`). Sorted; each is
+      reported as a note. -/
+  generatedAxioms : Array Name := #[]
   /-- |P|. -/
   pSize : Nat
   /-- Number of project modules imported. -/
@@ -305,6 +313,18 @@ def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : 
   return (scanOnly.qsort (fun a b => a.toString < b.toString),
           tagOnly.qsort (fun a b => a.toString < b.toString))
 
+/-- Of `consts`, the constants `trust` holds as `axiom` that are not source-visible
+    declarations (`isSourceVisible`: an internal name such as
+    `X._native.native_decide.ax_N`, or no declaration range as with `addDecl` from a
+    macro) — generated axioms. Rule 1 trusts them like a written `axiom`; they are
+    listed so a reviewer of the trust base can see them, since `extract` never emits
+    them. Sorted by name. -/
+def generatedTrustedAxioms (env : Environment) (consts : Array (Name × ConstantInfo))
+    (trust : Std.HashMap Name String) : Array Name :=
+  let axs := consts.filterMap fun (n, ci) =>
+    if trust[n]? == some "axiom" && !isSourceVisible env n ci then some n else none
+  axs.qsort fun a b => a.toString < b.toString
+
 /-- The walk over P with T blocked; merged declarations — project/project pairs and
     the cross-boundary names walked from their project versions — follow every
     version's dependencies (`mergedChildrenMap`). Every cross-boundary name
@@ -358,9 +378,11 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
   let taint := runProjectTaint env pFilter consts trust mergedAll crossNames crossAssumed
   let constants := consts.foldl (init := ({} : Std.HashSet Name)) fun s (n, _) => s.insert n
   let (scanOnlyTags, tagOnly) := tagAudit env attrs tagSet.tagged
+  let generatedAxioms := generatedTrustedAxioms env consts trust
   return ({ trust, taint, constants, merged := merged.map (·.declName),
             crossMerged := crossAssumed, crossWalked := crossWalkedAll.map (·.declName),
-            tagSet, scanOnlyTags, tagOnly, pSize := consts.size, moduleCount }, attrs)
+            tagSet, scanOnlyTags, tagOnly, generatedAxioms, pSize := consts.size, moduleCount },
+          attrs)
 
 /-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
     unknown. Blocking still applies; this is a warning, not a status change. Only a
@@ -452,8 +474,25 @@ def formatTagOnlyLine (n : Name) : String :=
   s!"Note(tag): {n} is tagged externally_verified by an `attribute` command or a macro; its \
     header does not show the tag; the tag set decides trust"
 
-/-- Print the type-taint, merged-declaration, cross-merge and tag-audit warnings to
-    stderr. -/
+/-- Printed per `ProjectTaint.generatedAxioms` entry. Visibility only: the axiom is
+    trusted by rule 1 like any other; whether a generated axiom should be is a spec
+    decision not made here. -/
+def formatGeneratedAxiomNote (n : Name) : String :=
+  s!"Note(axiom): {n} is a generated project axiom (not a source-visible declaration, e.g. \
+    from native_decide); trusted by rule 1"
+
+/-- Header of the `check-axioms` listing of T. -/
+def formatTrustHeader (n : Nat) : String :=
+  s!"{n} trusted constant(s) (T):"
+
+/-- A `check-axioms` T line: the constant, its `trusted-reason`, the module the
+    environment attributes it to and, for a rule-3 entry (`external`), its statement —
+    the type is what a reviewer of a hand-written model has to judge. -/
+def formatTrustedLine (n : Name) (reason : String) (module : Name) (type : Option String) : String :=
+  s!"  {n} [{reason}] {module}" ++ (match type with | some t => s!" : {t}" | none => "")
+
+/-- Print the type-taint, merged-declaration, cross-merge, tag-audit and generated-axiom
+    diagnostics to stderr. -/
 def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
   for n in pt.taint.typeTainted do
     IO.eprintln (formatTypeTaintWarning n)
@@ -467,5 +506,7 @@ def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
     IO.eprintln (formatScanOnlyTagLine n)
   for n in pt.tagOnly do
     IO.eprintln (formatTagOnlyLine n)
+  for n in pt.generatedAxioms do
+    IO.eprintln (formatGeneratedAxiomNote n)
 
 end ProbeLean

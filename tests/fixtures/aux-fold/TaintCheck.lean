@@ -21,7 +21,8 @@
   2. **Extract output.** Every status the trusted base and the walk prescribe; the
      companion is *not* trusted and carries none of its parent's attributes; the
      range-less carrier taints its caller and the graph-BFS disagreement is printed;
-     `check-axioms` lists exactly the tainted set, marking the non-atom.
+     `check-axioms` lists exactly the tainted set, marking the non-atom, and then T
+     with each entry's reason, module and (rule 3) statement.
 
   Round 3 (2026-09-17): rule 2 reads the `externally_verified` tag set from the
   environment. The precondition pins the shapes that defeated the source scan
@@ -308,11 +309,26 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
   check fs "Note(tag) for the attribute command"
     (lines.contains "Note(tag): laterVouched is tagged externally_verified by an `attribute` command or a macro; its header does not show the tag; the tag set decides trust")
   check fs "exactly one Note(tag) line" ((lines.filter fun l => l.startsWith "Note(tag):").size == 1)
+  -- No generated axiom: the fixture writes no `native_decide` and no `addDecl`ed axiom.
+  check fs "no Note(axiom) line (no range-less project axiom)"
+    (!lines.any fun l => l.startsWith "Note(axiom):")
+
+/-- The indented lines under `header`, up to the next unindented line: the report has
+    two such sections (the tainted list, then T) with the same indentation. -/
+def sectionUnder (lines : Array String) (header : String → Bool) : Array String := Id.run do
+  let mut out : Array String := #[]
+  let mut inside := false
+  for l in lines do
+    if header l then inside := true
+    else if !l.startsWith "  " then inside := false
+    else if inside then out := out.push l
+  return out
 
 def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   IO.println ""
   IO.println s!"check-axioms report ({path}): the same tainted set, non-atoms marked"
-  let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
+  let allLines := ((← IO.FS.readFile path).splitOn "\n").toArray
+  let lines := sectionUnder allLines (fun l => l.endsWith " constant(s) rest on an unexcused project sorry:")
   let has (l : String) : Bool := lines.contains l
   check fs "range-less carrier is listed as direct and not emitted"
     (has "  noRangeMid [direct] [not emitted]")
@@ -340,9 +356,28 @@ def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   check fs "clean-modulo-T declarations are not listed"
     (!lines.any fun l => l.startsWith "  viaVouched" || l.startsWith "  usesExternal" ||
       l.startsWith "  cleanUse" || l.startsWith "  Tagged.p" || l == "  loopy" || l.startsWith "  quoted")
-  check fs "the count line matches" (has "24 constant(s) rest on an unexcused project sorry:")
+  check fs "the count line matches"
+    (allLines.contains "24 constant(s) rest on an unexcused project sorry:")
+  check fs "the tainted section lists exactly 24 constants" (lines.size == 24)
   check fs "the tag-set line names the target's extension"
-    (has "externally_verified tag set: 7 name(s) from externallyVerifiedAttr")
+    (allLines.contains "externally_verified tag set: 7 name(s) from externallyVerifiedAttr")
+  -- The trusted base itself: every rule's entries with reason and module, and the
+  -- statement of each rule-3 model.
+  let trusted := sectionUnder allLines (fun l => l.endsWith " trusted constant(s) (T):")
+  check fs "T header counts the summary's trusted constants"
+    (allLines.contains "9 trusted constant(s) (T):")
+  check fs "T lists exactly 9 constants" (trusted.size == 9)
+  check fs "T: rule-2 entries carry their reason and module"
+    (trusted.contains "  vouched [externally_verified] Demo.Trust" &&
+     trusted.contains "  laterVouched [externally_verified] Demo.Trust" &&
+     trusted.contains "  rootVouched [externally_verified] Demo.Trust" &&
+     trusted.contains "  Box [externally_verified] Demo.Trust")
+  check fs "T: rule-3 entries carry their statement"
+    (trusted.contains "  externalOp [external] Demo.FunsExternal : Nat" &&
+     trusted.contains "  externalPred [external] Demo.FunsExternal : Prop")
+  check fs "T: nothing tainted or clean-modulo-T is trusted"
+    (!trusted.any fun l => l.startsWith "  admittedFact" || l.startsWith "  extThm" ||
+      l.startsWith "  viaVouched" || l.startsWith "  instInhabitedBox" || l.startsWith "  victim")
 
 def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]

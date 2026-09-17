@@ -40,14 +40,27 @@ def user_name(raw):
     return PRIVATE.sub("", raw)
 
 
+TAINTED_HEADER = re.compile(r"^\d+ constant\(s\) rest on an unexcused project sorry:$")
+
+
 def parse_report(path):
-    """{name: (direct, emitted, stripped)} for every listed constant; `stripped` records
-    that a `_private.<module>.0.` prefix was removed, so an unmatched name can still be
-    told apart from a genuine inconsistency after the prefix is gone."""
+    """{name: (direct, emitted, stripped)} for every listed tainted constant; `stripped`
+    records that a `_private.<module>.0.` prefix was removed, so an unmatched name can
+    still be told apart from a genuine inconsistency after the prefix is gone.
+
+    Only the indented lines under the tainted header are read: the report goes on to
+    list the trusted base (`N trusted constant(s) (T):`) with the same indentation."""
     listed = {}
+    in_tainted = False
     with open(path) as fh:
         for line in fh:
+            if TAINTED_HEADER.match(line.rstrip("\n")):
+                in_tainted = True
+                continue
             if not line.startswith("  "):
+                in_tainted = False
+                continue
+            if not in_tainted:
                 continue
             parts = line.strip().split(" ")
             name = user_name(parts[0])

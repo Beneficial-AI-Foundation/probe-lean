@@ -394,11 +394,35 @@ private def importProjectEnvSelecting (projectPath : System.FilePath)
         return .error (formatProoflessError pre.proofless)
       return .ok (env, imported, pre)
 
+/-- The abort message for an imported project module whose olean the search path
+    resolves to a different file than discovery found (`checkOleanIdentity`). -/
+def formatOleanIdentityError (m : Name) (imported discovered : System.FilePath) : String :=
+  s!"module {m} was imported from {imported}, but the co-import preflight read {discovered}. \
+    The preflight's bodies stand in for the environment's for merged declarations, so the \
+    two must be the same file: a LEAN_PATH entry shadows the project's build directory, or \
+    the project was rebuilt between the two reads. Fix the search path or rebuild, then \
+    re-run."
+
+/-- Artifact identity: the preflight read each project module's olean by the path
+    discovery found under the build directory (`ProjectModule.oleanPath`), while
+    `importModules` resolved the module *name* through `LEAN_PATH`. The merged-declaration
+    policy walks the preflight's bodies in place of whatever the environment retained,
+    which is only sound if both reads saw the same file. `Lean.findOLean` is the importer's
+    own resolution; its real path must equal the discovered olean's real path for every
+    imported project module. -/
+def checkOleanIdentity (imported : Array ProjectModule) : IO (Option String) := do
+  for m in imported do
+    let found ← Lean.findOLean m.name
+    if (← IO.FS.realPath found) != (← IO.FS.realPath m.oleanPath) then
+      return some (formatOleanIdentityError m.name found m.oleanPath)
+  return none
+
 /-- `importProjectEnvSelecting` (all modules, falling back to the selection), then the
-    orphan check: whichever import succeeded, an orphan module among `orphans` that it
-    loaded (`loadedOrphans`) is fatal — see `formatLoadedOrphansError`. Returns the
-    environment, the project modules it holds and the preflight over exactly those
-    modules (`CoimportPreflight.merged`, `.owned`). -/
+    orphan check — whichever import succeeded, an orphan module among `orphans` that it
+    loaded (`loadedOrphans`) is fatal, see `formatLoadedOrphansError` — and the olean
+    identity check (`checkOleanIdentity`). Returns the environment, the project modules
+    it holds and the preflight over exactly those modules (`CoimportPreflight.merged`,
+    `.owned`). -/
 def importProjectEnvWithFallback (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
     (orphans : Array Name := #[])
@@ -409,6 +433,8 @@ def importProjectEnvWithFallback (projectPath : System.FilePath)
     let stale := loadedOrphans orphans r.1.allImportedModuleNames
     if !stale.isEmpty then
       return .error (formatLoadedOrphansError stale)
+    if let some msg ← checkOleanIdentity r.2.1 then
+      return .error msg
     return .ok r
 
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so

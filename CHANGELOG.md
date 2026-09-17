@@ -96,8 +96,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   **The `*External` rule excludes proofs, not only `theorem`s.** A `def admitted : False :=
   by sorry` or an `opaque` of Prop type in a `*External` module used to be trusted as a
   non-theorem; rule 3 now runs `Meta.isProp` on the statement of every non-theorem,
-  non-axiom constant there and gives such proofs-in-disguise their normal status. A
-  Prop-*valued* `def p : Prop` stays a trusted model.
+  non-axiom constant there: theorems and Prop-typed declarations get their normal status,
+  and every other declaration in a `*External` module is trusted as a model, whatever its
+  type — a Prop-*valued* `def p : Prop`, and also `def e : Empty := sorry` (no
+  inhabitedness test is made; the `check-axioms` listing of T below is where such a model
+  is reviewed).
+
+  **The trusted base is visible.** `check-axioms` lists T after the tainted list — every
+  trusted constant with its `trusted-reason`, the module the environment attributes it to
+  and, for a rule-3 entry, its statement (`N trusted constant(s) (T):` / `  <name>
+  [<reason>] <module>[ : <type>]`); the soundness claim ("clean modulo T") rests on exactly
+  those constants and `extract` shows only the ones that are atoms. Since Lean 4.31
+  `native_decide` no longer references `Lean.ofReduceBool` but adds a generated project
+  axiom (`X._native.native_decide.ax_N`) per proof, which rule 1 trusts; its name is
+  internal (it does carry the theorem's declaration range), so it was never an atom and
+  appeared in no output while the proof rests on compiled code. Both commands now print
+  `Note(axiom): <n> is a generated project axiom (not a source-visible declaration, e.g.
+  from native_decide); trusted by rule 1` for every trusted axiom that is not a
+  source-visible declaration (internal name or no range; 31 on dalek, 58 on SPQR).
+  Whether generated axioms should stay trusted is a spec decision left to a follow-up;
+  this release only makes them visible.
+
+  **Preflight and import must read the same oleans.** The co-import preflight reads each
+  module's olean by the path discovery found under the build directory, while the import
+  resolves module names through `LEAN_PATH`, and the merged-declaration policy walks the
+  preflight's bodies in place of the environment's. After the import, `extract` and
+  `check-axioms` now check that `Lean.findOLean` resolves every imported project module to
+  the discovered file (real paths) and abort with `module <m> was imported from <a>, but the
+  co-import preflight read <b> …` otherwise (a shadowing `LEAN_PATH` entry, or a rebuild
+  between the two reads).
 
   **Merged declarations fail closed.** Lean's importer accepts two project modules that
   restate a theorem with the same name and statement and keeps *one* proof without
