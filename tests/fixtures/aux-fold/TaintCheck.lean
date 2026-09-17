@@ -295,8 +295,8 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
     (!lines.any fun l => l.startsWith "Divergence(log):")
   check fs "the partial def never produces a generic log divergence (its own Note(log) line, if the log was read)"
     (!lines.any fun l => l.startsWith "Divergence(log): probe:loopy")
-  check fs "no cross-merge warning (nothing here restates a dependency)"
-    (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "cannot see into").length > 1)
+  check fs "no cross-boundary note (nothing here restates a dependency)"
+    (!lines.any fun l => l.startsWith "Note:" && (l.splitOn "by a module outside the project").length > 1)
   -- The tag audit: the two shapes the scan would have trusted (the generated helper
   -- named by its field, the second command on a tagged line), and the one tag the
   -- scan cannot see (the `attribute` command).

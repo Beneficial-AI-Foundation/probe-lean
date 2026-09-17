@@ -60,8 +60,8 @@ def main():
               and "shared" in l for l in stderr))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))
-    check("no cross-merge warning (the preflight read both versions, so the pair is covered)",
-          not any("cannot see into" in l for l in stderr))
+    check("no cross-boundary note (both declarers are project modules)",
+          not any("by a module outside the project" in l for l in stderr))
     check("no atom was left uncovered by the walk",
           not any(l.startswith("Warning: atom ") for l in stderr))
 

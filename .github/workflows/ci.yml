@@ -135,10 +135,9 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
       # Merged declarations under the module system: two `module` files export the
-      # same `public theorem`, one `by sorry`. A module-system base `.olean` is the
-      # exported level, where a public theorem is an axiom without its proof; the
-      # preflight must read the `.olean.private` part the importer reads, or two
-      # sorried theorems merge into a trusted "axiom".
+      # same `public theorem`, one `by sorry`. The import at the private level keeps
+      # each module's own body in the environment header, so the walk sees the sorry
+      # whichever version the lookup map kept.
       - name: End-to-end module-system merge check
         run: |
           diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
@@ -151,17 +150,11 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
-          # The split-part reader: three reads of one module-system module in one
-          # process (separate per-part reads segfaulted on the second), and a
-          # non-`module` base (the merge fixture, built above) next to stale part
-          # files, which must not be opened. Runs from the root: its `lake env`
-          # sees `ProbeLean.Coimport`.
-          cd "$GITHUB_WORKSPACE"
-          lake env lean --run tests/fixtures/module-merge/RepeatRead.lean
 
       # The import fallback over module-system modules: the collision fixture with
-      # `module` headers. The fallback preflights the same modules three times in one
-      # process, the shape that segfaulted with per-part `readModuleData` calls.
+      # `module` headers. At the exported level both `public def dup` are axioms of
+      # type `Nat`, which the base-olean preflight tolerates, so the full import
+      # itself fails and the fallback takes over.
       - name: End-to-end module-system import-fallback check
         run: |
           diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
@@ -341,10 +334,9 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
       # Merged declarations under the module system: two `module` files export the
-      # same `public theorem`, one `by sorry`. A module-system base `.olean` is the
-      # exported level, where a public theorem is an axiom without its proof; the
-      # preflight must read the `.olean.private` part the importer reads, or two
-      # sorried theorems merge into a trusted "axiom".
+      # same `public theorem`, one `by sorry`. The import at the private level keeps
+      # each module's own body in the environment header, so the walk sees the sorry
+      # whichever version the lookup map kept.
       - name: End-to-end module-system merge check
         run: |
           diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
@@ -357,17 +349,11 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
-          # The split-part reader: three reads of one module-system module in one
-          # process (separate per-part reads segfaulted on the second), and a
-          # non-`module` base (the merge fixture, built above) next to stale part
-          # files, which must not be opened. Runs from the root: its `lake env`
-          # sees `ProbeLean.Coimport`.
-          cd "$GITHUB_WORKSPACE"
-          lake env lean --run tests/fixtures/module-merge/RepeatRead.lean
 
       # The import fallback over module-system modules: the collision fixture with
-      # `module` headers. The fallback preflights the same modules three times in one
-      # process, the shape that segfaulted with per-part `readModuleData` calls.
+      # `module` headers. At the exported level both `public def dup` are axioms of
+      # type `Nat`, which the base-olean preflight tolerates, so the full import
+      # itself fails and the fallback takes over.
       - name: End-to-end module-system import-fallback check
         run: |
           diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \

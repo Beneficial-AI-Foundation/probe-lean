@@ -11,11 +11,11 @@ Run from this directory, after
 `ModMerge.Bad` and `ModMerge.Good` are `module` files that both export `public
 theorem shared : True`; one proof is a `sorry`. A module-system module's base
 `.olean` is the *exported* level, where a `public theorem` is represented as an
-axiom without its proof. The co-import preflight used to read only that part, so it
-saw two same-type axioms, filed the name as merged, and the merged-trust rule
-returned "axiom" — two theorems, one of them `sorry`, trusted. The preflight now
-reads the `.olean.private` part the importer reads, so `shared` is a theorem with
-its proof in both versions: `unverified`, never trusted, both callers `verified`.
+axiom without its proof. The merged versions used to come from a preflight that read
+only that part, so it saw two same-type axioms and the merged-trust rule returned
+"axiom" — two theorems, one of them `sorry`, trusted. The versions now come from the
+environment header after the private-level import, so `shared` is a theorem with its
+proof in both versions: `unverified`, never trusted, both callers `verified`.
 """
 
 import glob
@@ -63,8 +63,8 @@ def main():
     check("the merged declaration is reported",
           any(l.startswith("Warning: 1 declaration name(s) are declared by more than one project module")
               and "shared" in l for l in stderr))
-    check("no cross-merge warning (both versions were read, so the pair is covered)",
-          not any("cannot see into" in l for l in stderr))
+    check("no cross-boundary note (both declarers are project modules)",
+          not any("by a module outside the project" in l for l in stderr))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))
     check("no atom was left uncovered by the walk",

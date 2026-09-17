@@ -11,8 +11,8 @@ Run from this directory, after
 Four project theorems restate a theorem of the `dep` path dependency with the same name
 and statement; Lean's importer keeps ONE body per name without comparing them. In both
 import orders (dependency wins the name / project wins the name) and for both project
-bodies (sorried / proved) the walk must follow the *project's* version, which only the
-olean preflight has a copy of:
+bodies (sorried / proved) the walk must follow the *project's* version, which the
+environment header keeps even when the lookup map kept the dependency's:
 
     name      project body   who wins the name   body the env keeps   expected
     shared    sorry          dependency          project's (sorry)    callers verified
@@ -72,7 +72,7 @@ def main():
     check("callerFirst is transitively-verified", status(data, "probe:callerFirst") == "transitively-verified")
 
     print("Project wins the name, project body sorried, environment holds the dependency's proof (shared4)")
-    check("shared4 is unverified (the preflight's copy of the project body is walked)",
+    check("shared4 is unverified (the header's copy of the project body is walked)",
           status(data, "probe:shared4") == "unverified")
     check("callerBad is verified", status(data, "probe:callerBad") == "verified")
 
@@ -82,9 +82,7 @@ def main():
     check("the note names all four cross-boundary declarations",
           any(l.startswith(NOTE) and all(n in l for n in ("shared", "shared2", "shared3", "shared4"))
               for l in stderr))
-    check("no fail-closed warning: every declaring project module was read",
-          not any("could not read and by another module" in l for l in stderr))
-    check("no project/project merge warning (the preflight cannot see these pairs)",
+    check("no project/project merge warning (these are cross-boundary pairs)",
           not any("declared by more than one project module" in l for l in stderr))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))

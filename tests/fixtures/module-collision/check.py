@@ -9,10 +9,10 @@ Run from this directory, after
 
 The `collision` fixture with `module` headers. `ModColl.A` and `ModColl.B` both export
 `public def dup`, so the full project cannot be co-imported and `extract --module
-ModColl.Main` falls back to the selection. Getting here at all is the point: the
-fallback preflights `ModColl.Main` and `ModColl.Common` three times in one process (all
-modules, the selection, the imported set), and reading a module-system module's split
-olean parts with separate `readModuleData` calls segfaulted on the second read. The
+ModColl.Main` falls back to the selection. At the exported level (the base `.olean` the
+preflight reads) a non-exposed `public def` is an axiom, and the preflight tolerates two
+same-type axioms, so the pair passes the preflight and the full import itself fails
+(`environment already contains 'dup'`); the fallback then imports the selection. The
 status assertions are the collision fixture's: `Common.bad` is loaded transitively, is in
 P, and taints `Main.thm`.
 """
