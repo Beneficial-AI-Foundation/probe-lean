@@ -3,10 +3,11 @@ import Lean
 /-!
 Target-side machinery the sorry-taint fixture needs.
 
-- `externally_verified` registered **by the target** under its own extension name.
-  probe-lean's handle lookup (`ProbeLean.externallyVerifiedAttr.hasTag`) cannot see
-  it, so the source scan of the `@[…]` block is what must fire — the
-  curve25519-dalek-lean-verify pattern.
+- `externally_verified` registered **by the target** under its own extension name —
+  the curve25519-dalek-lean-verify pattern. probe-lean's handle lookup
+  (`ProbeLean.externallyVerifiedAttr.hasTag`) cannot see it; rule 2 reads the tag set
+  from this extension's olean entries instead (`ProbeLean/TagSet.lean`), and the
+  source scan of the `@[…]` block only fills the informative `attributes` array.
 - `step_theorem`, a stand-in for Aeneas's `@[step]`: one command that declares
   `theorem X` and a companion `theorem X.mvcgen_spec := X`. Both come from the same
   syntax node, so both carry the **same declaration range**, which is what makes the

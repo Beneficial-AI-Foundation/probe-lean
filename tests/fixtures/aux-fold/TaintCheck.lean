@@ -238,7 +238,7 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Uni
   IO.println "Extract output: statuses under the trusted base"
   let expect (atom status : String) : IO Unit :=
     check fs s!"{atom} is {status}" (statusOf data atom == some status)
-  -- Rule 2: the target's own `externally_verified`, found by the source scan.
+  -- Rule 2: the target's own `externally_verified`, found in the olean tag set.
   expect "probe:vouched" "trusted"
   check fs "vouched trusted-reason is externally_verified"
     (reasonOf data "probe:vouched" == some "externally_verified")

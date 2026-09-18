@@ -91,7 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the second is not trusted by rule 2) — and the
   pass prints where the set came from (`externally_verified tag set: <n> name(s) from
   <extension>`). A registration the reader does not understand (an explicit `ref`, a
-  wrapper, a `ParametricAttribute`) is under-trust and loud, never over-trust.
+  wrapper, a `ParametricAttribute`) is under-trust, never over-trust: loud for tags
+  written `@[…]` on a declaration (a `Divergence(tag)` line each), silent for a tag such a
+  registration attaches with no header to scan (an `attribute` command, a range-less
+  constant).
 
   **The `*External` rule excludes proofs, not only `theorem`s.** A `def admitted : False :=
   by sorry` or an `opaque` of Prop type in a `*External` module used to be trusted as a
