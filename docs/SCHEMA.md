@@ -4,23 +4,33 @@ Version: 3.0
 Date: 2026-08-03
 Parent document: [probes/docs/envelope-rationale.md](https://github.com/Beneficial-AI-Foundation/probe/blob/main/docs/envelope-rationale.md)
 
-This document defines the Lean-specific details for Schema 3.0 as produced by `probe-lean`.
-It instantiates the generic envelope and atom schema from the parent document with Lean
-declaration kinds, code-name URIs, versioning, and field mappings.
+This document defines the Lean-specific details for Schema 3.0 as produced by `probe-lean`: the
+envelope, the code-name format, the declaration kinds, every atom field, and the contracts behind
+the two fields that need one (`verification-status` and the dependency arrays). Two companion
+documents hold the audit-level detail: [verification-status.md](verification-status.md) and
+[auxiliary-folding.md](auxiliary-folding.md). CLI flags and stderr output are in
+[USAGE.md](USAGE.md). Historical notes (Schema 1.x changes, the versioning survey, the Verus kind
+comparison) are archived in [archive/schema-3.0-migration-notes.md](archive/schema-3.0-migration-notes.md).
 
-## Envelope Example
+## Envelope
 
-A complete probe-lean extract output with the Schema 3.0 envelope:
+The envelope fields (`schema`, `schema-version`, `tool`, `source`, `timestamp`, `data`) are
+defined by the parent document. probe-lean registers two `schema` values:
+
+| schema | Command | `data` holds |
+|--------|---------|--------------|
+| `probe-lean/extract` | `extract` | Unified atoms keyed by code-name |
+| `probe-lean/viewify` | `viewify` | Molecules for the web UI keyed by `<code-path>/<name_last>` |
+
+`source.repo` and `source.commit` are required strings (empty when unavailable). Example `extract`
+output with one definition and one trusted axiom; a theorem atom has the same fields with
+`"kind": "theorem"` and, when tagged, `"attributes": ["primary_spec"]` and `"is-primary-spec": true`:
 
 ```json
 {
   "schema": "probe-lean/extract",
   "schema-version": "3.0",
-  "tool": {
-    "name": "probe-lean",
-    "version": "0.4.5",
-    "command": "extract"
-  },
+  "tool": { "name": "probe-lean", "version": "0.15.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/Verified-zkEVM/ArkLib",
     "commit": "f6e5d4c",
@@ -32,13 +42,13 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
   "data": {
     "probe:ArkLib.SumCheck.Protocol.Prover.prove": {
       "display-name": "prove",
+      "kind": "def",
+      "language": "lean",
       "dependencies": [
         "probe:ArkLib.SumCheck.Protocol.Prover.computeRoundPoly",
         "probe:ArkLib.SumCheck.Protocol.Verifier.verify"
       ],
-      "type-dependencies": [
-        "probe:ArkLib.SumCheck.Protocol.Verifier.verify"
-      ],
+      "type-dependencies": ["probe:ArkLib.SumCheck.Protocol.Verifier.verify"],
       "term-dependencies": [
         "probe:ArkLib.SumCheck.Protocol.Prover.computeRoundPoly",
         "probe:ArkLib.SumCheck.Protocol.Verifier.verify"
@@ -46,8 +56,6 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "code-module": "ArkLib.SumCheck.Protocol",
       "code-path": "ArkLib/SumCheck/Protocol.lean",
       "code-text": { "lines-start": 42, "lines-end": 67 },
-      "kind": "def",
-      "language": "lean",
       "is-in-package": true,
       "is-relevant": true,
       "is-hidden": false,
@@ -58,50 +66,21 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "rust-source": null,
       "specs": ["probe:ArkLib.SumCheck.Protocol.Prover.prove_spec"],
       "primary-spec": "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec",
-      "verification-status": "verified",
+      "verification-status": "transitively-verified",
       "codomain-head": "ArkLib.SumCheck.Protocol.Prover.State",
       "codomain-is-prop": false,
       "codomain-last-arg-is-bool": false
     },
-    "probe:ArkLib.SumCheck.Protocol.Prover.prove_spec": {
-      "display-name": "prove_spec",
-      "dependencies": [
-        "probe:ArkLib.SumCheck.Protocol.Prover.prove",
-        "probe:ArkLib.SumCheck.Protocol.Prover.roundPoly_degree_le"
-      ],
-      "type-dependencies": [
-        "probe:ArkLib.SumCheck.Protocol.Prover.prove"
-      ],
-      "term-dependencies": [
-        "probe:ArkLib.SumCheck.Protocol.Prover.prove",
-        "probe:ArkLib.SumCheck.Protocol.Prover.roundPoly_degree_le"
-      ],
-      "code-module": "ArkLib.SumCheck.Protocol",
-      "code-path": "ArkLib/SumCheck/Protocol.lean",
-      "code-text": { "lines-start": 70, "lines-end": 85 },
-      "kind": "theorem",
-      "language": "lean",
-      "is-in-package": true,
-      "is-relevant": true,
-      "is-hidden": false,
-      "is-lean-generated": false,
-      "is-aeneas-generated": false,
-      "is-ignored": false,
-      "is-primary-spec": true,
-      "attributes": ["primary_spec"],
-      "rust-source": null,
-      "verification-status": "verified"
-    },
     "probe:Aeneas.Std.core.convert.num.FromUsizeBool": {
       "display-name": "FromUsizeBool",
+      "kind": "axiom",
+      "language": "lean",
       "dependencies": [],
       "type-dependencies": [],
       "term-dependencies": [],
       "code-module": "Aeneas.Std.FunsExternal",
       "code-path": "Aeneas/Std/FunsExternal.lean",
       "code-text": { "lines-start": 10, "lines-end": 12 },
-      "kind": "axiom",
-      "language": "lean",
       "is-in-package": true,
       "is-relevant": true,
       "is-hidden": false,
@@ -111,368 +90,182 @@ A complete probe-lean extract output with the Schema 3.0 envelope:
       "is-primary-spec": false,
       "rust-source": null,
       "verification-status": "trusted",
-      "trusted-reason": "axiom"
+      "trusted-reason": "axiom",
+      "codomain-is-prop": false,
+      "codomain-last-arg-is-bool": false
     }
   }
 }
 ```
 
-## Schema Values
+## Package version
 
-probe-lean registers the following `schema` values:
+`source.package-version` is always non-empty but is an opaque identifier, not necessarily semver:
 
-| schema | Command | Description |
-|--------|---------|-------------|
-| `probe-lean/extract` | `extract` | Unified atoms with verification status and specs |
-| `probe-lean/viewify` | `viewify` | Filtered molecules for the web UI |
+1. the `version` field of `lakefile.toml` if present (`"0.1.0"`; a `lakefile.lean` is not parsed);
+2. otherwise the short git commit hash (`"a1b2c3d"`);
+3. otherwise `"0.0.0"`.
 
-## CLI Commands
+The output filename uses underscores: `lean_<package>_<version>.json`, e.g.
+`lean_ExampleProject_0.1.0.json` or `lean_Arklib_a1b2c3d.json`.
 
-probe-lean exposes two commands:
+## Code-name format
 
-- **`extract`**: The primary command. Combines atom extraction, specs computation,
-  and sorry detection into a single pass. Outputs unified atoms to `.verilib/probes/`.
-- **`viewify`**: Reads extract output, filters atoms (not hidden, and never lean-generated
-  or aeneas-generated — dropped regardless of `is-hidden` — is relevant, code-path ends with
-  `Funs.lean`), and outputs molecules to `.verilib/views/`. Consumers that instead read the
-  `extract` output directly (e.g. the web UI) honor `is-hidden` and so surface contaminated
-  generated atoms once enrichment clears their `is-hidden` (see below).
-
-## Package Versioning for Lean
-
-Lean's Lake build system has an optional `version` field in `lakefile.toml`/`lakefile.lean`.
-Unlike Rust's Cargo (where every crate must have a semver version), most Lean projects do
-not declare a version.
-
-Surveyed projects:
-
-| Project | Has `version`? | Value |
-|---------|---------------|-------|
-| probe-lean | yes | `0.4.5` |
-| curve25519-dalek-lean-verify | yes | `0.1.0` |
-| ArkLib | no | -- |
-| katydid-proofs | no | -- |
-| VCV-io | no | -- |
-
-**Strategy:**
-
-1. Read `version` from `lakefile.toml` if present.
-2. Otherwise, use the short git commit hash.
-3. Fall back to `"0.0.0"` if neither is available.
-
-This means `source.package-version` is always non-empty, but consumers should treat it
-as an opaque identifier and not assume semver.
-
-Examples:
-
-- Versioned: `"package-version": "0.1.0"`
-- Unversioned: `"package-version": "a1b2c3d"`
-
-The probe filename convention uses underscores for filesystem safety:
-
-- `lean_ExampleProject_0.1.0.json`
-- `lean_Arklib_a1b2c3d.json`
-
-## Code-Name URI Format
-
-Lean atoms use the `probe:` prefix followed by the fully qualified Lean name:
-
-```
-probe:<FullyQualifiedName>
-```
-
-Examples:
+A Lean atom's code-name is `probe:` followed by the fully qualified Lean name, with private
+mangling stripped (`_private.M.0.Bar.foo` → `probe:Bar.foo`):
 
 - `probe:ArkLib.SumCheck.Protocol.Prover.prove`
 - `probe:Mathlib.Data.Nat.Basic.succ_pos`
-- `probe:RegexDeriv.Language.Semantics.derive_correct`
 
-### Differences from Rust code-names
+No package or version is embedded: within a project Lean names are unique by construction, and
+across projects `source.package` disambiguates.
 
-Rust code-names embed the crate name and version in the URI:
-`probe:curve25519-dalek/4.1.3/scalar/Scalar#Add<&Scalar>#add()`
+## Declaration kinds (`kind`)
 
-Lean code-names currently use the bare fully qualified name without package or version.
-This is because:
-
-- Lean's namespace hierarchy already encodes the package/library prefix
-  (e.g., `Mathlib.Data.Nat` is unambiguously from Mathlib).
-- Lean projects do not reliably have semver versions to embed.
-
-**Open question:** Should Lean code-names be extended to include the package name and
-version for cross-project uniqueness? e.g.,
-`lean:Arklib/a1b2c3d/ArkLib.SumCheck.Protocol.Prover.prove`
-
-For now, the `probe:` prefix with the fully qualified name is sufficient because:
-
-- Within a single project, Lean names are unique by construction.
-- Across projects, the envelope's `source.package` disambiguates.
-- In merged files, the per-atom `language` field distinguishes Lean atoms from Rust atoms.
-
-If cross-project atom references become needed (e.g., one project depending on Mathlib
-atoms), the code-name format can be extended in a minor schema version bump.
-
-## Declaration Kinds (`kind` field)
-
-The `kind` field classifies the Lean declaration. This corresponds to the `mode` field in
-the generic interchange spec, using Lean-native terminology.
+`kind` corresponds to the generic spec's `mode` field, in Lean-native terms. probe-verus uses the
+same field name with Verus's own values.
 
 | Value | Lean construct | Notes |
 |-------|---------------|-------|
 | `def` | `def` | Computable definition |
 | `theorem` | `theorem` | Proven proposition (erased at runtime) |
-| `abbrev` | `abbrev` | Abbreviation (reducible definition) |
-| `projection` | (auto) | Structure field or class method projection (detected via `env.isProjectionFn`) |
+| `abbrev` | `abbrev` | Reducible definition |
+| `projection` | (auto) | Structure field or class method projection (`env.isProjectionFn`) |
 | `class` | `class` | Type class |
 | `structure` | `structure` | Record type |
 | `inductive` | `inductive` | Inductive type |
-| `instance` | `instance` | Type class instance |
-| `axiom` | `axiom` | Axiom (assumed without proof; always `"trusted"`) |
+| `instance` | `instance` | Registered in Lean's instance table: the keyword, `scoped instance`, or `attribute [instance]` in the declaring module |
+| `axiom` | `axiom` | Assumed without proof; always `"trusted"` |
 | `opaque` | `opaque` | Opaque definition (no unfolding) |
 | `quot` | `Quot` | Quotient type (built-in) |
 
-### Relationship to Verus kinds
+## Atom fields (`probe-lean/extract`)
 
-Both probe-lean and probe-verus use `kind` as the field name. The values differ because
-they reflect each language's native declaration taxonomy:
+Every atom carries every field below unless marked "or absent". The Source column says where the
+value comes from: **auto** (computed from the environment), **config** (`.verilib/probes/config.json`),
+or **attribute** (a Lean attribute on the declaration).
 
-| Concept | Verus `kind` | Lean `kind` |
-|---------|-------------|-------------|
-| Executable code | `exec` | `def`, `abbrev`, `projection`, `instance` |
-| Specification | `spec` | `theorem`, `axiom` |
-| Proof | `proof` | (implicit in `theorem` -- the proof *is* the body) |
-| Type definition | -- | `class`, `structure`, `inductive` |
+| Field | Type | Source | Description |
+|-------|------|--------|-------------|
+| `display-name` | string | auto | Last component of the name. |
+| `kind` | string | auto | Declaration kind, see above. |
+| `language` | string | auto | Always `"lean"`. |
+| `dependencies` | array | auto | `probe:`-prefixed **project** names: the exact **union** of `type-dependencies` and `term-dependencies`. Deduplication is by declaration identity before private mangling is stripped, so two distinct private declarations that print to the same name can appear twice; this is permitted and silent (`tools/audit/compare-extract.py` reports it as a diagnostic). |
+| `type-dependencies` | array | auto | Project names the declaration's type signature mentions. Exactly the signature; auxiliary folding never adds here, so this is the signal `specs`/`primary-spec` derive from. |
+| `term-dependencies` | array | auto | Project names the body/proof mentions, plus every project name the fold recovers from under a non-emitted auxiliary, auxiliaries named in the *type* included. Folded entries are therefore indirect: what the declaration reaches, not only what it names. See [Auxiliary-dependency folding](#auxiliary-dependency-folding). |
+| `type-dependencies-external` | array or absent | auto | **Non-project** names (Mathlib, core) the type mentions **directly**. Absent when empty. Lets a downstream tool extend the graph past the project boundary by direct edges; an external reached only through an auxiliary, or one the internal-name filter drops (`Nat.rec`, `Foo.mk`), is not listed. Folding never contributes here. |
+| `term-dependencies-external` | array or absent | auto | Same for the body/proof. |
+| `code-module` | string | auto | Module containing the declaration. |
+| `code-path` | string | auto | Source path relative to the project root. |
+| `code-text` | object or null | auto | `{ "lines-start": N, "lines-end": N }`. |
+| `is-in-package` | bool | auto | Always `true`: only the project's own modules are extracted. Kept as a generic signal. |
+| `is-relevant` | bool | auto / config | `true` for every atom when the config has no `relevant-crate`. When it has one: `false` for atoms without a `rust-source`, and for the rest `true` only if the source contains the crate name, does not start with `/`, and does not contain `/cargo/registry/`. |
+| `is-hidden` | bool | auto / config | From the config's `is-hidden` list, or auto-set for auto-detected generated atoms (deriving clusters, projections, `@[step]` companions; config-suffix-matched scaffolding is flagged generated but not hidden). After transitive enrichment it is **cleared** on *contaminated* generated atoms (`verified` but not `transitively-verified`, or `unverified`/`failed`) so consumers reading `extract` output surface them for tracing; clean and trusted generated atoms stay hidden. `viewify` drops all generated atoms regardless. Not cleared under `--skip-enrich`. |
+| `is-lean-generated` | bool | auto | Core-Lean output: `deriving`-generated instance clusters and structure/class projections. |
+| `is-aeneas-generated` | bool | config + auto | Exists only because of Aeneas: name ends with a suffix in the config's `extraction-artifact-suffixes`, or is the attribute-machinery companion theorem `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`. |
+| `is-ignored` | bool | config | From the config's `is-ignored` list. Always an editorial decision. |
+| `is-primary-spec` | bool | attribute | The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a heuristic-chosen `primary-spec` reads `false`, a tagged non-theorem reads `true`, and a tagged theorem the inference could not attach to any target (issue #104) still reads `true`. Intersecting a target's `specs` with this flag recovers its tagged candidates. |
+| `attributes` | array or absent | attribute | Lean attributes on the declaration, absent when empty. `primary_spec` comes from probe-lean's handle; every other name (`step`, `progress`, `simp`, …) from a lexer-aware scan of the `@[…]` blocks in the declaration's header only, so a tag quoted in a docstring, comment, string or neighbouring declaration is not attributed. `externally_verified` is listed when the header scan finds it **or** the declaration is in the attribute's tag set read from the environment (so a tag attached by an `attribute` command shows here too). A constant sharing a tagged declaration's range (a generated companion, a `deriving` instance, a projection of a one-line `structure`) *shows* the parent's scanned tags, `externally_verified` included, so this array is **not** evidence of trust: read `trusted-reason`. |
+| `rust-source` | string or null | auto | Path from an Aeneas docstring's `Source: 'path'` line, read from the declaration's own docstring or, failing that, from its sibling `<name>_body` declaration's. |
+| `specs` | array or absent | auto | Theorem atoms whose **`type-dependencies`** include this atom, i.e. whose *statement* mentions it. A constant a theorem only uses in its proof is not something it specifies, with one exception: a `@[primary_spec]` theorem whose statement mentions no specifiable constant falls back to its proof-term dependencies when those name exactly one specifiable constant (several: the tag attaches to nothing). Generated theorems are excluded unless tagged `@[primary_spec]`. Absent when empty; "specified" means `specs` is non-empty. |
+| `primary-spec` | string or absent | auto | The primary specification theorem, by precedence: (1) `@[primary_spec]`, (2) a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec. Several `@[primary_spec]` theorems on one target: arbitrary tie-break, stderr warning, losers stay in `specs` with `is-primary-spec: true`. Signals 2–4 pick a theorem without tagging it, so the winner's own `is-primary-spec` may be `false`. |
+| `verification-status` | string or absent | auto | One of the five values in [Verification status](#verification-status-and-the-trusted-base). Absent under `--skip-verify`, except trusted atoms keep `"trusted"`. |
+| `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`, see below. |
+| `codomain-head` | string or absent | auto | Head constant of the result type after stripping `∀`/`→` binders, if it is a constant. |
+| `codomain-is-prop` | bool | auto | The result type is `Sort 0`. |
+| `codomain-last-arg-is-bool` | bool | auto | The final application argument of the result type is `Bool`. |
 
-Lean does not have a separate "proof" kind because proofs are the bodies of `theorem`
-declarations, not standalone units. This is a fundamental difference from Verus where
-`proof` and `spec` are syntactically distinct modes.
+The `codomain-*` fields are neutral primitives. probe-lean does not classify declarations; a
+downstream tool reconstructs the codomain shape from them plus its own catalogue. The envelope
+carries no `classification` object and no `source.class` field.
 
-## Lean-Specific Atom Fields
+The editorial flags (`is-hidden`, `is-lean-generated`, `is-aeneas-generated`, `is-ignored`) are a
+backward-compatible convenience. In the recommended pipeline for Aeneas projects,
+**probe-aeneas** computes them from the generic facts probe-lean provides (`attributes`, name
+patterns, `rust-source`).
 
-In addition to the core fields defined by the interchange spec, probe-lean atoms include:
+## Verification status and the trusted base
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `kind` | string | Declaration kind (see table above). Same field name used by probe-verus. |
-| `is-in-package` | bool | Whether the declaration belongs to the current package (not an imported dependency) |
-| `is-relevant` | bool | Whether the declaration is relevant for analysis (see computation rules below) |
-| `is-hidden` | bool | From `.verilib/probes/config.json` `is-hidden` list. Cleared after transitive enrichment for *contaminated* generated atoms (lean- or aeneas-generated) — locally verified but not `transitively-verified`, or `unverified`/`failed` — so consumers that read `extract` output directly (e.g. the web UI) surface them for tracing; `transitively-verified` and `trusted` generated atoms stay hidden. `viewify` omits all generated atoms regardless of this flag. |
-| `is-lean-generated` | bool | Core-Lean-generated code: `deriving`-generated instance clusters and structure/class projections |
-| `is-aeneas-generated` | bool | Declarations that exist only because of Aeneas: name ends with a suffix from the `extraction-artifact-suffixes` config (source scaffolding), or an attribute-machinery companion theorem (e.g. the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`) |
-| `is-ignored` | bool | From `.verilib/probes/config.json` `is-ignored` list |
-| `is-primary-spec` | bool | The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a theorem the heuristic signals pick as some target's `primary-spec` reads `false` here unless it is also tagged, and a tagged non-theorem reads `true` even though it can never be a `primary-spec`. It also does not mean the tag *attached*: the attribute takes no argument, so probe-lean infers the target, and a tagged theorem whose statement names no specifiable atom and whose proof names several can appear in no target's `specs` at all while still reading `true` here (issue #104). Intersecting a target's `specs` with this flag recovers the tagged candidates for that target. |
-| `attributes` | array of strings | Lean tag attributes detected on this declaration (absent when empty) |
-| `rust-source` | string or null | Rust source path from Aeneas docstring |
+`verification-status` is decided by a **kernel walk**, not by the build log or the emitted graph.
+`sorry` elaborates to the `sorryAx` axiom, and the walk follows the constant graph of every
+constant of every built project module, atoms or not. It stops at two boundaries:
 
-### Field Computation Methods
+- **the project boundary**: Lean and every dependency package in `lake-manifest.json` are trusted
+  wholesale;
+- **the trusted base T** inside the project, defined by the three rules below.
 
-| Field | Method | Details |
-|-------|--------|---------|
-| `is-in-package` | **AUTO** | Always `true` for atoms emitted by probe-lean, since only declarations from the project's own modules are extracted. Provided as a generic signal for downstream tools. |
-| `is-relevant` | **AUTO / CONFIG** | Defaults to `true` for all in-package declarations. When `relevant-crate` is set in `.verilib/probes/config.json`, declarations with `rust-source` are filtered to only those whose source matches the configured crate. |
-| `is-hidden` | **AUTO / CONFIG** | Set from the `is-hidden` name list in `.verilib/probes/config.json`, OR auto-set for *auto-detected* generated atoms (deriving clusters, projections, `@[step]` companions; config-suffix-matched scaffolding is flagged generated but not auto-hidden). After transitive enrichment (skipped under `--skip-enrich`), `is-hidden` is cleared on *contaminated* generated atoms — lean- or aeneas-generated, locally verified but not `transitively-verified`, or `unverified`/`failed`; `transitively-verified` and `trusted` generated atoms stay hidden. Clearing surfaces them only to consumers reading `extract` output directly (e.g. the web UI); `viewify` omits all generated atoms regardless. |
-| `is-lean-generated` | **AUTO** | Auto-detected for `deriving`-generated instance clusters and structure/class projections. |
-| `is-aeneas-generated` | **CONFIG + AUTO** | Set from the `extraction-artifact-suffixes` list in `.verilib/probes/config.json` (declaration name ends with a configured suffix), and auto-detected for `@[step]`'s attribute-machinery companion theorems (`X.mvcgen_spec`). |
-| `is-ignored` | **CONFIG** | Set from the `is-ignored` name list in `.verilib/probes/config.json`. Always a manual editorial decision. |
-| `is-primary-spec` | **AUTO** | Set from the `@[primary_spec]` attribute handle (registered by `ProbeLean.Attrs`), independently of the primary-spec signals. It records that the declaration was *tagged*, not that it *won*: a heuristic winner carries `false`, and a tagged non-theorem carries `true`. The attribute installs no kind validator, so `@[primary_spec] def foo` is accepted. |
-| `attributes` | **AUTO** | Lean attributes detected on the declaration. Populated from two sources: (1) handle-based detection for attributes registered via `ProbeLean.Attrs` (`primary_spec`, `externally_verified`), and (2) source-level scanning of `@[...]` annotations in `.lean` files. Source scanning acts as a general fallback that works for any attribute, including those registered independently by the target project. probe-lean uses known verification-framework attributes (`progress`, `pspec`, `step`) as a signal for primary-spec detection; all other attributes are raw fact data for consumers. |
-| `rust-source` | **AUTO** | Extracted from Aeneas-generated docstrings (`Source: 'path'` pattern). `null` for declarations without Aeneas docstrings. |
+| Status | Meaning |
+|--------|---------|
+| `"trusted"` | In T; `trusted-reason` says why. |
+| `"unverified"` | The declaration's own type or value names `sorryAx` (a *direct carrier*). |
+| `"verified"` | Locally sorry-free, but an unexcused project `sorry` is reachable from it. |
+| `"transitively-verified"` | No project `sorry` is reachable except through a trusted declaration ("clean modulo T"). Never produced under `--skip-enrich`, where such atoms read `"verified"`. |
+| `"failed"` | Currently never produced. |
 
-**Note:** The `is-hidden`, `is-lean-generated`, `is-aeneas-generated`, and `is-ignored` fields are set by
-probe-lean from config only as a backward-compatible convenience. In the recommended
-pipeline for Aeneas projects, these fields are computed by **probe-aeneas** using
-Aeneas-specific heuristics applied to the generic facts (`attributes`, name patterns,
-`rust-source`) that probe-lean provides.
+The trusted base, one shared rule set (`ProbeLean/Trust.lean`) in precedence order:
 
-## Output Types
+1. **`"axiom"`**: the Lean `axiom` keyword, generated `native_decide` axioms included.
+2. **`"externally_verified"`**: the declaration is in the `externally_verified` attribute's tag
+   set, read from the environment however the tag was attached. Nothing that merely shares a
+   tagged declaration's source range is in the set.
+3. **`"external"`**: a non-proof (not a theorem, and not Prop-typed) in a module whose name ends
+   with `External`, trusted as a model whatever its type.
 
-### `probe-lean/extract` (unified atoms)
+A trusted declaration is a leaf: a `sorry` inside or below it does not taint its callers. Two
+consequences a consumer must know:
 
-Produced by the `extract` command (`tool.command: "extract"`). Dictionary keyed by code-name.
-Each value contains all atom fields plus verification status and specs:
+- **Attribution is per kernel constant.** On Lean ≤ 4.28 a `def`'s sorried proof obligation is
+  abstracted into `f._proof_1`, so `f` reads `"verified"`; from 4.29 the `sorry` stays inline and
+  `f` reads `"unverified"`. On every toolchain `f` is tainted.
+- **Kernel dependencies, not executable bodies.** A `sorry` in a `partial def` body or in an
+  `@[implemented_by]` target does not taint the host, and a `native_decide` proof rests on a
+  trusted generated axiom.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `display-name` | string | Last component of the name |
-| `kind` | string | Declaration kind |
-| `language` | string | Always `"lean"` |
-| `dependencies` | array | `probe:`-prefixed names this declaration depends on: the **union** of `type-dependencies` and `term-dependencies`. This is an invariant, not an approximation — nothing appears here that is absent from both arrays. Deduplication is by *declaration identity*, and names are printed with private mangling stripped (`_private.M.0.Bar.foo` → `Bar.foo`), so two distinct private declarations that recover to the same user-facing name can appear twice. Note that nothing reports this per array: `extract`'s stderr warning covers duplicate **atom** names, and a colliding pair of *dependency* targets need not be emitted as atoms at all (they can be external, or constructors), in which case the duplicate is silent. `tools/audit/compare-extract.py` reports it as a diagnostic. |
-| `type-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's type signature. Exactly what the signature mentions — auxiliary folding never adds here (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)), so this stays the signal `specs` / `primary-spec` are derived from. |
-| `term-dependencies` | array | `probe:`-prefixed **project** names referenced in the declaration's body/proof, plus every project name the fold recovers from under a non-emitted auxiliary — including auxiliaries named in the *type* (see [Auxiliary-dependency folding](#auxiliary-dependency-folding)). Folded entries are therefore *indirect*: the array holds what the declaration reaches, not only what it literally names. For a theorem this is the proof term, so it is normally non-empty and typically much larger than `type-dependencies`. |
-| `type-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names (Mathlib/core) referenced **directly** in the type. Absent when empty. Lets a downstream tool reconstruct the full reachability graph, which the project-filtered `type-dependencies` omits. Auxiliary folding does not contribute here: an external constant reached only through an auxiliary is not listed (see the asymmetry note below). |
-| `term-dependencies-external` | array or absent | `probe:`-prefixed **non-project** names referenced **directly** in the body/proof. Absent when empty. Same direct-only rule as `type-dependencies-external`. |
-| `code-module` | string | Module name containing the declaration |
-| `code-path` | string | Relative path to source file |
-| `code-text` | object or null | `{ "lines-start": N, "lines-end": N }` |
-| `is-in-package` | bool | Declaration belongs to the current package |
-| `is-relevant` | bool | Declaration is relevant for analysis |
-| `is-hidden` | bool | Hidden from UI; cleared for contaminated generated atoms after enrichment |
-| `is-lean-generated` | bool | Core-Lean-generated code (deriving clusters, projections) |
-| `is-aeneas-generated` | bool | Aeneas-only declarations (suffix-matched scaffolding, attribute-machinery companion theorems) |
-| `is-ignored` | bool | From config's ignored list |
-| `is-primary-spec` | bool | The declaration carries `@[primary_spec]`. *Tagged*, not *won* — a heuristic-chosen `primary-spec` reads `false` here, a tagged non-theorem reads `true`. |
-| `attributes` | array or absent | Lean tag attributes on this declaration. Absent when empty. |
-| `rust-source` | string or null | Rust source path from Aeneas docstring |
-| `specs` | array or absent | Code-names of theorem atoms whose **`type-dependencies`** include this atom — that is, theorems whose *statement* mentions it. A constant a theorem only invokes in its proof is not something the theorem specifies, so it is excluded — except a theorem explicitly tagged `@[primary_spec]` whose statement mentions no specifiable constant, which falls back to its proof-term dependencies **when those name exactly one specifiable constant** (with several, the tag is ambiguous and attaches to nothing). Also excludes generated theorems — `is-lean-generated` or `is-aeneas-generated` — unless explicitly tagged `@[primary_spec]` (machine-generated companions are not user specs). Absent when empty. Whether an atom is "specified" can be inferred from `specs` being non-empty. |
-| `primary-spec` | string or absent | Code-name of the primary specification theorem for this atom. Absent when none. Determined by precedence: (1) `@[primary_spec]` attribute, (2) known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec inference. When several `@[primary_spec]` theorems target the same atom the pick is an arbitrary tie-break — `extract` warns on stderr, and the rejected candidates stay in `specs` with `is-primary-spec: true`. Conversely, signals 2-4 name a winner without tagging it, so `primary-spec` may point at a theorem whose own `is-primary-spec` is `false`. |
-| `verification-status` | string or absent | `"transitively-verified"`, `"verified"`, `"unverified"`, `"failed"`, `"trusted"`, or absent if skipped. A declaration is `"verified"` if its own body does not contain `sorry`; it is upgraded to `"transitively-verified"` if, additionally, all its transitive dependencies are verified or trusted (computed via reverse-BFS contamination, skippable with `--skip-enrich`). Declarations that are locally sorry-free but have at least one unverified or failed transitive dependency remain `"verified"`. Axioms, declarations carrying `@[externally_verified]`, and non-theorem declarations from `*External.lean` files (Aeneas trust base) are always `"trusted"`. Theorems in `*External.lean` without `@[externally_verified]` carry real proofs and receive their normal status from sorry detection. Declarations without source location (kernel-synthesized) are filtered from output entirely. |
-| `trusted-reason` | string or absent | Present only when `verification-status` is `"trusted"`. Values: `"axiom"` (Lean `axiom` keyword), `"externally_verified"` (declaration tagged `@[externally_verified]` — proof discharged outside Lean), `"external"` (non-theorem declaration in a file ending with `External.lean`). Enables automated trust-base classification. |
-| `codomain-head` | string or absent | Fully-qualified head constant of the declaration's result type (after stripping `∀`/`→` binders), if the head is a constant. Absent otherwise. A neutral fact about the declaration's shape; a downstream tool can combine it with its own catalogue to classify the codomain. |
-| `codomain-is-prop` | boolean | The result type is `Sort 0` (a `Prop`). |
-| `codomain-last-arg-is-bool` | boolean | The final application argument of the result type is the constant `Bool`. |
+Everything else (cross-checks, module coverage, merged declarations, the exact scope of each rule
+and its limits) is in [verification-status.md](verification-status.md).
 
-The `codomain-*` fields are neutral, domain-agnostic primitives emitted for every atom. probe-lean
-does not classify declarations itself: a downstream tool reconstructs the codomain shape from these
-primitives plus its own catalogue. The envelope carries no `classification` object and no
-`source.class` field.
+## Auxiliary-dependency folding
 
-### Auxiliary-dependency folding
+Lean abstracts embedded proofs and match arms into auxiliary constants (`X._proof_N`,
+`X.match_N`) that probe-lean does not emit as atoms. `extract` folds the edges underneath them into
+the referencing declaration. This is the authoritative statement of the invariant; the copies in
+`ProbeLean/Analysis.lean` and `tools/audit/compare-extract.py` quote it:
 
-Lean abstracts non-atomic embedded proofs and match arms into auxiliary constants
-(`X._proof_N`, `X.match_N`, tactic-generated helpers). probe-lean does not emit those as
-atoms, so a dependency reached only through one of them used to leave no trace at all:
-`host → aux → lemma` produced no `lemma` edge, and the reporter who trusted an in-degree of
-0 to prune unreferenced declarations broke the build.
+> The fold only ever adds names to `term-dependencies`. It never adds to `type-dependencies`,
+> never removes an entry from any of the four dependency arrays, never adds to the `*-external`
+> arrays, and never changes the atom set.
 
-`extract` therefore folds such edges into the referencing declaration. This is the one place
-the invariant is stated; everything else in the repo points here rather than restating it.
-The pass is strictly **additive**:
+The four arrays are `type-dependencies`, `term-dependencies` and their `*-external` twins;
+`dependencies` is the derived union, so it grows with `term-dependencies`.
 
-> It only ever adds names to `term-dependencies`. It never adds to `type-dependencies`,
-> never removes an entry from any of the four dependency arrays, never adds to the
-> `*-external` arrays, and never changes the atom set.
+Every recovered edge lands in `term-dependencies`, including one found under an auxiliary named in
+the declaration's *type*, so `type-dependencies` stays exactly what the signature mentions and
+type-driven spec selection is unaffected. Only project-internal targets are folded: an external
+constant reached only through an auxiliary is not listed anywhere (a size tradeoff, since a single
+`by omega` reaches ~50 `Lean.Omega.*` constants). Folding recovers edges, not nodes, and does not
+bear on `verification-status`. A zero in-degree in this output is still not a licence to delete a
+declaration from the sources.
 
-**Every recovered edge lands in `term-dependencies`**, including one found under an
-auxiliary named in the declaration's *type*. `type-dependencies` therefore stays exactly
-what the signature syntactically mentions, so *type-driven* spec selection is unaffected:
-`specs` / `primary-spec` are normally computed from `type-dependencies`, and a constant
-reached only through an auxiliary's implementation is not something a statement specifies.
-Since `dependencies` is the union of the two buckets, verification-status propagation still
-sees every recovered edge.
+What is and is not folded through, what a folded target is, and the one way `specs` can change are
+in [auxiliary-folding.md](auxiliary-folding.md).
 
-That is not a blanket guarantee that `specs` cannot change. Spec selection has one fallback
-that reads the union: a `@[primary_spec]`-tagged theorem whose *statement* names no
-specifiable constant falls back to `dependencies`, and attaches only when that leaves
-exactly one candidate. A folded term edge can add a second candidate there and detach such a
-tag with `type-dependencies` byte-identical. Projects that do not rely on that fallback see
-no `specs` change at all (measured: zero on curve25519-dalek-lean-verify). The fallback
-exists only because `@[primary_spec]` cannot name its own target; issue #104 proposes giving
-it a parameter, which removes the dependency on inference entirely.
+## Molecules (`probe-lean/viewify`)
 
-A consequence worth stating: a folded entry in `term-dependencies` is *indirect*. The array
-is no longer only "constants named in the body" — it is the direct project dependencies of
-the body/proof, plus the project targets reached by expanding eligible auxiliary occurrences
-in **either** the type or the body, stopping at targets. It is neither restricted to the
-body nor unrestricted transitive reachability. Use `dependencies` for reachability and treat
-`type-dependencies` as the exact signature signal.
-
-What is folded **through** (traversed, contributing what it reaches):
-
-- constants filtered from the atom set by name (`X._proof_N`, `X.match_N`, and the rest of
-  `isInternalName`'s classes), and project constants with no declaration range, provided
-  they are value-bearing (`def` / `theorem` / `opaque`).
-
-What is **not** folded through:
-
-- structural members of a type, as listed in `autoGeneratedSuffixes` — `.mk`, `.injEq`,
-  `.casesOn`, `.rec`, `.recOn`, `.brecOn`, `.noConfusion`, `.noConfusionType`, `.sizeOf_spec`,
-  `.inj`, `.elim`, `.below`, `.ibelow`, `.binductionOn`, `.ctorIdx`, `.toCtorIdx`, and the
-  equation lemmas `.eq_1` / `.eq_2` / `.eq_3` / `.eq_def`; `ProbeLean/Analysis.lean` holds the
-  authoritative list. Mapping members to their parent atom is separate work. Note the list is
-  literal, not a pattern: a higher-index equation lemma (`f.eq_4`) matches no entry, so it is
-  *not* excluded — it is a target if it carries a declaration range and folded through if it
-  does not. Generalising the suffix would change atom emission, which is why it is a
-  follow-up rather than part of the fold.
-- axioms, inductives, constructors, recursors and `Quot`. An emitted project axiom or
-  inductive reached *through* an auxiliary is still `.added` as a target — not folding
-  through it only means the traversal does not continue past it.
-- anything already emitted as an atom — traversal stops at a real dependency instead of
-  flattening the graph past it.
-
-**"Not folded through" is not "not an edge" — but it is not "edge preserved" either.** Both
-halves are unchanged from before the fold, and which one applies is decided by the name
-filter, not by the fold:
-
-- a direct reference that survives `isInternalName` stays where it always was — in the
-  project array if it passes the project filter, in the matching `*-external` array
-  otherwise. This includes a range-less project inductive or axiom, so an edge can be listed
-  even though its target is never emitted as an atom;
-- a direct reference the name filter catches is omitted from **all five** dependency arrays,
-  because `partitionDeps` drops internal names before the project/external split. That covers
-  every structural-member suffix above and every recursor (`.rec` / `.recOn` / `.brecOn`).
-  Constructors split on the same rule rather than as a class: `Color.red` is kept, `Foo.mk` is
-  dropped.
-
-A folded **target** is any project constant that survives the name filter and has a
-declaration range. That is every atom, plus named inductive constructors, which are
-referenced but never emitted as atoms of their own — exactly as for a *direct* edge to such
-a constructor today. So a folded name is not guaranteed to be a key in `data`; the
-missing-dependency reporting treats a constructor whose parent type is extracted as benign.
-
-**Direct-vs-folded asymmetry for external constants.** Only project-internal targets are
-folded. Folding external targets too would add tens of thousands of entries on a
-Mathlib-backed project (a single `by omega` drags in ~50 `Lean.Omega.*` constants), so the
-output is deliberately abstraction-sensitive for them: `host → anchor` appears in
-`*-dependencies-external`, `host → aux → anchor` does not. This is a size tradeoff, not a
-claim that external edges are uninformative. Note that "external" means *outside the
-extracted project filter*, which under `--library`/`--module` restriction is not the same as
-"Mathlib or core".
-
-**What folding does not fix.** It recovers edges, not nodes, and only for the classes above.
-It does **not** make `verification-status` sound: status propagation has no "unknown" state,
-so any dependency still missing from the graph is treated as trusted. Recovering an edge can
-therefore *downgrade* an atom from `transitively-verified` to `verified` (the
-locally-verified-but-contaminated state) — that is the intended effect — but a clean status
-remains a claim about the emitted graph rather than a proof obligation discharged.
-
-Folding is also *compiled-environment* reachability only. Source-level rebuildability also
-depends on notation, macros, attributes and elaboration-time instances that leave no
-surviving constant reference, so **a zero in-degree here is still not a licence to delete a
-declaration from the sources.**
-
-### `probe-lean/viewify` (molecules)
-
-Produced by the `viewify` command (`tool.command: "viewify"`). Dictionary keyed by
-`<code-path>/<name_last>` (or full name on collision). Each value:
+`viewify` reads `extract` output and keeps atoms that are not hidden, not lean- or
+aeneas-generated (dropped regardless of `is-hidden`), relevant, and whose `code-path` ends with
+`Funs.lean`. `data` is keyed by `<code-path>/<name_last>`, or by the full name on collision:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `code-path` | string or null | Source file path |
-| `code-lines` | string or null | Line range as string |
-| `code-name` | string | Atom name with `probe:` prefix |
-| `rust-path` | string | Rust source path (empty for pure Lean) |
-| `rust-lines` | object | `{ "lines-start": N, "lines-end": N }` |
-| `rust-name` | string | Rust function name (empty for pure Lean) |
-| `spec-path` | string or null | Specification file path |
-| `spec-lines` | string or null | Specification line range |
-| `spec-name` | string or null | Specification atom name |
+| `code-path` | string or null | The atom's `code-path` |
+| `code-lines` | string or null | The atom's line range as `"start-end"` |
+| `code-name` | string | The atom's code-name |
+| `rust-path` | string | Always `""`; `rust-source` is not consulted |
+| `rust-lines` | object | Always `{ "lines-start": 0, "lines-end": 0 }` |
+| `rust-name` | string | Always `""` |
+| `spec-path` | string or null | The atom's own `code-path`, not its `primary-spec`'s |
+| `spec-lines` | string or null | Always `null` |
+| `spec-name` | string or null | The atom's own code-name, not its `primary-spec` |
 
-## Changes from Schema 1.x
-
-The only consumer is `verilib-cli`, which we control. No backward compatibility period is
-needed -- probe-lean and verilib-cli are updated in lockstep.
-
-Key changes:
-
-1. **Top-level structure**: The bare dictionary becomes nested under a `data` key inside
-   the envelope.
-2. **New per-atom field**: `language: "lean"` is added for merged-file compatibility.
-3. **Output path**: Default output moves from `.verilib/atoms.json` to
-   `.verilib/probes/lean_<package>_<version>.json`.
-4. **CLI simplification**: The five old commands (`atomize`, `specify`, `verify`, `pipeline`,
-   `stubify`) are replaced by two: `extract` (combined pipeline) and `viewify` (filtered output).
-5. **Schema identifiers**: Changed from per-step schemas (`probe-lean/atoms`, `probe-lean/specs`,
-   etc.) to per-command schemas (`probe-lean/extract`, `probe-lean/viewify`).
-6. **Renamed types**: `EnrichedAtom` → `UnifiedAtom`, `StubsOutput` → `MoleculesOutput`,
-   `ProjectMetadata` → `SourceInfo`.
-7. **Bug fix**: `markAtomFlags` is now correctly called in the combined pipeline (was
-   previously missing from the old `pipeline` command).
-8. **New per-atom fields**: `type-dependencies` and `term-dependencies` split the flat
-   `dependencies` array into constants from the type signature vs the body/proof.
-   The `dependencies` field is preserved as the deduplicated union for backward compatibility.
-9. **Removed `specified` field**: The `specified` boolean was always `true` in Lean (all
-   declarations have type signatures). Whether an atom has specifications is now inferred
-   from `specs != []`, aligning with probe-verus v5.0.0 which also dropped `specified`.
-10. **`SourceInfo` fields now required**: `repo` and `commit` changed from `Option String`
-    to `String` (empty string when unavailable), conforming to the `probe` repository's
-    JSON schema which declares these fields as required.
+The `rust-*` and `spec-*` fields are placeholders kept for the consumer's shape; nothing in
+`viewify` fills them from `rust-source` or `primary-spec`.

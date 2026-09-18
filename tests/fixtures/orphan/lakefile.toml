@@ -1,0 +1,11 @@
+name = "orph"
+defaultTargets = ["Orph"]
+
+# No root `Orph.lean`: `Orph.Dep` and `Orph.Main` are two top-level modules of a
+# `globs` library. The CI step deletes `Orph/Dep.lean` after a first `extract`, so
+# `Orph.Dep` becomes a stale olean with no source that `Orph.Main` still imports —
+# not a descendant of any discovered module, so nothing but the post-import orphan
+# check can keep its `sorry` from being trusted as a dependency's.
+[[lean_lib]]
+name = "Orph"
+globs = ["Orph.+"]

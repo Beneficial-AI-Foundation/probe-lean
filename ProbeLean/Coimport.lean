@@ -13,9 +13,23 @@
   Exactness: the check replicates the importer's duplicate-tolerance rule
   (`subsumesInfo` in core `Lean.Environment`, a private def) so it never
   rejects a project the importer would accept. Known misses — collisions
-  involving dependency modules, module-system split parts (`.olean.private`),
-  or oleans the scan had to skip — are under-detection only: the import then
-  fails as before and lands on the fallback hint in `Atomize.lean`.
+  involving dependency modules, oleans the scan had to skip, or duplicates
+  inside module-system modules that the exported level hides — are
+  under-detection only: the import then fails as before and lands on the
+  fallback hint in `Atomize.lean`. Only the base `.olean` of each module is
+  read. For a module-system module that is the exported level: a `public
+  theorem` appears as an axiom of the same type (tolerated exactly as the
+  importer tolerates the pair), but so does a non-exposed `public def`, and two
+  same-type axioms are tolerated here while the importer's `isPropCheap` rejects
+  them (`constSubsumes`), so a def/def collision between module-system modules
+  is found at import time (the `module-collision` fixture). The split parts are
+  checked for existence only (`CoimportPreflight.proofless`).
+
+  This is a diagnostic, nothing more: the bodies it reads are not used by the
+  taint pass. The tolerated duplicates — a name two modules declare with the
+  same statement, of which the importer keeps one body — are found after the
+  import from the environment header (`Taint.headerMerges`), which keeps every
+  module's own constants.
 -/
 import Lean
 import ProbeLean.Environment
@@ -62,17 +76,19 @@ def isDisplayableCollisionName (n : Name) : Bool :=
 /-- Pure core of the preflight: given each module's own declarations as
     `(declared name, constant info)` pairs — the positional pairing of
     `ModuleData.constNames` with `ModuleData.constants`, which is exactly how
-    the importer iterates them — return the names owned by more than one
-    module where some owner pair is not mutually subsumable. Detection keys
-    on the raw declared `Name` from the olean — display filtering happens in
-    `formatCoimportError`, never here. Result and per-collision module lists
-    are sorted for deterministic output (P14). -/
+    the importer iterates them — the names owned by more than one module where
+    some owner pair is not mutually subsumable, so the import would fail. A
+    duplicated name whose every owner pair *is* subsumable is tolerated by the
+    importer (one version kept) and is not a collision. Detection keys on the raw
+    declared `Name` from the olean — display filtering happens in
+    `formatCoimportError`, never here. The result and its module lists are sorted
+    for deterministic output (P14). -/
 def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
     Array DeclCollision := Id.run do
-  let mut owners : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
-  for (modName, decls) in moduleDecls do
-    for (cname, cinfo) in decls do
-      owners := owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
+  let owners : Std.HashMap Name (Array (Name × ConstantInfo)) :=
+    moduleDecls.foldl (init := {}) fun owners (modName, decls) =>
+      decls.foldl (init := owners) fun owners (cname, cinfo) =>
+        owners.insert cname ((owners.getD cname #[]).push (modName, cinfo))
   let mut collisions : Array DeclCollision := #[]
   for (declName, os) in owners.toList do
     if os.size > 1 then
@@ -84,19 +100,43 @@ def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × Constant
           if !(constSubsumes a b || constSubsumes b a) then
             fatal := true
       if fatal then
-        let mods := (os.map (·.1)).qsort fun a b => a.toString < b.toString
-        collisions := collisions.push { declName, modules := mods }
+        let sorted := os.qsort fun a b => a.1.toString < b.1.toString
+        collisions := collisions.push { declName, modules := sorted.map (·.1) }
   return collisions.qsort fun a b => a.declName.toString < b.declName.toString
 
+/-- What the preflight found. -/
+structure CoimportPreflight where
+  /-- Names that make the import fail. -/
+  collisions : Array DeclCollision := #[]
+  /-- Modules whose olean could not be read; the scan is partial for them. -/
+  skipped : Array ProjectModule := #[]
+  /-- Module-system modules (`module` header) whose `.olean.server` or
+      `.olean.private` part is missing. `importModules` at `OLeanLevel.private`
+      loads the private part only when both exist (`findOLeanParts`) and otherwise
+      fails with "missing data file" for the module; the abort here is the readable
+      form of that failure, with the remedy. -/
+  proofless : Array ProjectModule := #[]
+  deriving Inhabited
+
+/-- Whether a module-system module's split parts are both next to its base olean.
+    Mirrors `findOLeanParts`: the private part is used only when `.olean.server`
+    and `.olean.private` both exist. -/
+def hasOLeanParts (m : ProjectModule) : IO Bool := do
+  let server := m.oleanPath.addExtension "server"
+  let priv := m.oleanPath.addExtension "private"
+  return (← server.pathExists) && (← priv.pathExists)
+
 /-- Run the preflight over the (already filtered) project modules: read each
-    module's base `.olean` and detect collisions. A module whose olean cannot
-    be read is skipped with a stderr warning and returned in the second
-    component, so callers can surface that the scan was partial — a skip
-    alone must never fail the extraction. -/
-def detectCoimportCollisions (modules : Array ProjectModule) :
-    IO (Array DeclCollision × Array ProjectModule) := do
+    module's base olean and classify duplicated names into collisions. A module
+    whose olean cannot be read is skipped with a stderr warning and returned in
+    `skipped`, so callers can surface that the scan was partial — a skip alone must
+    never fail the extraction. A module-system module without its split parts is
+    returned in `proofless`, which callers must treat as fatal (the import would
+    fail on it). -/
+def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPreflight := do
   let mut moduleDecls : Array (Name × Array (Name × ConstantInfo)) := #[]
   let mut skipped : Array ProjectModule := #[]
+  let mut proofless : Array ProjectModule := #[]
   for m in modules do
     try
       -- The CompactedRegion backing the ModuleData is deliberately not freed:
@@ -104,12 +144,24 @@ def detectCoimportCollisions (modules : Array ProjectModule) :
       -- Only the project's own (small) modules are read here — dependency
       -- oleans, which dominate memory, are never touched by the preflight.
       let (data, _) ← readModuleData m.oleanPath
-      moduleDecls := moduleDecls.push (m.name, data.constNames.zip data.constants)
+      if data.isModule && !(← hasOLeanParts m) then
+        proofless := proofless.push m
+      else
+        moduleDecls := moduleDecls.push (m.name, data.constNames.zip data.constants)
     catch e =>
       IO.eprintln s!"Warning: co-importability preflight could not read {m.oleanPath} (module {m.name}): {e}"
       IO.eprintln "  The module is skipped, so the preflight may be incomplete."
       skipped := skipped.push m
-  return (findCoimportCollisions moduleDecls, skipped)
+  return { collisions := findCoimportCollisions moduleDecls, skipped, proofless }
+
+/-- The abort message for `CoimportPreflight.proofless`. -/
+def formatProoflessError (proofless : Array ProjectModule) : String :=
+  let names := (proofless.map (·.name.toString)).qsort (· < ·)
+  s!"{proofless.size} module-system module(s) have no `.olean.private`/`.olean.server` part next to \
+    their `.olean`: {", ".intercalate names.toList}.\n\
+    Lean loads a `module` file's proofs from its private part and fails the import without it \
+    (\"missing data file\"). Rebuild the project (`lake build`) so the split parts exist, or \
+    remove the stale oleans."
 
 /-- How many duplicated names are listed individually in the diagnostic. -/
 def maxDisplayedCollisions : Nat := 10

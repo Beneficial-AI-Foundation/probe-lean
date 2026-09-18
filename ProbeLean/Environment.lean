@@ -214,25 +214,27 @@ structure ProjectModule where
   oleanPath : System.FilePath
   deriving Inhabited
 
-/-- Get the list of the project's own modules by scanning its build directory
-    (`.lake/build/lib[/lean]`) for `.olean` files, keeping only modules that
-    still have a backing `.lean` source. Each kept module carries the path of
-    the olean it was discovered from (`ProjectModule`).
+/-- The project's own modules: the `.olean` files under its build directory
+    (`.lake/build/lib[/lean]`) that still have a backing `.lean` source, each paired
+    with the olean it was discovered from (`ProjectModule`).
 
-    Lake never garbage-collects oleans, so after a file is renamed or deleted the
-    stale "orphan" olean lingers on disk. Importing such an orphan alongside the
-    module that replaced it makes `importModules` abort with
-    `environment already contains '...'`. We drop a module only
-    when *no* candidate source root has a source for it, so a missing `srcDir`
-    can never silently drop a live module; any dropped orphans are reported.
+    Lake never garbage-collects oleans, so after a file is renamed or deleted the stale
+    "orphan" olean lingers on disk, and importing it alongside the module that replaced
+    it makes `importModules` abort with `environment already contains '...'`. A module
+    `A/B/C` is source-backed when `<root>/A/B/C.lean` exists under some root in
+    `sourceRoots`, which the caller supplies as `"."` plus every library `srcDir`. A
+    module is dropped only when *no* root has its source, so a missing `srcDir` cannot
+    silently drop a live module; dropped orphans are printed. The `lake env` call
+    validates that the Lake environment is usable before scanning.
 
-    `sourceRoots` are the directories to resolve module paths against (a module
-    `A/B/C` is source-backed if `<root>/A/B/C.lean` exists under some root). It
-    must include `"."` plus every library `srcDir`; the caller supplies it. The
-    `lake env` call validates that the Lake environment is usable before scanning. -/
+    Returns the kept modules and the dropped orphan names, both sorted. Dropping an
+    orphan from the inventory does not stop `importModules` from loading it when a kept
+    module still imports it, and a loaded module outside the inventory would sit outside
+    P and be trusted like a dependency package; the caller checks the orphans against
+    the imported module set after the import (`Atomize.loadedOrphans`) and aborts. -/
 def getProjectModules (projectPath : System.FilePath)
     (nixMode : Option NixMode := none) (sourceRoots : Array String := #["."])
-    : IO (Except String (Array ProjectModule)) := do
+    : IO (Except String (Array ProjectModule × Array Lean.Name)) := do
   let (_, stderr, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] projectPath nixMode
   if exitCode != 0 then
     return .error s!"Failed to get LEAN_PATH:\n{stderr}"
@@ -262,15 +264,15 @@ def getProjectModules (projectPath : System.FilePath)
     for (name, relPath) in kept do
       modules := modules.push { name, oleanPath := projectBuildPath / (relPath ++ ".olean") }
 
-  if !orphans.isEmpty then
-    let sorted := orphans.qsort fun a b => a.toString < b.toString
-    IO.println s!"Ignoring {sorted.size} orphan module(s) with no backing .lean source (stale build artifacts):"
-    for o in sorted do
+  let sortedOrphans := orphans.qsort fun a b => a.toString < b.toString
+  if !sortedOrphans.isEmpty then
+    IO.println s!"Ignoring {sortedOrphans.size} orphan module(s) with no backing .lean source (stale build artifacts):"
+    for o in sortedOrphans do
       IO.println s!"  - {o}"
 
   -- Sort for deterministic import order (P14)
   let sortedModules := modules.qsort fun a b => a.name.toString < b.name.toString
-  return .ok sortedModules
+  return .ok (sortedModules, sortedOrphans)
 
 /-- Information about a loaded project -/
 structure ProjectInfo where

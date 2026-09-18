@@ -21,3 +21,13 @@ def atomicUse : { n : Nat // 0 < n + 1 } := ⟨3, sorried_bound 3⟩
 /-- Negative control. Same abstraction, but the auxiliary reaches no `sorry`:
 folding must not contaminate this atom, which stays `transitively-verified`. -/
 def cleanUse : { n : Nat // 0 < n + 1 } := ⟨3, by exact Nat.succ_pos 3⟩
+
+/-- Own-`sorry` case, whose status depends on the toolchain. On Lean ≤ 4.28 a `def`'s
+proof obligation written as `sorry` is abstracted into `ownSorry._proof_1`, so the kernel
+constant `ownSorry` does not name `sorryAx` itself: it is tainted but not a direct carrier
+and reads `verified`; the auxiliary is the `[direct]` one, and since the emitted graph has
+no node for it the graph cross-check prints a divergence. From Lean 4.29 the `sorry` stays
+inline and `ownSorry` is direct (`unverified`). `TaintCheck.lean` reads which shape the
+toolchain produced and asserts accordingly; on every toolchain the declaration is tainted
+and never `transitively-verified`. -/
+def ownSorry : Fin 5 := ⟨3, by sorry⟩

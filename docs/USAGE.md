@@ -71,23 +71,85 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
-| `--module <PREFIX>` | `-m` | Filter to specific module prefix |
+| `--module <PREFIX>` | `-m` | Filter to specific module prefix. The kernel walk still imports every built project module, so a narrow selection is not faster than a full run (about 1.2 s slower on dalek than 0.14.0, which imported the selection only) |
 | `--library <LIBS>` | `-l` | Comma-separated list of library names to build **and** restrict analysis to (modules are kept only if they belong to one of these library roots). When omitted, the build uses `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and **all** of the project's built modules are analyzed — auto-detected targets are not used as a module filter, since `defaultTargets` may name a `lean_exe` or a library may declare custom `roots`. |
-| `--skip-verify` | | Skip the sorry detection step (graph structure only) |
-| `--from-file <FILE>` | | Use existing build output for sorry detection instead of running lake |
-| `--skip-enrich` | | Skip transitive verification enrichment (no `"transitively-verified"` status) |
+| `--skip-verify` | | Skip status stamping: atoms carry no `verification-status`, except trusted ones (`"trusted"`) |
+| `--from-file <FILE>` | | Use existing build output for the build-log cross-check instead of the captured `lake build` output |
+| `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`); the graph-BFS cross-check is not run |
 
-Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)).
+Before importing, `extract` runs a **co-importability preflight**: it reads each built module's own declarations from its `.olean` header and aborts with the list of duplicated names and their owning modules if two modules declare the same fully-qualified name (see [Troubleshooting](#co-importability-check-failed)). With `--module`/`--library`, `extract` first tries to import **all** built project modules — the kernel walk below needs the whole project — and falls back to the selection if the full set cannot be co-imported. The walk then covers the selected modules and every project module they import transitively, which is every module an emitted atom can depend on; the modules left out are announced with `Warning: <n> project module(s) not imported (full import failed); they are outside the selection's import closure, so no emitted status depends on them, but check-axioms does not audit them`.
+
+The preflight tolerates exactly what Lean's importer tolerates: two modules restating a theorem with the same name and statement (a problem file and its solution file, say). Lean keeps **one** proof, so `extract` and `check-axioms` fail closed on such *merged* declarations: a `sorry` in any version makes the name `unverified` and every caller `verified`, no `@[externally_verified]` on it is honoured, and `Warning: <n> declaration name(s) are declared by more than one project module with the same statement, and Lean kept one proof: <names>` is printed. Give each variant its own namespace if the proved version's callers should read clean. Two related cases are announced with `Note:` lines instead: a project restatement of a **dependency's** theorem (`… declared by a project module and by a module outside the project …`) and Lean's on-demand realisations (`f.eq_1`, `f.congr_simp`, …) realised in more than one module. The policy for each is in [verification-status.md](verification-status.md#merged-declarations).
+
+`verification-status` is decided by a **kernel walk** over every constant of every built project
+module, not by the build log or the emitted dependency graph. The walk stops at the project
+boundary (Lean and every dependency package are trusted wholesale) and at the **trusted base**
+(axioms, the `externally_verified` tag set, non-proofs in `*External` modules); a `sorry` inside
+or below a trusted declaration does not taint its callers. [SCHEMA.md](SCHEMA.md#verification-status-and-the-trusted-base)
+defines the status values and [verification-status.md](verification-status.md) the edge cases.
+The pass prints its totals:
+
+```
+Project constants: 11293 in 231 module(s) | trusted: 150 | direct sorry carriers: 4 | tainted: 112
+externally_verified tag set: 2 name(s) from externallyVerifiedAttr
+```
+
+and names the boundary it stopped at, once per run on stderr: `Note: <n> imported module
+root(s) outside the project are trusted wholesale (Lean and dependency packages): Init, Lean,
+Mathlib, …`. Every package `lake-manifest.json` lists is trusted wholesale, a second Lake
+package holding the project's own code (a `path = "…"` require, a sibling repository) included;
+move code into the main package to have it analysed.
+
+Two cross-checks run alongside it and print lines on stderr, never changing a status: the
+build log's `sorry` warnings against the walk's direct carriers (`Divergence(log): <atom>
+build log says sorry, kernel says clean modulo trust`, or `… kernel says sorry, no warning
+in the log`; trusted atoms are skipped, since a `sorry` under them is excused, not missed;
+a `partial def` whose `sorry` sits in its compiled `X._unsafe_rec` body gets `Note(log): …`
+instead — the status covers kernel dependencies, not executable bodies, see
+[verification-status.md](verification-status.md#kernel-dependencies-not-executable-bodies)),
+and the old reverse-BFS over the emitted graph against the walk's verdicts
+(`Divergence(graph): <atom> graph says clean, oracle says tainted`, or the reverse, followed
+by a `Graph cross-check: <n> atom(s) …` summary). A graph divergence localises a node or edge
+the emitted graph is missing (typically a carrier with no declaration range, which is never
+an atom). A trusted declaration whose *statement* names `sorry` directly is reported with
+`Warning: trusted declaration <n> names \`sorry\` directly in its statement`. An atom the walk
+did not cover (its Lean name is not a project constant — a bug, since every emitted atom is
+one) gets no status and `Warning: atom <name> is not a project constant the kernel walk
+covered; no verification-status assigned`.
+
+`@[externally_verified]` is read from the **environment's tag set**, not from source text, so
+nothing that merely shares a tagged declaration's source range and nothing quoted in a docstring,
+comment or string reaches trust (the rule's exact scope and limits are in
+[verification-status.md](verification-status.md#rule-2-externally_verified)). The pass prints
+where it got the set from (`externally_verified tag set: <n> name(s) from <extension>`) and, on
+stderr, every disagreement between the header scan that fills `attributes` and the set
+(`Divergence(tag): … the source text does not decide trust` for a header the scan would have
+trusted, `Note(tag): … the tag set decides trust` for a tag the header does not show; both report
+set membership, the status is in `trusted-reason`).
+
+A module built under the module system (`module` header) is imported from its `.olean.private`
+part, as Lean requires, so its `public theorem`s are seen with their proofs; a module-system
+olean without its split parts aborts the extraction before the import, which would fail on it
+(`missing data file`). A stale `.olean` with no backing `.lean` source is dropped from the
+inventory (`Ignoring <n> orphan module(s) …`); if a live module still imports it, the
+extraction aborts with `<n> stale module(s) with no .lean source were imported by a live
+module: …`, because its constants would otherwise sit outside the project boundary and be
+trusted like a dependency's — run `lake clean` in the target project and rebuild.
+
+To check an artifact against the `check-axioms` report in both directions (every `unverified`
+atom is a listed direct carrier *and* every listed emitted carrier is `unverified`, likewise for
+`verified` and the clean statuses), run
+`tools/audit/check-status-consistency.py .verilib/probes/lean_*.json check-axioms.out`.
 
 `extract` folds **auxiliary dependency edges** into the declaration that references them.
 Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not
 emit as atoms (`X._proof_N`, `X.match_N`, …); before this, a dependency reached only through
 one of them disappeared from the graph, so a `sorry`-carrying lemma used inside a tactic
 block left its caller looking clean. The pass is strictly additive, and adds only to
-`term-dependencies` — see
-[SCHEMA.md](SCHEMA.md#auxiliary-dependency-folding) for what is and is not folded, and for
-the two limits worth repeating: folding fixes edges, not `verification-status` soundness, and
-a zero in-degree is still not a licence to delete a declaration.
+`term-dependencies` — [SCHEMA.md](SCHEMA.md#auxiliary-dependency-folding) states the
+contract and [auxiliary-folding.md](auxiliary-folding.md) what is and is not folded. Two limits
+worth repeating: folding fixes edges, not `verification-status` soundness, and a zero in-degree
+is still not a licence to delete a declaration.
 
 The step reports its accounting on stdout, e.g.
 
@@ -133,8 +195,8 @@ visible for tracing. Clean (`transitively-verified`) and `trusted` generated ato
 
 ### `check-axioms`
 
-Audit a Lean 4 project: report every declaration (of those `extract` would emit as an atom) whose
-*complete* transitive closure reaches the `sorryAx` axiom.
+Audit a Lean 4 project: run the same kernel walk `extract` uses for `verification-status` and list
+every project constant that rests on an unexcused project `sorry` — atoms and non-atoms alike.
 
 ```
 probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
@@ -142,14 +204,61 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--module <PREFIX>` | `-m` | Filter to specific module prefix |
-| `--library <LIBS>` | `-l` | Comma-separated library names to build **and** restrict analysis to |
+| `--module <PREFIX>` | `-m` | Restrict which constants count as *emitted* (the `[not emitted]` marker); the walk always covers every built module it can import |
+| `--library <LIBS>` | `-l` | Comma-separated library names to build **and** restrict the emitted set to |
 
-This is the kernel ground truth for "rests on a `sorry`", walked via `Lean`'s constant closure
-(generated code included) and therefore independent of probe-lean's own dependency graph. Use it to
-cross-check `extract`: no atom marked `"transitively-verified"` should appear in this list. The audit
-walks each declaration's closure (`O(declarations × closure size)`), so on Mathlib-scale projects use
-`-m`/`-l` to narrow scope.
+On `tests/fixtures/aux-fold` (abridged; the full report has one line per listed constant):
+
+```
+Project constants: 119 in 8 module(s) | trusted: 9 | direct sorry carriers: 20 | tainted: 26
+externally_verified tag set: 7 name(s) from externallyVerifiedAttr
+26 constant(s) rest on an unexcused project sorry:
+  admittedFact [direct]
+  extThm [direct]
+  instReprTagged
+  loopy._unsafe_rec [direct] [not emitted]
+  noRangeMid [direct] [not emitted]
+  tacticUse._proof_1 [not emitted]
+  viaNoRange
+  ...
+9 trusted constant(s) (T):
+  Box [externally_verified] Demo.Trust
+  externalOp [external] Demo.FunsExternal : Nat
+  externalPred [external] Demo.FunsExternal : Prop
+  vouched [externally_verified] Demo.Trust
+  ...
+```
+
+`[direct]`: the constant's own type or value names `sorryAx`. `[not emitted]`: not an atom.
+Because the walk is shared with `extract`, the listed atoms are exactly those `extract` marks
+`"verified"` or `"unverified"`, and nothing `"transitively-verified"` can appear here. The trusted
+base T is listed next — `<name> [<trusted-reason>] <module>`, with the statement appended for a
+rule-3 (`external`) model — so the constants the "clean modulo T" claim rests on can be reviewed;
+`extract` shows only the trusted constants that are atoms. Generated axioms among them (a
+`native_decide` proof on Lean ≥ 4.31 adds `X._native.native_decide.ax_N`, trusted by rule 1) are
+also announced on stderr by both commands, one `Note(axiom): <n> generated project axiom(s) trusted
+by rule 1 (not source-visible declarations, e.g. from native_decide): a, b, …` line per run (names
+capped at 10; the T listing names every one). Why they stay trusted, and the known gap, is in
+[verification-status.md](verification-status.md#kernel-dependencies-not-executable-bodies). The
+walk is memoized and stops at the project boundary and the trusted base, so it costs about a
+second even on a 230-module Mathlib-backed project; `-m`/`-l` no longer narrow it.
+
+### `viewify`
+
+Filter an existing `extract` output into molecules for the web UI. No build or import runs.
+
+```
+probe-lean viewify <PROJECT_PATH> [OPTIONS]
+```
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--with-atoms <FILE>` | `-a` | Path to the `extract` output (default: auto-detected under `.verilib/probes/`) |
+| `--output <PATH>` | `-o` | Output file path (default: `.verilib/views/molecules_all.json`) |
+
+An atom becomes a molecule when it is not hidden, not lean- or aeneas-generated, relevant, and
+its `code-path` ends with `Funs.lean`. The molecule fields are listed in
+[SCHEMA.md](SCHEMA.md#molecules-probe-leanviewify).
 
 ---
 
@@ -242,7 +351,7 @@ cd ArkLib
 probe-lean extract .
 ```
 
-If you've already built the project, probe-lean will detect that the build cache is up-to-date and skip the `lake build` step automatically (sorry detection still works using the cached build output).
+If you've already built the project, probe-lean will detect that the build cache is up-to-date and skip the `lake build` step automatically (verification status comes from the kernel walk over the `.olean` files, so it does not need a fresh build log).
 
 ### Example 4: [signal-shot-PQXDH](https://github.com/Beneficial-AI-Foundation/signal-shot-PQXDH)
 
@@ -296,11 +405,13 @@ probe-lean extract .
 
 ### Automatic build caching
 
-probe-lean automatically skips `lake build` when the build cache is up-to-date (no `.lean` file has been modified since the last build). Sorry detection still works using the cached build output.
+probe-lean automatically skips `lake build` when the build cache is up-to-date (no `.lean` file has been modified since the last build). Verification status comes from the kernel walk over the `.olean` files, so it does not need a fresh build log; only the build-log cross-check has nothing to compare against.
 
-### Use `--skip-verify` for faster iteration
+### Use `--skip-verify` to withhold statuses
 
-Sorry detection requires build output. If you only need the dependency graph:
+`--skip-verify` leaves `verification-status` off every atom except trusted ones. The kernel walk
+still runs (its summary line is still printed), so the flag saves only the build-log cross-check;
+use it when a consumer must not see statuses rather than for speed:
 
 ```bash
 probe-lean extract ./my-project --skip-verify
@@ -356,15 +467,20 @@ The `extract` command produces a JSON file wrapped in a Schema 3.0 metadata enve
       "code-module": "MyModule",
       "code-path": "MyModule.lean",
       "code-text": { "lines-start": 5, "lines-end": 8 },
+      "is-in-package": true,
+      "is-relevant": true,
       "is-hidden": false,
       "is-lean-generated": false,
       "is-aeneas-generated": false,
       "is-ignored": false,
-      "is-relevant": true,
+      "is-primary-spec": false,
       "rust-source": null,
       "specs": ["probe:MyModule.helper_spec"],
       "primary-spec": "probe:MyModule.helper_spec",
-      "verification-status": "verified"
+      "verification-status": "transitively-verified",
+      "codomain-head": "MyModule.MyType",
+      "codomain-is-prop": false,
+      "codomain-last-arg-is-bool": false
     }
   }
 }
@@ -383,8 +499,9 @@ Atom filtering flags are populated from the project's `.verilib/probes/config.js
 - `is-ignored`: `true` if the atom name appears in `is-ignored`
 
 The `is-relevant` field is computed from `relevant-crate` and the `rust-source` field:
-- If `rust-source` exists: `true` if it contains the crate name AND doesn't start with `/` AND doesn't contain `/cargo/registry/`
-- If no `rust-source`: `false`
+- If `relevant-crate` is not configured: `true` for every atom
+- Otherwise, if `rust-source` exists: `true` if it contains the crate name AND doesn't start with `/` AND doesn't contain `/cargo/registry/`
+- Otherwise (no `rust-source`): `false`
 
 Example config (`.verilib/probes/config.json`):
 

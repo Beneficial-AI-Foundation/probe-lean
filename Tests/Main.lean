@@ -75,7 +75,8 @@ def testAxiomReachability (result : TestResult) : IO TestResult := do
     | `y => #[`SORRY]
     | `z => #[`w]
     | _  => #[]
-  let R := reaches children `SORRY
+  let noBlock : Lean.Name → Bool := fun _ => false
+  let R := reaches children noBlock `SORRY
   result ← test "transitive hit" (R `a) result
   result ← test "no hit" (!R `c) result
   result ← test "self-cycle, no hit" (!R `e) result
@@ -84,10 +85,107 @@ def testAxiomReachability (result : TestResult) : IO TestResult := do
   result ← test "pure cycle, no hit" (!R `h) result
   result ← test "diamond hit via y" (R `x) result
   result ← test "target itself" (R `SORRY) result
-  let flagged := reachingNames children `SORRY #[`a, `c, `e, `x, `h]
+  let flagged := reachingNames children noBlock `SORRY #[`a, `c, `e, `x, `h]
   result ← test "reachingNames selects reachers only"
     (flagged.contains `a && flagged.contains `x &&
      !flagged.contains `c && !flagged.contains `e && !flagged.contains `h) result
+  -- Issue #103: with one memo shared across roots, `g` used to be finalised
+  -- `false` while `f` was still on the DFS stack, so root `g` read a stale
+  -- answer. Both root orders must taint both nodes.
+  let fg := reachingNames children noBlock `SORRY #[`f, `g]
+  let gf := reachingNames children noBlock `SORRY #[`g, `f]
+  result ← test "#103: roots [f, g] both reach the target" (fg.contains `f && fg.contains `g) result
+  result ← test "#103: roots [g, f] both reach the target" (gf.contains `f && gf.contains `g) result
+  let hi := reachingNames children noBlock `SORRY #[`h, `i]
+  let ih := reachingNames children noBlock `SORRY #[`i, `h]
+  result ← test "pure cycle is clean in both root orders" (hi.isEmpty && ih.isEmpty) result
+  -- The shared memo also has to stay correct when a cyclic root is queried
+  -- *after* an unrelated root finalised part of the graph.
+  let mixed := reachingNames children noBlock `SORRY #[`c, `g, `h, `x]
+  result ← test "mixed roots: only g and x reach"
+    (mixed.contains `g && mixed.contains `x && !mixed.contains `c && !mixed.contains `h) result
+  return result
+
+/-- `reachingNames` on `n` nodes: chains of 50 (`k → k-1` unless `k % 50 == 0`), every
+    node its own SCC, roots in descending order so the memo grows to `n` finalised
+    entries. The state record used to keep a reference to the memo, so every
+    finalisation copied it and the walk was quadratic: ×4.3–4.7 per doubling. -/
+def scalingWalk (n : Nat) : IO Nat := do
+  let children : Lean.Name → Array Lean.Name := fun c => match c with
+    | .num p k => if k % 50 == 0 || k == 0 then #[] else #[.num p (k - 1)]
+    | _ => #[]
+  let roots := (Array.range n).reverse.map fun k => Lean.Name.num `v k
+  let t0 ← IO.monoMsNow
+  let out := reachingNames children (fun _ => false) `SORRY roots
+  -- Force the result before reading the clock: a pure `let` is floated otherwise.
+  if out.size != 0 then throw (IO.userError "scaling walk: unexpected reacher")
+  let t1 ← IO.monoMsNow
+  return t1 - t0
+
+def testReachabilityScaling (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing reachability scaling (linear in the number of finalised nodes)..."
+  let t16 ← scalingWalk 16000
+  let t32 ← scalingWalk 32000
+  IO.println s!"  reachingNames: 16k nodes {t16} ms, 32k nodes {t32} ms"
+  -- Loose bounds: timing is noisy in CI. Quadratic gave ×4.3–4.7 per doubling and
+  -- seconds at 32k; the fixed walk takes tens of milliseconds compiled.
+  result ← test "32k-node walk completes in under 2 s" (t32 < 2000) result
+  result ← test "doubling the graph costs at most ~3× (+100 ms slack)"
+    (t32 < 3 * t16 + 100) result
+  return result
+
+def testReachabilityBlocked (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing reachability with a blocked set (the trusted base / project boundary)..."
+  let children : Lean.Name → Array Lean.Name := fun n => match n with
+    | `a => #[`b]              -- b blocked: the sorry beyond it must stay hidden
+    | `b => #[`SORRY]
+    | `c => #[`d, `e]          -- d is a blocked *direct* carrier; e is clean
+    | `d => #[`SORRY]
+    | `p => #[`q]              -- p, q in P; the target itself lies outside P
+    | `q => #[`SORRY]
+    | `u => #[`v]              -- u ⇄ v cycle; v reaches the target through w, and
+    | `v => #[`u, `x, `w]      -- has a blocked sibling x that also carries it
+    | `w => #[`SORRY]
+    | `x => #[`SORRY]
+    | _  => #[]
+  let blockedB : Lean.Name → Bool := (· == `b)
+  result ← test "blocked node is not expanded" (!reaches children blockedB `SORRY `a) result
+  result ← test "blocked node itself reads clean" (!reaches children blockedB `SORRY `b) result
+  let blockedD : Lean.Name → Bool := (· == `d)
+  result ← test "blocked direct carrier does not taint its caller"
+    (!reaches children blockedD `SORRY `c) result
+  result ← test "unblocked, the same caller is tainted"
+    (reaches children (fun _ => false) `SORRY `c) result
+  -- Target before block: `sorryAx` is outside every project, so a blocked set that
+  -- covers it must still recognise it.
+  result ← test "target is reached although blocked"
+    (reaches children (fun _ => true) `SORRY `SORRY) result
+  let isP : Lean.Name → Bool := fun n => n == `p || n == `q
+  result ← test "target outside P is reached through a P chain"
+    (reaches children (fun n => !isP n) `SORRY `p) result
+  result ← test "non-P intermediate blocks the chain"
+    (!reaches children (fun n => n != `p) `SORRY `p) result
+  let blockedX : Lean.Name → Bool := (· == `x)
+  let uv := reachingNames children blockedX `SORRY #[`u, `v]
+  let vu := reachingNames children blockedX `SORRY #[`v, `u]
+  result ← test "cycle through a tainted node with a blocked sibling: both tainted, both orders"
+    (uv.contains `u && uv.contains `v && vu.contains `u && vu.contains `v) result
+  let blockedXW : Lean.Name → Bool := fun n => n == `x || n == `w
+  let uvClean := reachingNames children blockedXW `SORRY #[`u, `v]
+  result ← test "cycle whose only carriers are blocked is clean" uvClean.isEmpty result
+  let names := #[`a, `b, `c, `d, `e, `p, `q, `u, `v, `w, `x]
+  let s1 := reachingNames children blockedX `SORRY names
+  let s2 := reachingNames children blockedX `SORRY names.reverse
+  result ← test "result is independent of root order"
+    (names.all fun n => s1.contains n == s2.contains n) result
+  result ← test "expected tainted set"
+    (s1.contains `a && s1.contains `b && s1.contains `c && s1.contains `d &&
+     !s1.contains `e && s1.contains `p && s1.contains `q &&
+     s1.contains `u && s1.contains `v && s1.contains `w && !s1.contains `x) result
   return result
 
 def testDerivedInstanceClusterNames (result : TestResult) : IO TestResult := do
@@ -833,35 +931,15 @@ def testSorryDetection (result : TestResult) : IO TestResult := do
   result ← test "paths no match" (!pathsMatch "/tmp/A.lean" "/tmp/B.lean") result
 
   IO.println ""
-  IO.println "Testing VerifyStatus JSON serialization..."
-  result ← test "success toJson" (Lean.toJson VerifyStatus.success == "success") result
-  result ← test "sorries toJson" (Lean.toJson VerifyStatus.sorries == "sorries") result
-  result ← test "failure toJson" (Lean.toJson VerifyStatus.failure == "failure") result
-
-  IO.println ""
-  IO.println "Testing atomToProofEntry..."
-  let sorries : Array SorryInfo := #[{ line := 42, message := "uses sorry" }]
-  let proofEntry := atomToProofEntry testAtom sorries
-  result ← test "proofEntry not verified" (!proofEntry.verified) result
-  result ← test "proofEntry status sorries" (proofEntry.status == VerifyStatus.sorries) result
-  result ← test "proofEntry has sorries" (proofEntry.sorries.size == 1) result
-
-  let noSorries : Array SorryInfo := #[]
-  let verifiedEntry := atomToProofEntry testAtom noSorries
-  result ← test "verifiedEntry verified" verifiedEntry.verified result
-  result ← test "verifiedEntry status success" (verifiedEntry.status == VerifyStatus.success) result
-
-  -- S1: Atom without codeText should NOT be marked verified
-  IO.println ""
-  IO.println "Testing S1: atom without codeText should not be verified..."
+  IO.println "Testing findSorriesForAtom..."
+  let inRange : SorryWarning := { filePath := "Test.lean", line := 12, column := 0, message := "sorry" }
+  let outOfRange : SorryWarning := { filePath := "Test.lean", line := 20, column := 0, message := "sorry" }
+  let found := findSorriesForAtom #[outOfRange, inRange] testAtom
+  result ← test "only the warning inside the range is matched" (found.map (·.line) == #[12]) result
+  -- An atom without a source location cannot be matched: the log has nothing to say
+  -- about it (the kernel walk decides its status regardless).
   let atomNoLoc : Atom := { testAtom with codeText := none }
-  let entryNoLoc := atomToProofEntry atomNoLoc #[]
-  -- BUG S1: When codeText is none, sorryInDeclaration always returns false,
-  -- so atomToProofEntry marks the declaration as verified even though we
-  -- cannot actually check for sorry.
-  if entryNoLoc.verified then
-    IO.eprintln "  BUG S1 CONFIRMED: atom without codeText is marked verified"
-  result ← test "S1: atom without codeText is NOT marked verified" (!entryNoLoc.verified) result
+  result ← test "no location: no matches" (findSorriesForAtom #[inRange] atomNoLoc).isEmpty result
 
   -- S4: Same filename in different directories should not match
   IO.println ""
@@ -883,33 +961,6 @@ def testSorryDetection (result : TestResult) : IO TestResult := do
     IO.eprintln "  BUG S4 CONFIRMED: sorry in Foo/Constants.lean attributed to atom in Bar/Constants.lean"
   result ← test "S4: sorry in Foo not attributed to atom in Bar" (!crossMatch) result
 
-  return result
-
-def testProofsOutputJson (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing ProofsOutput JSON serialization..."
-  let proofsOutput : ProofsOutput := {
-    entries := #[("probe:Test.foo", {
-      verified := true, status := .success,
-      codePath := "Test.lean", codeLine := 10, sorries := #[]
-    })]
-  }
-  let proofsJson := Lean.toJson proofsOutput
-  let proofsKeyOk := match proofsJson.getObjVal? "probe:Test.foo" with
-    | .ok v => match v.getObjValAs? Bool "verified" with
-      | .ok true => true | _ => false
-    | _ => false
-  result ← test "proofsOutput keyed dict format" proofsKeyOk result
-
-  IO.println ""
-  IO.println "Testing ProofsOutput FromJson round-trip..."
-  let proofsRt := match Lean.FromJson.fromJson? (Lean.toJson proofsOutput) (α := ProofsOutput) with
-    | .ok po => match po.entries.toList with
-      | [(n, e)] => n == "probe:Test.foo" && e.verified == true
-      | _ => false
-    | .error _ => false
-  result ← test "proofsOutput round-trips through JSON" proofsRt result
   return result
 
 def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
@@ -1997,126 +2048,60 @@ def testPrimarySpecAmbiguityWarning (result : TestResult) : IO TestResult := do
 def testTrustedStatus (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing isTrustedAtom..."
-  let mkAtomWith (kind : DeclKind) (codePath : String) : Atom :=
-    { name := "probe:Test.x", displayName := "x", dependencies := #[],
-      codeModule := "Test", codePath, codeText := some { linesStart := 1, linesEnd := 5 },
-      kind }
-  result ← test "axiom kind is trusted" (isTrustedAtom (mkAtomWith .axiom "Test.lean")) result
-  result ← test "axiom in External is trusted" (isTrustedAtom (mkAtomWith .axiom "Pkg/FunsExternal.lean")) result
-  result ← test "def in FunsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/FunsExternal.lean")) result
-  result ← test "theorem in TypesExternal.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .theorem "Pkg/TypesExternal.lean")) result
-  result ← test "def in Funs.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/Funs.lean")) result
-  result ← test "theorem in Specs.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .theorem "Pkg/Specs.lean")) result
-  result ← test "def in ExternallyVerified.lean is NOT trusted" (!isTrustedAtom (mkAtomWith .def "Pkg/ExternallyVerified.lean")) result
+  IO.println "Testing the trusted base (Trust.trustedReason)..."
+  -- (kind, module, carries its own @[externally_verified], is a proof). `isProof`
+  -- defaults to "is a theorem", as the caller computes it for non-Prop-typed
+  -- declarations.
+  let tr (kind : DeclKind) (mod : String) (ev := false) (isProof := kind == .theorem)
+      : Option String :=
+    trustedReason kind ev mod.toName isProof
+  result ← test "axiom kind is trusted" (tr .axiom "Test" == some "axiom") result
+  result ← test "axiom in External is \"axiom\" (precedence)"
+    (tr .axiom "Pkg.FunsExternal" == some "axiom") result
+  result ← test "def in FunsExternal is \"external\"" (tr .def "Pkg.FunsExternal" == some "external") result
+  result ← test "theorem in TypesExternal is NOT trusted" (tr .theorem "Pkg.TypesExternal" == none) result
+  result ← test "def in Funs is NOT trusted" (tr .def "Pkg.Funs" == none) result
+  result ← test "theorem in Specs is NOT trusted" (tr .theorem "Pkg.Specs" == none) result
+  result ← test "def in an ExternallyVerified module is NOT trusted"
+    (tr .def "Pkg.ExternallyVerified" == none) result
+  result ← test "External must end the module name, not be a component"
+    (tr .def "Pkg.External.Funs" == none) result
+  result ← test "ModelsExternal is trusted" (tr .def "Pkg.ModelsExternal" == some "external") result
+  result ← test "deeply nested CustomExternal is trusted"
+    (tr .def "Deep.Path.CustomExternal" == some "external") result
+  result ← test "opaque in External is trusted" (tr .opaque "Pkg.FunsExternal" == some "external") result
+  result ← test "instance in External is trusted" (tr .instance "Pkg.FunsExternal" == some "external") result
+  -- Rule 3 excludes proofs, not just the `theorem` keyword: a `def admitted : False`
+  -- or an `opaque` of Prop type in an External module gets its normal status.
+  result ← test "Prop-typed def in External is NOT trusted"
+    (tr .def "Pkg.FunsExternal" (isProof := true) == none) result
+  result ← test "Prop-typed opaque in External is NOT trusted"
+    (tr .opaque "Pkg.FunsExternal" (isProof := true) == none) result
+  result ← test "Prop-typed axiom in External is still an axiom"
+    (tr .axiom "Pkg.FunsExternal" (isProof := true) == some "axiom") result
 
   IO.println ""
-  IO.println "Testing trustedReason..."
-  result ← test "axiom reason is \"axiom\"" (trustedReason (mkAtomWith .axiom "Test.lean") == some "axiom") result
-  result ← test "external def reason is \"external\"" (trustedReason (mkAtomWith .def "Pkg/FunsExternal.lean") == some "external") result
-  result ← test "axiom in External reason is \"axiom\" (precedence)" (trustedReason (mkAtomWith .axiom "Pkg/FunsExternal.lean") == some "axiom") result
-  result ← test "normal def reason is none" (trustedReason (mkAtomWith .def "Pkg/Funs.lean") == none) result
-  result ← test "theorem in External reason is none" (trustedReason (mkAtomWith .theorem "Pkg/TypesExternal.lean") == none) result
-
-  IO.println ""
-  IO.println "Testing unifyAtom trusted override..."
-  let axiomAtom := mkAtomWith .axiom "Test.lean"
-  let proofOk : ProofEntry := { verified := true, status := .success, codePath := "Test.lean", codeLine := 1, sorries := #[] }
-  let unified1 := unifyAtom axiomAtom (some proofOk)
-  result ← test "axiom overrides success to trusted" (unified1.verificationStatus == some .trusted) result
-  result ← test "axiom trusted-reason is \"axiom\"" (unified1.trustedReason == some "axiom") result
-
-  let externalDef := mkAtomWith .def "Pkg/FunsExternal.lean"
-  let unified2 := unifyAtom externalDef (some proofOk)
-  result ← test "FunsExternal def overrides to trusted" (unified2.verificationStatus == some .trusted) result
-  result ← test "FunsExternal trusted-reason is \"external\"" (unified2.trustedReason == some "external") result
-
-  let externalDefNoProof := mkAtomWith .def "Pkg/FunsExternal.lean"
-  let unified3 := unifyAtom externalDefNoProof none
-  result ← test "FunsExternal def with no proof entry is trusted" (unified3.verificationStatus == some .trusted) result
-  result ← test "FunsExternal no-proof trusted-reason is \"external\"" (unified3.trustedReason == some "external") result
-
-  let normalDef := mkAtomWith .def "Pkg/Funs.lean"
-  let unified4 := unifyAtom normalDef (some proofOk)
-  result ← test "normal def stays verified" (unified4.verificationStatus == some .verified) result
-  result ← test "normal def trusted-reason is none" (unified4.trustedReason == none) result
-
-  let normalDefNone := mkAtomWith .def "Pkg/Funs.lean"
-  let unified5 := unifyAtom normalDefNone none
-  result ← test "normal def with no proof entry stays none" (unified5.verificationStatus == none) result
-  result ← test "normal def no-proof trusted-reason is none" (unified5.trustedReason == none) result
-
-  IO.println ""
-  IO.println "Testing trusted override with non-success proof entries..."
-  let proofSorries : ProofEntry := { verified := false, status := .sorries, codePath := "Test.lean", codeLine := 1, sorries := #[{ line := 3, message := "uses sorry" }] }
-  let proofFailure : ProofEntry := { verified := false, status := .failure, codePath := "Test.lean", codeLine := 1, sorries := #[] }
-
-  let axiomWithSorries := mkAtomWith .axiom "Test.lean"
-  let unified6 := unifyAtom axiomWithSorries (some proofSorries)
-  result ← test "axiom overrides sorries to trusted" (unified6.verificationStatus == some .trusted) result
-
-  let axiomWithFailure := mkAtomWith .axiom "Test.lean"
-  let unified7 := unifyAtom axiomWithFailure (some proofFailure)
-  result ← test "axiom overrides failure to trusted" (unified7.verificationStatus == some .trusted) result
-
-  let externalWithSorries := mkAtomWith .def "Pkg/FunsExternal.lean"
-  let unified8 := unifyAtom externalWithSorries (some proofSorries)
-  result ← test "External def overrides sorries to trusted" (unified8.verificationStatus == some .trusted) result
-
-  let externalWithFailure := mkAtomWith .def "Pkg/TypesExternal.lean"
-  let unified9 := unifyAtom externalWithFailure (some proofFailure)
-  result ← test "External def overrides failure to trusted" (unified9.verificationStatus == some .trusted) result
-
-  IO.println ""
-  IO.println "Testing theorems in *External.lean get normal verification status..."
-  let externalThm := mkAtomWith .theorem "Pkg/FunsExternal.lean"
-  let unified10 := unifyAtom externalThm (some proofOk)
-  result ← test "External theorem with success is verified" (unified10.verificationStatus == some .verified) result
-  result ← test "External theorem trusted-reason is none" (unified10.trustedReason == none) result
-
-  let externalThmSorries := mkAtomWith .theorem "Pkg/FunsExternal.lean"
-  let unified11 := unifyAtom externalThmSorries (some proofSorries)
-  result ← test "External theorem with sorries is unverified" (unified11.verificationStatus == some .unverified) result
-
-  let externalThmNone := mkAtomWith .theorem "Pkg/TypesExternal.lean"
-  let unified12 := unifyAtom externalThmNone none
-  result ← test "External theorem with no proof entry is none" (unified12.verificationStatus == none) result
-
-  IO.println ""
-  IO.println "Testing non-conventional External.lean suffix..."
-  result ← test "ModelsExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Pkg/ModelsExternal.lean")) result
-  result ← test "CustomExternal.lean is trusted" (isTrustedAtom (mkAtomWith .def "Deep/Path/CustomExternal.lean")) result
-
-  IO.println ""
-  IO.println "Testing @[externally_verified] attribute..."
-  let mkAttrAtom (kind : DeclKind) (codePath : String) (attrs : Array String) : Atom :=
-    { name := "probe:Test.x", displayName := "x", dependencies := #[],
-      codeModule := "Test", codePath, codeText := some { linesStart := 1, linesEnd := 5 },
-      kind, attributes := attrs }
-  let extVerifiedThm := mkAttrAtom .theorem "Pkg/Proofs.lean" #["externally_verified"]
-  result ← test "externally_verified theorem reason is \"externally_verified\""
-    (trustedReason extVerifiedThm == some "externally_verified") result
-  result ← test "externally_verified theorem is trusted" (isTrustedAtom extVerifiedThm) result
-  let unifiedExtSorries := unifyAtom extVerifiedThm (some proofSorries)
-  result ← test "externally_verified theorem with sorries overrides to trusted"
-    (unifiedExtSorries.verificationStatus == some .trusted) result
-  result ← test "externally_verified theorem trusted-reason is \"externally_verified\""
-    (unifiedExtSorries.trustedReason == some "externally_verified") result
-  let unifiedExtOk := unifyAtom extVerifiedThm (some proofOk)
-  result ← test "externally_verified theorem with success still trusted"
-    (unifiedExtOk.verificationStatus == some .trusted) result
-  let extInNormalFile := mkAttrAtom .theorem "Pkg/Specs.lean" #["externally_verified"]
-  result ← test "externally_verified fires regardless of file path"
-    (trustedReason extInNormalFile == some "externally_verified") result
-  let axiomWithAttr := mkAttrAtom .axiom "Test.lean" #["externally_verified"]
+  IO.println "Testing @[externally_verified]..."
+  result ← test "externally_verified theorem reason"
+    (tr .theorem "Pkg.Proofs" (ev := true) == some "externally_verified") result
+  result ← test "externally_verified fires regardless of module"
+    (tr .theorem "Pkg.Specs" (ev := true) == some "externally_verified") result
   result ← test "axiom precedence beats externally_verified"
-    (trustedReason axiomWithAttr == some "axiom") result
-  let defWithAttrInExternal := mkAttrAtom .def "Pkg/FunsExternal.lean" #["externally_verified"]
-  result ← test "externally_verified precedence beats external-file convention"
-    (trustedReason defWithAttrInExternal == some "externally_verified") result
-  let noAttrs := mkAttrAtom .theorem "Pkg/Specs.lean" #["progress"]
-  result ← test "unrelated attribute does not trigger trusted" (trustedReason noAttrs == none) result
-
+    (tr .axiom "Test" (ev := true) == some "axiom") result
+  result ← test "externally_verified beats the External convention"
+    (tr .def "Pkg.FunsExternal" (ev := true) == some "externally_verified") result
+  result ← test "externally_verified excuses a Prop-typed def in External"
+    (tr .def "Pkg.FunsExternal" (ev := true) (isProof := true) == some "externally_verified") result
+  result ← test "without its own tag a theorem is not trusted"
+    (tr .theorem "Pkg.Proofs" == none) result
+  result ← test "…while the External convention still applies to an untagged def"
+    (tr .def "Pkg.FunsExternal" == some "external") result
+  result ← test "isCompanionName"
+    (isCompanionName `Foo.bar_spec.mvcgen_spec && !isCompanionName `Foo.mvcgen_spec.x &&
+     !isCompanionName `Foo.bar_spec) result
+  result ← test "isExternalModule"
+    (isExternalModule `A.FunsExternal && !isExternalModule `A.External.B &&
+     !isExternalModule `A.ExternalFuns) result
   return result
 
 /-- The committed example extract artifact, produced by `tools/gen-fixture.sh`
@@ -2907,23 +2892,30 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
     | none => false
   result ← test "if A has spec B, then B depends on A" bidir result
 
-  -- Invariant 5: mapVerifyStatus produces valid values
+  -- Invariant 5: every status the taint pass can produce is a valid JSON value
   IO.println ""
-  IO.println "Testing invariant: mapVerifyStatus produces valid values..."
-  let vs1 := mapVerifyStatus .success
-  let vs2 := mapVerifyStatus .sorries
-  let vs3 := mapVerifyStatus .failure
-  result ← test "success maps to verified" (vs1 == .verified) result
-  result ← test "sorries maps to unverified" (vs2 == .unverified) result
-  result ← test "failure maps to failed" (vs3 == .failed) result
+  IO.println "Testing invariant: taintVerdict produces valid values..."
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`t, "axiom")]
+    taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d],
+               typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`t, `d, `v, `c]
+    pSize := 4, moduleCount := 1 }
+  let vsOf (n : Lean.Name) : WebVerificationStatus :=
+    ((taintVerdict pt n).map (·.2)).getD .failed
+  let vs1 := vsOf `d
+  let vs2 := vsOf `v
+  let vs3 := vsOf `c
+  let vs4 := vsOf `t
+  result ← test "direct carrier maps to unverified" (vs1 == .unverified) result
+  result ← test "tainted maps to verified" (vs2 == .verified) result
+  result ← test "clean modulo T maps to transitively-verified" (vs3 == .transitivelyVerified) result
+  result ← test "trusted maps to trusted with its reason"
+    (vs4 == .trusted && ((taintVerdict pt `t).map (·.1)) == some (some "axiom")) result
 
   let validStatuses := #["verified", "unverified", "failed", "trusted", "transitively-verified"]
-  let vsJson1 := Lean.toJson vs1
-  let vsJson2 := Lean.toJson vs2
-  let vsJson3 := Lean.toJson vs3
-  let vsJson4 := Lean.toJson WebVerificationStatus.trusted
-  let allValid := [vsJson1, vsJson2, vsJson3, vsJson4].all fun j =>
-    match j with
+  let allValid := [vs1, vs2, vs3, vs4, WebVerificationStatus.failed].all fun v =>
+    match Lean.toJson v with
     | .str s => validStatuses.contains s
     | _ => false
   result ← test "all verification-status JSON values are valid strings" allValid result
@@ -3654,6 +3646,13 @@ def testProjectModuleMembership (result : TestResult) : IO TestResult := do
   result ← test "name-prefix collision does not match"
     (!isProjectModule mods `SpqrExtra.Foo) result
   result ← test "empty module set matches nothing" (!isProjectModule #[] `Spqr) result
+  -- The predicate is component-wise ancestry (`Name.isPrefixOf`), pinned on the two
+  -- degenerate names where a string-prefix test would answer differently. Neither
+  -- shape arises from a path-derived module name.
+  result ← test "anonymous project module is a structural prefix of everything"
+    (isProjectModule #[.anonymous] `Spqr) result
+  result ← test "a single component whose printed form contains `.` is not a descendant"
+    (!isProjectModule mods (Lean.Name.mkSimple "Spqr.Specs")) result
   return result
 
 /-- Module names are derived from olean paths one atomic component per path
@@ -3936,6 +3935,13 @@ class Marked (α : Type) where
   mark : α
 axiom trustMe : Nat
 
+/-- `kind` fixtures (issue #111): registration decides `instance`, not the name. -/
+instance markedNat : Marked Nat := ⟨0⟩
+instance : Marked Bool := ⟨true⟩
+def instLooksLike : Nat := 0
+def markedUnit : Marked Unit := ⟨()⟩
+attribute [instance] markedUnit
+
 end AuxFoldEnv
 
 open Lean Elab Command Term in
@@ -4014,6 +4020,7 @@ run_cmd do
   let (hostUnion, hostType, hostTerm) ←
     foldAtomDeps env inProject auxCache hostInfo hostProjType #[]
   let hostAdded := (← auxCache.get).addedEdges
+  let kindOf (n : Name) : Option DeclKind := (env.find? n).map (getDeclKind env n)
   let checks : Array (String × Bool) := #[
     ("internal name with a source range is foldable",
       cls `AuxFoldEnv.host._proof_9 == .foldable),
@@ -4031,7 +4038,7 @@ run_cmd do
     -- `.ctorInfo`/`.recInfo`, which the classifier does not mirror, so a named
     -- project constructor is a target while never being emitted as an atom.
     -- Pinned here so the leak is a recorded decision (see `DepClass.emitted`
-    -- and docs/SCHEMA.md), not something that silently flips.
+    -- and docs/auxiliary-folding.md), not something that silently flips.
     ("named project constructor is a target, though never an atom",
       cls `AuxFoldEnv.Color.red == .emitted),
     ("external constant is ignored", cls `Nat.succ_pos == .ignored),
@@ -4074,7 +4081,20 @@ run_cmd do
       hostTerm == #[`AuxFoldEnv.Color]),
     ("foldAtomDeps derives dependencies as the union of both buckets",
       hostUnion == sortDedupNames (hostType ++ hostTerm)),
-    ("foldAtomDeps counts the edges it added", hostAdded == 1)]
+    ("foldAtomDeps counts the edges it added", hostAdded == 1),
+    -- `getDeclKind` on locally elaborated constants (no module index, so the
+    -- live extension state is consulted; the imported-module path is covered
+    -- end-to-end by `tests/fixtures/aux-fold/Demo/Kinds.lean`).
+    ("a class is kind class, not structure", kindOf `AuxFoldEnv.Marked == some .class),
+    ("a structure is kind structure", kindOf `AuxFoldEnv.Pair == some .structure),
+    ("a user-named instance is kind instance",
+      kindOf `AuxFoldEnv.markedNat == some .instance),
+    ("an auto-named instance is kind instance",
+      kindOf `AuxFoldEnv.instMarkedBool == some .instance),
+    ("a def named inst… is kind def, not instance",
+      kindOf `AuxFoldEnv.instLooksLike == some .def),
+    ("a def promoted by attribute [instance] is kind instance",
+      kindOf `AuxFoldEnv.markedUnit == some .instance)]
   -- `mkIdent`, not a plain quotation: a quoted binder name picks up macro
   -- scopes and the generated definition would be unreferenceable.
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
@@ -4174,8 +4194,822 @@ def testPrimarySpecFoldFallback (result : TestResult) : IO TestResult := do
     (t1After.any (·.specs.isEmpty) && t2After.any (·.specs.isEmpty)) result
   return result
 
-def main : IO UInt32 := do
-  let mut result : TestResult := { passed := 0, failed := 0 }
+def testApplyTaintStatus (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing applyTaintStatus (status from the taint pass)..."
+  let mkU (name : String) (ln : Lean.Name) : UnifiedAtom :=
+    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := none, kind := .theorem, verificationStatus := none }
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`T.ax, "axiom"), (`T.ev, "externally_verified")]
+    taint := { tainted := Std.HashSet.ofArray #[`T.direct, `T.via],
+               direct := Std.HashSet.ofArray #[`T.direct, `T.ev], typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`T.ax, `T.ev, `T.direct, `T.via, `T.clean]
+    pSize := 5, moduleCount := 1 }
+  let atoms := #[mkU "probe:ax" `T.ax, mkU "probe:ev" `T.ev, mkU "probe:direct" `T.direct,
+    mkU "probe:via" `T.via, mkU "probe:clean" `T.clean, mkU "probe:unknown" `T.unknown,
+    mkU "probe:anon" .anonymous]
+  let vs (a : Array UnifiedAtom) (i : Nat) : Option WebVerificationStatus := a[i]!.verificationStatus
+  let (full, unknown) := applyTaintStatus atoms pt true true
+  result ← test "trusted axiom → trusted/axiom"
+    (vs full 0 == some .trusted && full[0]!.trustedReason == some "axiom") result
+  result ← test "trusted direct carrier stays trusted (the human-vouches case)"
+    (vs full 1 == some .trusted && full[1]!.trustedReason == some "externally_verified") result
+  result ← test "direct carrier → unverified, no reason"
+    (vs full 2 == some .unverified && full[2]!.trustedReason == none) result
+  result ← test "tainted → verified (locally sorry-free, rests on a sorry)"
+    (vs full 3 == some .verified) result
+  result ← test "clean modulo T → transitively-verified" (vs full 4 == some .transitivelyVerified) result
+  -- Absence from the analysis is not evidence of verification: a name outside P
+  -- (a forgotten `leanName`, a reconstructed atom) gets no status and is reported.
+  result ← test "a name the pass never saw gets no status"
+    (vs full 5 == none && full[5]!.trustedReason == none) result
+  result ← test "the default .anonymous leanName is unknown too" (vs full 6 == none) result
+  result ← test "unknown atoms are returned by name, in order"
+    (unknown == #["probe:unknown", "probe:anon"]) result
+  result ← test "taintVerdict is none off P" (taintVerdict pt `T.unknown).isNone result
+  result ← test "a run with every atom in P reports no unknowns"
+    (applyTaintStatus (atoms.extract 0 5) pt true true).2.isEmpty result
+  let (noUp, _) := applyTaintStatus atoms pt true false
+  result ← test "--skip-enrich caps clean at verified, the rest unchanged"
+    (vs noUp 4 == some .verified && vs noUp 3 == some .verified &&
+     vs noUp 2 == some .unverified && vs noUp 0 == some .trusted) result
+  let (noTaint, _) := applyTaintStatus atoms pt false true
+  result ← test "--skip-verify stamps only the trusted atoms"
+    (vs noTaint 0 == some .trusted && vs noTaint 1 == some .trusted &&
+     vs noTaint 2 == none && vs noTaint 4 == none) result
+  let a : Atom :=
+    { name := "probe:x", leanName := `X.x, displayName := "x", dependencies := #[],
+      codeModule := "X", codePath := "X.lean", codeText := none, kind := .def }
+  let u := unifyAtom a
+  result ← test "unifyAtom carries leanName and no status"
+    (u.leanName == `X.x && u.verificationStatus == none && u.trustedReason == none) result
+  let uj := Lean.toJson u
+  result ← test "leanName is not serialised"
+    ((uj.getObjVal? "lean-name").toOption.isNone && (uj.getObjVal? "leanName").toOption.isNone) result
+  return result
+
+def testDivergenceLines (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing divergenceLines / demoteTransitive / statusCounts..."
+  let mkU (name : String) (st : Option WebVerificationStatus) : UnifiedAtom :=
+    { name, displayName := "x", dependencies := #[], codeModule := "T", codePath := "T.lean",
+      codeText := none, kind := .theorem, verificationStatus := st }
+  let oracle := #[mkU "probe:a" (some .transitivelyVerified), mkU "probe:b" (some .verified),
+    mkU "probe:c" (some .unverified), mkU "probe:d" (some .trusted),
+    mkU "probe:e" (some .transitivelyVerified), mkU "probe:f" none]
+  let graph := #[mkU "probe:a" (some .verified), mkU "probe:b" (some .transitivelyVerified),
+    mkU "probe:c" (some .unverified), mkU "probe:d" (some .trusted),
+    mkU "probe:e" (some .transitivelyVerified), mkU "probe:f" none]
+  let lines := divergenceLines oracle graph
+  result ← test "exactly the two disagreeing atoms are reported" (lines.size == 2) result
+  result ← test "graph tainted / oracle clean text"
+    (lines[0]! == "Divergence(graph): probe:a graph says tainted, oracle says clean") result
+  result ← test "graph clean / oracle tainted text"
+    (lines[1]! == "Divergence(graph): probe:b graph says clean, oracle says tainted") result
+  result ← test "identical arrays produce no line" (divergenceLines oracle oracle).isEmpty result
+  let d := demoteTransitive oracle
+  result ← test "demoteTransitive undoes only the upgrade"
+    (d[0]!.verificationStatus == some .verified && d[1]!.verificationStatus == some .verified &&
+     d[2]!.verificationStatus == some .unverified && d[3]!.verificationStatus == some .trusted &&
+     d[5]!.verificationStatus == none) result
+  result ← test "statusCounts" (statusCounts oracle == (2, 1, 3)) result
+  return result
+
+/-- The `check-axioms` listing of T, the generated-axiom note, and the dependency-roots
+    note with `dependencyRoots` behind it. -/
+def testTrustListingFormat (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the trusted-base listing and generated-axiom note formatting..."
+  result ← test "trust header" (formatTrustHeader 9 == "9 trusted constant(s) (T):") result
+  result ← test "trusted line: axiom, no type"
+    (formatTrustedLine `Foo.ax "axiom" `Pkg.Basic none == "  Foo.ax [axiom] Pkg.Basic") result
+  result ← test "trusted line: external with its statement"
+    (formatTrustedLine `Foo.op "external" `Pkg.FunsExternal (some "Nat → Nat") ==
+      "  Foo.op [external] Pkg.FunsExternal : Nat → Nat") result
+  result ← test "generated-axiom note: one line, count and names"
+    (formatGeneratedAxiomNote #[`t._native.native_decide.ax_1_1, `u._native.decide.ax_1_1] ==
+      "Note(axiom): 2 generated project axiom(s) trusted by rule 1 (not source-visible \
+       declarations, e.g. from native_decide): t._native.native_decide.ax_1_1, \
+       u._native.decide.ax_1_1") result
+  result ← test "generated-axiom note: capped at maxListedMerged names"
+    (let names := (Array.range (maxListedMerged + 3)).map fun i => Lean.Name.mkSimple s!"ax{i}"
+     (formatGeneratedAxiomNote names).endsWith ", … and 3 more") result
+  result ← test "generated-axiom note: empty when there are none"
+    (formatGeneratedAxiomNote #[] == "") result
+  -- The dependency boundary: roots of the imported modules outside P, once each, sorted.
+  let pf : ProjectFilter := { moduleIdxs := Std.HashSet.ofList [1, 3] }
+  result ← test "dependency roots: outside P only, root component, deduplicated, sorted"
+    (dependencyRoots #[`Init.Prelude, `Proj.A, `Mathlib.Data.Nat, `Proj.B, `Init.Core, `Dep] pf ==
+      #[`Dep, `Init, `Mathlib]) result
+  result ← test "dependency roots: everything in P → none"
+    (dependencyRoots #[`Proj.A, `Proj.B] { moduleIdxs := Std.HashSet.ofList [0, 1] }).isEmpty result
+  result ← test "dependency-roots note"
+    (formatDependencyRootsNote #[`Dep, `Init] ==
+      "Note: 2 imported module root(s) outside the project are trusted wholesale (Lean and \
+       dependency packages): Dep, Init") result
+  result ← test "dependency-roots note: empty for no roots" (formatDependencyRootsNote #[] == "") result
+  return result
+
+def testTaintFormatting (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing taint diagnostics formatting..."
+  result ← test "fallback warning"
+    (formatFallbackWarning 3 ==
+      "Warning: 3 project module(s) not imported (full import failed); they are outside the \
+       selection's import closure, so no emitted status depends on them, but check-axioms \
+       does not audit them") result
+  result ← test "type taint warning"
+    (formatTypeTaintWarning `Foo.bar ==
+      "Warning: trusted declaration Foo.bar names `sorry` directly in its statement") result
+  result ← test "unknown atom warning"
+    (formatUnknownAtomWarning "probe:x" ==
+      "Warning: atom probe:x is not a project constant the kernel walk covered; \
+       no verification-status assigned") result
+  result ← test "tainted line: plain" (formatTaintedLine `Foo.a false true == "  Foo.a") result
+  result ← test "tainted line: direct" (formatTaintedLine `Foo.a true true == "  Foo.a [direct]") result
+  result ← test "tainted line: not emitted"
+    (formatTaintedLine `Foo.a false false == "  Foo.a [not emitted]") result
+  result ← test "tainted line: both"
+    (formatTaintedLine `Foo.a true false == "  Foo.a [direct] [not emitted]") result
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`t, "axiom")]
+    taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d],
+               typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`t, `d, `v]
+    pSize := 40, moduleCount := 3 }
+  result ← test "summary line"
+    (formatTaintSummary pt ==
+      "Project constants: 40 in 3 module(s) | trusted: 1 | direct sorry carriers: 1 | tainted: 2") result
+  -- Log-vs-kernel cross-check: a sorry the log attributes to a host by line range
+  -- while the kernel makes the host *tainted* (the carrier is its auxiliary) is
+  -- agreement; only clean-vs-sorry conflicts are reported.
+  let mkA (name : String) (ln : Lean.Name) (line : Nat) : Atom :=
+    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := some { linesStart := line, linesEnd := line + 2 },
+      kind := .theorem }
+  -- A generated companion sharing the sorried host's range is skipped: the log
+  -- cannot tell it apart from its parent. So is a trusted atom whose `sorry` sits in
+  -- an auxiliary: the log attributes the warning to its range, the walk blocks it
+  -- (neither direct nor tainted), and that is trust at work, not a disagreement.
+  let companion : Atom := { mkA "probe:d.mvcgen_spec" `T.d.mvcgen_spec 20 with isAeneasGenerated := true }
+  -- A `partial def` whose `sorry` sits in its compiled `_unsafe_rec` body: the log
+  -- flags it, the kernel constant has no edge to it — a known shape with its own line.
+  let atoms := #[mkA "probe:host" `T.host 10, mkA "probe:d" `T.d 20, mkA "probe:clean" `T.clean 30,
+    mkA "probe:missed" `T.missed 40, companion, mkA "probe:ext" `T.ext 50, mkA "probe:loopy" `T.loopy 60]
+  let warn (line : Nat) : SorryWarning := { filePath := "T.lean", line, column := 1, message := "declaration uses 'sorry'" }
+  let warnings := #[warn 11, warn 21, warn 31, warn 51, warn 61]
+  let pt2 : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`T.ext, "external")]
+    taint := { tainted := Std.HashSet.ofArray #[`T.host, `T.d, `T.missed, `T.loopy._unsafe_rec],
+               direct := Std.HashSet.ofArray #[`T.d, `T.missed, `T.loopy._unsafe_rec], typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`T.host, `T.d, `T.clean, `T.missed, `T.d.mvcgen_spec, `T.ext,
+      `T.loopy, `T.loopy._unsafe_rec]
+    pSize := 4, moduleCount := 1 }
+  let divs := logDivergences warnings atoms pt2
+  result ← test "log divergences: aux-carried sorry is agreement; trusted host skipped; clean-vs-sorry both ways; partial def noted"
+    (divs == #["Divergence(log): probe:clean build log says sorry, kernel says clean modulo trust",
+               "Divergence(log): probe:missed kernel says sorry, no warning in the log",
+               "Note(log): probe:loopy build log says sorry; it sits in the compiled body \
+                T.loopy._unsafe_rec of a `partial def`, which the kernel constant does not reference \
+                (verification-status covers kernel dependencies, not executable bodies)"]) result
+  result ← test "tag-set line: no registration"
+    (formatTagSetLine {} ==
+      "externally_verified tag set: 0 name(s); no registration of the attribute found in the \
+       project modules' olean entries") result
+  result ← test "tag-set line: extensions named"
+    (formatTagSetLine { tagged := Std.HashSet.ofArray #[`a, `b], extensions := #[`externallyVerifiedAttr] } ==
+      "externally_verified tag set: 2 name(s) from externallyVerifiedAttr") result
+  result ← test "scan-only tag line"
+    (formatScanOnlyTagLine `instInhabitedBox.default ==
+      "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, \
+       but the attribute's tag set does not contain it; the source text does not decide trust") result
+  result ← test "tag-only line"
+    (formatTagOnlyLine `later ==
+      "Note(tag): later is tagged externally_verified by an `attribute` command or a macro; its \
+       header does not show the tag; the tag set decides trust") result
+  let pl : Array ProjectModule := #[{ name := `M.B, oleanPath := "b.olean" }, { name := `M.A, oleanPath := "a.olean" }]
+  let pe := formatProoflessError pl
+  result ← test "proofless error names the modules, sorted, and the cause"
+    (pe.startsWith "2 module-system module(s) have no `.olean.private`/`.olean.server` part next to their `.olean`: M.A, M.B." &&
+     (pe.splitOn "missing data file").length == 2 && (pe.splitOn "lake build").length == 2) result
+  result ← test "cross-walked note: none for an empty list" (formatCrossWalkedNote #[] == "") result
+  let nt := formatCrossWalkedNote #[`shared]
+  result ← test "cross-walked note names the declaration and the treatment"
+    (nt.startsWith "Note: 1 declaration name(s) are declared by a project module and by a module outside the project" &&
+     (nt.splitOn "one body: shared;").length == 2 && (nt.splitOn "project's own version(s)").length == 2) result
+  return result
+
+-- The source scan feeds the trusted base (rule 2), so what it reads is a soundness
+-- question: only the declaration header, with comments and strings stripped.
+def testAttributeScan (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing attributesFromLines (header-only attribute scan)..."
+  let strip (s : String) (st : LexState := .code) := stripLine s st
+  result ← test "strip: line comment" (strip "a -- b" == ("a ", .code)) result
+  result ← test "strip: nested block comment on one line"
+    (strip "/- x /- y -/ z -/ w" == (" w", .code)) result
+  result ← test "strip: block comment opened carries depth"
+    (strip "/- open /- deeper" == ("", .comment 2)) result
+  result ← test "strip: depth carried in, closed on this line"
+    (strip "still -/ code" (.comment 1) == (" code", .code)) result
+  result ← test "strip: docstring opener is a block comment"
+    (strip "/-- doc -/ @[simp]" == (" @[simp]", .code)) result
+  result ← test "strip: string literal" (strip "\"@[x]\" y" == (" y", .code)) result
+  result ← test "strip: escaped quote inside a string"
+    (strip "\"a\\\"b\" c" == (" c", .code)) result
+  -- Lean string literals span lines: an open string carries over, and the line that
+  -- closes it is string text up to the quote.
+  result ← test "strip: string left open carries over"
+    (strip "def s := \"open" == ("def s := ", .string)) result
+  result ← test "strip: string closed on a later line"
+    (strip "  @[externally_verified] \" rest" .string == (" rest", .code)) result
+  result ← test "strip: raw string, inner quote does not close it"
+    (strip "def t := r#\"quote \" @[externally_verified] more\"# tail" == ("def t :=  tail", .code)) result
+  result ← test "strip: raw string without hashes" (strip "r\"@[x]\" y" == (" y", .code)) result
+  result ← test "strip: raw string left open carries its hash count"
+    (strip "r##\"a\"# still" == ("", .rawString 2)) result
+  result ← test "strip: raw string closed on a later line"
+    (strip "b\"## after" (.rawString 2) == (" after", .code)) result
+  result ← test "strip: `r` inside an identifier is not a raw-string opener"
+    (strip "bar\"x\"" == ("bar", .code)) result
+  result ← test "strip: char literal with a quote" (strip "if c == '\"' then" == ("if c ==  then", .code)) result
+  result ← test "strip: escaped char literal" (strip "'\\'' '\\n' x" == ("  x", .code)) result
+  result ← test "strip: a prime in an identifier is not a char literal"
+    (strip "theorem foo' : x' = y'" == ("theorem foo' : x' = y'", .code)) result
+  result ← test "strip: guillemet identifier content is dropped"
+    (strip "theorem ordinary («@[externally_verified]» : Nat) : True" ==
+      ("theorem ordinary ( : Nat) : True", .code)) result
+  -- Interpolated strings: the `{…}` code is part of the literal, and a plain string
+  -- inside it does not close the outer one.
+  result ← test "strip: interpolated string with a nested literal is one literal"
+    (strip "s!\"{f \"x\"} y\" z" == ("s! z", .code)) result
+  result ← test "strip: nested braces inside an interpolation"
+    (strip "m!\"{ {a} } b\" c" == ("m! c", .code)) result
+  result ← test "strip: interpolation left open carries its state"
+    (strip "s!\"open {" == ("s!", .interpCode 1)) result
+  result ← test "strip: interpolation closed on a later line"
+    (strip "x} tail\" rest" (.interpCode 1) == (" rest", .code)) result
+  result ← test "strip: `!\"` after a non-identifier is a plain string"
+    (strip "if a != \"@[x]\" then" == ("if a !=  then", .code)) result
+  result ← test "strip: escaped quote inside an interpolation's inner string"
+    (strip "s!\"{g \"a\\\"b\"} c\" d" == ("s! d", .code)) result
+  result ← test "stripLines lexes from the top"
+    (stripLines #["/-", "@[externally_verified]", "-/", "theorem b : P := by sorry"] ==
+      #["", "", "", "theorem b : P := by sorry"]) result
+
+  result ← test "removeAttrBlocks" (removeAttrBlocks "@[simp, foo] theorem x" == " theorem x") result
+  result ← test "removeAttrBlocks: unclosed block runs to the end"
+    (removeAttrBlocks "@[simp," == "") result
+  result ← test "head: colon" (isDeclHeadLine "instance : Foo Nat") result
+  result ← test "head: keyword without colon" (isDeclHeadLine "structure Foo where") result
+  result ← test "head: inductive constructor bar" (isDeclHeadLine "  | a") result
+  result ← test "head: `:=` inside an attribute block does not count"
+    (!isDeclHeadLine "@[to_additive (attr := simp)]") result
+  result ← test "head: modifiers alone are not a head" (!isDeclHeadLine "private noncomputable") result
+  result ← test "head: `set_option … in` is not a head"
+    (!isDeclHeadLine "set_option maxHeartbeats 400000 in") result
+  let scan (ls : Array String) (s e : Nat) := attributesFromLines ls s e
+  result ← test "docstring, attribute line, head, body"
+    (scan #["/-- doc -/", "@[simp, externally_verified]", "theorem foo : P := by", "  sorry"] 0 3
+      == #["simp", "externally_verified"]) result
+  result ← test "attribute on the head line"
+    (scan #["@[step] theorem x : P := rfl"] 0 0 == #["step"]) result
+  result ← test "multi-line head: attribute before, colon on the second line"
+    (scan #["@[simp] private theorem foo", "    (x : Nat) : P x := rfl"] 0 1 == #["simp"]) result
+  result ← test "attribute block containing `:=` is read and does not end the header"
+    (scan #["@[to_additive (attr := simp)]", "theorem foo : P := rfl"] 0 1 == #["to_additive"]) result
+  -- No look-back: a declaration's range starts at its first modifier, so a pure
+  -- attribute line above the range belongs to the previous command.
+  result ← test "no look-back: a pure attribute line just above the range is not read"
+    (scan #["@[simp]", "theorem b : P := rfl"] 1 1 == #[]) result
+  result ← test "the attribute line inside the range is read"
+    (scan #["@[simp]", "theorem b : P := rfl"] 0 1 == #["simp"]) result
+  result ← test "range beyond the file is clipped" (scan #["@[simp] def x := 1"] 0 40 == #["simp"]) result
+  result ← test "empty file" (scan #[] 0 3 == #[]) result
+  -- The IO wrapper takes the range's 1-based lines (`Lean.Position.line`). The
+  -- cache is pre-seeded, so no file is touched. Two one-line `@[simp]` theorems
+  -- back to back, then a tagged neighbour: `neg_y` on 1-based line 3 keeps its own
+  -- `simp` and gets nothing from the lines around it — the old 1-based-as-0-based
+  -- indexing read the *next* line's tag as this declaration's.
+  let cache : FileCache ← IO.mkRef {}
+  let path := ((System.FilePath.mk "/proj") / "T.lean").toString
+  cache.modify (·.insert path (SourceFile.ofLines #["", "@[simp] theorem neg_x : P := rfl",
+    "@[simp] theorem neg_y : Q := rfl", "@[externally_verified] theorem next : R := by sorry",
+    "/-- `@[externally_verified]` marks … -/", "initialize attr : TagAttribute ←",
+    "  registerTagAttribute `externally_verified \"…\""]))
+  let negY ← extractAttributesFromSource cache "/proj" "T.lean" 3 3
+  result ← test "1-based range: a one-line @[simp] theorem keeps its attribute" (negY == #["simp"]) result
+  let negX ← extractAttributesFromSource cache "/proj" "T.lean" 2 2
+  result ← test "1-based range: the neighbour's tag on the next line is not read" (negX == #["simp"]) result
+  let attrDecl ← extractAttributesFromSource cache "/proj" "T.lean" 5 7
+  result ← test "1-based range: a docstring quoting the tag yields nothing (dalek externallyVerifiedAttr)"
+    (attrDecl == #[]) result
+  let noPath ← extractAttributesFromSource cache "/proj" "" 5 7
+  result ← test "empty code path yields nothing" (noPath == #[]) result
+  return result
+
+-- Every way a `@[…]` that is not the declaration's own annotation could reach the
+-- trusted base. Each of these used to yield `externally_verified`.
+def testAttributeScanNegatives (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing attributesFromLines: fabricated-trust cases..."
+  let scan (ls : Array String) (s e : Nat) := attributesFromLines ls s e
+  result ← test "body comment quoting the tag"
+    (scan #["theorem foo : P := by", "  -- do not mark this @[externally_verified]", "  sorry"] 0 2
+      == #[]) result
+  result ← test "multi-line docstring quoting the tag"
+    (scan #["/-- Not", "  @[externally_verified], see below. -/", "theorem foo : P := by", "  sorry"] 0 3
+      == #[]) result
+  result ← test "docstring quoting the tag on the head line"
+    (scan #["/-- not @[externally_verified] -/ theorem foo : P := by sorry"] 0 0 == #[]) result
+  result ← test "string literal in the body"
+    (scan #["def s : String :=", "  \"@[externally_verified]\""] 0 1 == #[]) result
+  result ← test "string literal on the head line"
+    (scan #["def s : String := \"@[externally_verified]\""] 0 0 == #[]) result
+  result ← test "anything after the head line is body, even an `@[`"
+    (scan #["theorem foo : P := by", "  @[simp] exact bar"] 0 1 == #[]) result
+  result ← test "look-back: a tagged one-line neighbour just above lends nothing"
+    (scan #["@[externally_verified] theorem a : P := by sorry", "theorem b : P := by sorry"] 1 1
+      == #[]) result
+  result ← test "look-back: a neighbour's attribute line then its head, then ours"
+    (scan #["@[externally_verified]", "theorem a : P := by sorry", "theorem b : P := by sorry"] 2 2
+      == #[]) result
+  result ← test "look-back: a non-pure line in a comment window lends nothing"
+    (scan #["/- see @[externally_verified] above", "-/", "theorem b : P := rfl"] 2 2 == #[]) result
+  result ← test "look-back: a stray non-pure line lends nothing"
+    (scan #["  exact @[externally_verified] x", "theorem b : P := rfl"] 1 1 == #[]) result
+  result ← test "the declaration's own tag survives all of the above"
+    (scan #["@[externally_verified] theorem a : P := by sorry",
+            "/-- Not `@[simp]`. -/", "@[externally_verified]", "theorem b : P := by",
+            "  -- @[step]", "  sorry"] 1 5 == #["externally_verified"]) result
+  -- Text that is not code but opened *before* the scan window: the per-line lexer
+  -- used to start every window in `.code`, so these read as a pure attribute line.
+  result ← test "block comment opened above the window"
+    (scan #["/-", "@[externally_verified]", "-/", "theorem b : P := by sorry"] 3 3 == #[]) result
+  result ← test "module docstring listing the tag on its own line"
+    (scan #["/-!", "@[externally_verified]", "-/", "theorem b : P := by sorry"] 3 3 == #[]) result
+  result ← test "multi-line string opened above the window"
+    (scan #["def s := \"", "@[externally_verified]", "\"", "theorem b : P := by sorry"] 3 3 == #[]) result
+  result ← test "raw string: an inner quote does not end it"
+    (scan #["def text : String := r#\"quote \" @[externally_verified] more\"#"] 0 0 == #[]) result
+  result ← test "char literal holding a quote"
+    (scan #["def q := '\"'", "def r := \"@[externally_verified]\""] 1 1 == #[]) result
+  result ← test "guillemet identifier spelling the tag"
+    (scan #["theorem ordinary («@[externally_verified]» : Nat) : True := by sorry"] 0 0 == #[]) result
+  -- Round 3: string content inside an interpolation used to be lexed as code.
+  result ← test "interpolated string whose inner literal spells the tag"
+    (scan #["def v : String := s!\"{(sorry : String)} {\"@[externally_verified]\"}\""] 0 0 == #[]) result
+  -- Round 3: a pure attribute line inside a syntax quotation of the previous
+  -- declaration, read by the old two-line look-back.
+  result ← test "quotation of the previous declaration ending just above"
+    (scan #["def quoted : MacroM Syntax := `(declModifiers|", "@[externally_verified]", ")",
+            "theorem victim2 : P := by sorry"] 3 3 == #[]) result
+  -- Round 3: two commands on one line share the line range, so the line-based scan
+  -- shows the first command's tag on the second and names it — the shape the scan
+  -- used to trust, which the tag set does not contain and `tagAudit` reports.
+  let two := #["@[externally_verified] theorem endorsed : True := True.intro theorem victim : False := by sorry"]
+  let victim := scanHeaderLines (stripLines two) 0 0
+  result ← test "two commands on one line: the scan shows the tag on the second (cosmetic, audited)"
+    (victim.attributes == #["externally_verified"] && headerNamesDecl victim.headCode `victim false) result
+
+  IO.println ""
+  IO.println "Testing headerNamesDecl (the head line must name the declaration)..."
+  let header (ls : Array String) (s e : Nat) := (scanHeaderLines (stripLines ls) s e).headCode
+  let names (ls : Array String) (s e : Nat) (n : Lean.Name) (inst := false) :=
+    headerNamesDecl (header ls s e) n inst
+  result ← test "plain theorem" (names #["@[externally_verified]", "theorem foo : P := rfl"] 0 1 `foo) result
+  result ← test "dotted declaration inside a namespace"
+    (names #["theorem foo.bar : P := rfl"] 0 0 `N.foo.bar) result
+  result ← test "private declaration by its user-facing name"
+    (names #["private theorem foo : P := rfl"] 0 0 ((Lean.Name.mkNum `_private.M 0) ++ `foo)) result
+  result ← test "multi-line head: name on the first line, colon on the second"
+    (names #["@[externally_verified] theorem foo", "    (x : Nat) : P x := rfl"] 0 1 `foo) result
+  result ← test "name followed by a colon without a space" (names #["theorem foo: P := rfl"] 0 0 `foo) result
+  result ← test "a prefix of the name is not the name" (!names #["theorem foobar : P"] 0 0 `foo) result
+  result ← test "`_root_.` prefix is dropped before matching"
+    (names #["@[externally_verified] theorem _root_.Foo.bar : P := rfl"] 0 0 `Foo.bar) result
+  -- The suffix rule's known false positive, kept out of trust by reading the tag
+  -- set instead: the generated helper ends in the field's name.
+  result ← test "generated helper named by a field (why the scan no longer decides trust)"
+    (names #["@[externally_verified] structure Box where default : Cell deriving Inhabited"] 0 0
+      `instInhabitedBox.default) result
+  result ← test "a token equal to a middle component is not the name"
+    (!names #["theorem foo : P"] 0 0 `foo.bar) result
+  result ← test "anonymous instance is named by the keyword"
+    (names #["@[externally_verified] instance : Foo Nat := ⟨1⟩"] 0 0 `instFooNat true) result
+  result ← test "`instance` keyword does not name a non-instance"
+    (!names #["instance : Foo Nat := ⟨1⟩"] 0 0 `instFooNat false) result
+  -- The review's one-line structure: the structure is named, its derived instance
+  -- and its projection are not (audit input only; trust reads the tag set).
+  let oneLiner := #["@[externally_verified] structure S where x : Nat := by sorry deriving Inhabited"]
+  result ← test "one-line structure: the structure itself" (names oneLiner 0 0 `S) result
+  result ← test "one-line structure: the derived instance is not named"
+    (!names oneLiner 0 0 `instInhabitedS true) result
+  result ← test "companion sharing the parent's range is not named"
+    (!names #["@[externally_verified]", "step_theorem vouched : P := by sorry"] 0 1 `vouched.mvcgen_spec) result
+  result ← test "…while the parent is" (names #["@[externally_verified]", "step_theorem vouched : P := by sorry"] 0 1 `vouched) result
+  result ← test "the head text stops at the head line"
+    (!names #["theorem a : P := by", "  exact b"] 0 1 `b) result
+  return result
+
+-- The static tag-set reader: how `initialize x : TagAttribute ← registerTagAttribute …`
+-- looks once elaborated, and what the reader accepts.
+open Lean in
+def testTagSetLiterals (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the tag-set reader (name literals, registerTagAttribute applications)..."
+  let str (s : String) : Expr := mkStrLit s
+  let mkStr1 (s : String) : Expr := mkApp (mkConst ``Name.mkStr1) (str s)
+  result ← test "mkStr1" (nameLiteral? (mkStr1 "externally_verified") == some `externally_verified) result
+  result ← test "mkStr3" (nameLiteral? (mkApp3 (mkConst ``Name.mkStr3) (str "A") (str "B") (str "c")) == some `A.B.c) result
+  result ← test "Name.str nesting" (nameLiteral? (mkApp2 (mkConst ``Name.str) (mkStr1 "A") (str "b")) == some `A.b) result
+  result ← test "Name.mkStr nesting" (nameLiteral? (mkApp2 (mkConst ``Name.mkStr) (mkStr1 "A") (str "b")) == some `A.b) result
+  result ← test "Name.num with a raw literal"
+    (nameLiteral? (mkApp2 (mkConst ``Name.num) (mkStr1 "A") (mkRawNatLit 3)) == some (Name.mkNum `A 3)) result
+  result ← test "Name.mkNum with OfNat.ofNat"
+    (nameLiteral? (mkApp2 (mkConst ``Name.mkNum) (mkStr1 "A")
+      (mkApp3 (mkConst ``OfNat.ofNat [levelZero]) (mkConst ``Nat) (mkRawNatLit 7) (mkConst ``instOfNatNat))) ==
+      some (Name.mkNum `A 7)) result
+  result ← test "Name.anonymous" (nameLiteral? (mkConst ``Name.anonymous) == some .anonymous) result
+  result ← test "mkSimple" (nameLiteral? (mkApp (mkConst ``Name.mkSimple) (str "x")) == some `x) result
+  result ← test "mdata is transparent" (nameLiteral? (.mdata {} (mkStr1 "m")) == some `m) result
+  result ← test "a computed name is not a literal"
+    (nameLiteral? (mkApp (mkConst ``Name.mkStr1) (.fvar ⟨`x⟩)) == none) result
+  result ← test "wrong arity is not a literal" (nameLiteral? (mkApp2 (mkConst ``Name.mkStr1) (str "a") (str "b")) == none) result
+  result ← test "an unrelated constant is not a literal" (nameLiteral? (mkConst ``Nat.zero) == none) result
+  let reg (args : Array Expr) : Expr := mkAppN (mkConst ``registerTagAttribute) args
+  let full := reg #[mkStr1 "externally_verified", str "descr", .fvar ⟨`validate⟩, mkStr1 "myAttr",
+    mkConst ``AttributeApplicationTime.afterTypeChecking, mkConst ``EnvExtension.AsyncMode.mainOnly]
+  result ← test "registration: attribute name and ref read off the application"
+    (tagAttributeRegistration? full == some (`externally_verified, `myAttr)) result
+  result ← test "registration: four explicit arguments suffice"
+    (tagAttributeRegistration? (reg #[mkStr1 "a", str "d", .fvar ⟨`v⟩, mkStr1 "r"]) == some (`a, `r)) result
+  result ← test "registration: too few arguments" (tagAttributeRegistration? (reg #[mkStr1 "a", str "d"]) == none) result
+  result ← test "registration: computed ref is not accepted"
+    (tagAttributeRegistration? (reg #[mkStr1 "a", str "d", .fvar ⟨`v⟩, .fvar ⟨`ref⟩]) == none) result
+  result ← test "registration: another function is not a registration"
+    (tagAttributeRegistration? (mkAppN (mkConst ``registerParametricAttribute) #[mkStr1 "a", str "d", .fvar ⟨`v⟩, mkStr1 "r"]) == none) result
+  result ← test "registration: mdata around the application is transparent"
+    (tagAttributeRegistration? (.mdata {} full) == some (`externally_verified, `myAttr)) result
+  return result
+
+def testLoadedProjectModules (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing loadedProjectModules (P under the import fallback)..."
+  let m (n : Lean.Name) : ProjectModule := { name := n, oleanPath := s!"{n}.olean" }
+  let all := #[m `App.A, m `App.B, m `App.Common, m `App.Main]
+  let names (ms : Array ProjectModule) := ms.map (·.name)
+  result ← test "transitively loaded project modules are in P, colliding ones are not"
+    (names (loadedProjectModules all #[`Init, `App.Common, `App.Main]) == #[`App.Common, `App.Main]) result
+  result ← test "inventory order is kept"
+    (names (loadedProjectModules all #[`App.Main, `App.A]) == #[`App.A, `App.Main]) result
+  result ← test "everything loaded → all of the inventory"
+    ((loadedProjectModules all (names all)).size == all.size) result
+  result ← test "nothing loaded → empty" (loadedProjectModules all #[`Init]).isEmpty result
+  return result
+
+def testLoadedOrphans (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing loadedOrphans (stale oleans the import loaded anyway)..."
+  let orphans := #[`App.Old, `App.Gone]
+  result ← test "no orphans → nothing" (loadedOrphans #[] #[`Init, `App.Main]).isEmpty result
+  result ← test "orphans nothing imported → nothing"
+    (loadedOrphans orphans #[`Init, `App.Main]).isEmpty result
+  result ← test "an imported orphan is reported"
+    (loadedOrphans orphans #[`Init, `App.Main, `App.Old] == #[`App.Old]) result
+  result ← test "sorted by name"
+    (loadedOrphans orphans #[`App.Old, `App.Gone] == #[`App.Gone, `App.Old]) result
+  result ← test "message names the modules and the remedy"
+    (formatLoadedOrphansError #[`App.Gone, `App.Old] ==
+      "2 stale module(s) with no .lean source were imported by a live module: App.Gone, \
+       App.Old. Their constants would sit outside the project boundary and be trusted. Run \
+       `lake clean` in the target project and rebuild.") result
+  return result
+
+-- ============================================================
+-- Environment-backed taint pass
+--
+-- `projectTaint` on fabricated graphs pins the traversal; these checks run the
+-- production adapter (`constChildren`, `computeTrustBase`, `tagAudit`, the tag-set
+-- reader) on a
+-- real `Environment` — this file's own — with the shapes source cannot express: a
+-- `sorry` carrier with no declaration range, and a companion that shares its
+-- parent's range. Same pattern as `auxFoldEnvChecks`.
+-- ============================================================
+
+namespace TaintEnv
+
+theorem clean : (0 : Nat) < 5 := by decide
+axiom trustAx : (0 : Nat) < 5
+theorem viaAx : (0 : Nat) < 5 := trustAx
+
+end TaintEnv
+
+set_option warn.sorry false in
+open Lean Elab Command Term in
+run_cmd do
+  let mkDecl (nm : Name) (stx : Term) (isAxiom : Bool) (withRange : Bool) :
+      CommandElabM Unit := do
+    let (type, value) ← liftTermElabM do
+      let v ← elabTerm stx none
+      Term.synthesizeSyntheticMVarsNoPostponing
+      let v ← instantiateMVars v
+      pure (← instantiateMVars (← Meta.inferType v), v)
+    let decl : Declaration :=
+      if isAxiom then .axiomDecl { name := nm, levelParams := [], type := value, isUnsafe := false }
+      else .thmDecl { name := nm, levelParams := [], type, value }
+    liftCoreM <| addDecl decl
+    if withRange then
+      let r : DeclarationRange :=
+        { pos := ⟨1, 0⟩, charUtf16 := 0, endPos := ⟨2, 0⟩, endCharUtf16 := 0 }
+      addDeclarationRanges nm { range := r, selectionRange := r }
+  -- `mkIdent`, not a quotation, for the constants added *in this block*: a quoted
+  -- identifier is pre-resolved when the quotation is elaborated, and these names
+  -- do not exist yet at that point, so the hygienic name would not resolve.
+  let ref (n : Name) : Term := mkIdent n
+  -- A direct carrier and its caller.
+  mkDecl `TaintEnv.sorried (← `((sorry : (0 : Nat) < 5))) false true
+  mkDecl `TaintEnv.viaProof (ref `TaintEnv.sorried) false true
+  -- The SPQR `impl_def` shape: a carrier with no declaration range, never an atom.
+  mkDecl `TaintEnv.noRangeMid (← `((sorry : (0 : Nat) < 5))) false false
+  mkDecl `TaintEnv.callerOfNoRange (ref `TaintEnv.noRangeMid) false true
+  -- A sorried lemma a human vouches for (trusted by the predicate below), its
+  -- caller, and its generated companion sharing the parent's range.
+  mkDecl `TaintEnv.evSorried (← `((sorry : (0 : Nat) < 5))) false true
+  mkDecl `TaintEnv.viaEv (ref `TaintEnv.evSorried) false true
+  mkDecl `TaintEnv.evSorried.mvcgen_spec (ref `TaintEnv.evSorried) false true
+  -- A trusted axiom whose *statement* is a sorry.
+  mkDecl `TaintEnv.badAx (← `((sorry : Prop))) true true
+  -- Generated axioms: one with no declaration range (`addDecl` from a macro), one with
+  -- an internal name *and* a range — the `native_decide` shape on Lean ≥ 4.31, which
+  -- inherits the theorem's range.
+  mkDecl `TaintEnv.genAx (← `(((0 : Nat) < 5 : Prop))) true false
+  mkDecl `TaintEnv.nd._native.native_decide.ax_1_1 (← `(((0 : Nat) < 5 : Prop))) true true
+
+  let env ← getEnv
+  let roots : Array Name := #[`TaintEnv.sorried, `TaintEnv.viaProof, `TaintEnv.noRangeMid,
+    `TaintEnv.callerOfNoRange, `TaintEnv.clean, `TaintEnv.trustAx, `TaintEnv.viaAx,
+    `TaintEnv.evSorried, `TaintEnv.viaEv, `TaintEnv.evSorried.mvcgen_spec, `TaintEnv.badAx,
+    `TaintEnv.genAx, `TaintEnv.nd._native.native_decide.ax_1_1]
+  let isProject : Name → Bool := (`TaintEnv).isPrefixOf
+  let trusted : Name → Bool := fun n =>
+    n == `TaintEnv.trustAx || n == `TaintEnv.evSorried || n == `TaintEnv.badAx
+  let tr := projectTaint env isProject trusted roots
+  let untrusted := projectTaint env isProject (fun _ => false) roots
+  -- Cross-check against Lean's own oracle, with no trusted base (collectAxioms
+  -- has no notion of one).
+  let mut agree := true
+  for r in roots do
+    let axs ← collectAxioms r
+    if axs.contains ``sorryAx != untrusted.tainted.contains r then agree := false
+  let has (n : Name) (p : ConstantInfo → Bool) : Bool :=
+    match env.find? n with | some i => p i | none => false
+  let consts : Array (Name × ConstantInfo) := roots.filterMap fun n =>
+    (env.find? n).map (n, ·)
+  let trustNoAttrs := computeTrustBase env consts {}
+  -- Rule 2 is membership in the tag set: the vouched lemma and a range-less
+  -- constant are tagged, the companion and the range-sharer are not (they only
+  -- *show* the tag in `attributes`).
+  let tagged : Std.HashSet Name := Std.HashSet.ofArray #[`TaintEnv.evSorried, `TaintEnv.noRangeMid]
+  let trustAttrs := computeTrustBase env consts tagged
+  -- The tag audit on fabricated scan results against that set.
+  let shown : DeclAttrs := { attributes := #["externally_verified"], headerShowsTag := true, headerNamesTag := true }
+  let audit := tagAudit env (Std.HashMap.ofList
+    [(`TaintEnv.viaProof, shown),                 -- scan would trust it, set does not: reported
+     (`TaintEnv.evSorried, shown),                -- both agree
+     (`TaintEnv.noRangeMid, {}),                  -- tagged by command, header shows nothing: note
+     (`TaintEnv.evSorried.mvcgen_spec, shown),    -- companion: left out by kind
+     (`Prod.fst, shown)])                         -- projection: left out by kind
+    tagged
+  -- The tag-set reader on this binary's own registration (`ProbeLean.Attrs`).
+  let ownReg := tagAttributeOf? env ``ProbeLean.externallyVerifiedAttr
+  let attrsFilter := mkProjectFilter env #[`ProbeLean.Attrs]
+  -- Rule 3's proof test and the header merge scan, on this environment. `thmLike` is
+  -- a `def` whose type is the proposition `0 < 5`; `natDef` a `def` of type `Nat`.
+  let thmLike := mkTestDefn `A.FunsExternal.p (env.find? `TaintEnv.clean |>.get!).type
+  let natDef := mkTestDefn `A.FunsExternal.n (mkConst ``Nat)
+  let propTyped ← propTypedNames env #[(`A.FunsExternal.p, thmLike), (`A.FunsExternal.n, natDef)]
+  let noDup := headerMerges env (mkProjectFilter env #[`Init.Prelude])
+  -- Merged declarations (co-import kept one of several same-statement versions).
+  let thmSorried := env.find? `TaintEnv.sorried |>.get!
+  let thmClean := env.find? `TaintEnv.clean |>.get!
+  let axTrust := env.find? `TaintEnv.trustAx |>.get!
+  let mkMerged (n : Name) (vs : Array (Name × ConstantInfo)) : MergedDecl := { declName := n, versions := vs }
+  let thmThm := mkMerged `TaintEnv.evSorried #[(`M1, thmSorried), (`M2, thmClean)]
+  let axThm := mkMerged `TaintEnv.trustAx #[(`M1, axTrust), (`M2, thmClean)]
+  let axAx := mkMerged `TaintEnv.trustAx #[(`M1, axTrust), (`M2, axTrust)]
+  let extDef := mkTestDefn `TaintEnv.ext (.sort .zero)
+  let extExt := mkMerged `TaintEnv.ext #[(`A.FunsExternal, extDef), (`B.TypesExternal, extDef)]
+  let extPlain := mkMerged `TaintEnv.ext #[(`A.FunsExternal, extDef), (`B.Funs, extDef)]
+  -- A tagged theorem that is also merged: the tag vouches for one body only.
+  let trustMerged := computeTrustBase env consts tagged
+    (Std.HashMap.ofList [(`TaintEnv.evSorried, thmThm)])
+  -- The walk with the union of both versions' edges: `clean` inherits the sorried
+  -- version's `sorryAx`.
+  let overridden := projectTaint env isProject (fun _ => false) roots
+    (childrenOverride := mergedChildrenMap #[mkMerged `TaintEnv.clean #[(`M1, thmClean), (`M2, thmSorried)]])
+  -- `projectConstants` enumerates the project modules' `constNames`; the scan of the
+  -- whole constant map it replaced must give the same P on a real environment.
+  let pfAttrs := mkProjectFilter env #[`ProbeLean.Attrs, `ProbeLean.Trust]
+  let scanned := (env.constants.map₁.fold (init := #[]) fun acc name info =>
+    if pfAttrs.contains env name then acc.push (name, info) else acc).qsort
+    fun a b => Name.lt a.1 b.1
+  let enumerated := projectConstants env pfAttrs
+  let checks : Array (String × Bool) := #[
+    ("projectConstants agrees with a scan of the whole constant map",
+      !enumerated.isEmpty && enumerated.map (·.1) == scanned.map (·.1)),
+    ("generatedTrustedAxioms: the range-less and the internally named axiom, not the written ones",
+      generatedTrustedAxioms env consts trustNoAttrs ==
+        #[`TaintEnv.genAx, `TaintEnv.nd._native.native_decide.ax_1_1]),
+    ("merged thm/thm: the union of children carries the sorry",
+      (mergedChildren thmThm).contains ``sorryAx),
+    ("merged thm/thm is never trusted", (mergedTrustedReason env thmThm).isNone),
+    ("merged axiom/thm is not trusted (the theorem version has a body)",
+      (mergedTrustedReason env axThm).isNone),
+    ("merged axiom/axiom is trusted as an axiom", mergedTrustedReason env axAx == some "axiom"),
+    ("merged defs in External modules are trusted by rule 3",
+      mergedTrustedReason env extExt == some "external"),
+    ("merged defs where one owner is not External: not trusted",
+      (mergedTrustedReason env extPlain).isNone),
+    ("computeTrustBase: a tagged theorem that is merged loses rule-2 trust",
+      trustMerged[`TaintEnv.evSorried]? == none && trustMerged[`TaintEnv.trustAx]? == some "axiom"),
+    ("childrenOverride: the merged clean theorem becomes a direct carrier and is tainted",
+      overridden.direct.contains `TaintEnv.clean && overridden.tainted.contains `TaintEnv.clean),
+    ("childrenOverride: unrelated roots are unchanged",
+      !overridden.tainted.contains `TaintEnv.viaAx && overridden.tainted.contains `TaintEnv.viaProof),
+    ("direct carriers: the three sorried lemmas and the sorry-typed axiom",
+      tr.direct.size == 4 &&
+      [`TaintEnv.sorried, `TaintEnv.noRangeMid, `TaintEnv.evSorried, `TaintEnv.badAx].all tr.direct.contains),
+    ("tainted set is exactly the unexcused carriers and their callers",
+      tr.tainted.size == 4 &&
+      [`TaintEnv.sorried, `TaintEnv.viaProof, `TaintEnv.noRangeMid, `TaintEnv.callerOfNoRange].all tr.tainted.contains),
+    ("caller of a range-less carrier is tainted", tr.tainted.contains `TaintEnv.callerOfNoRange),
+    ("trusted sorried lemma shields its caller", !tr.tainted.contains `TaintEnv.viaEv),
+    ("companion of a trusted theorem is clean, not tainted",
+      !tr.tainted.contains `TaintEnv.evSorried.mvcgen_spec),
+    ("trusted nodes are never tainted",
+      !tr.tainted.contains `TaintEnv.evSorried && !tr.tainted.contains `TaintEnv.trustAx &&
+      !tr.tainted.contains `TaintEnv.badAx),
+    ("clean theorem and axiom user are clean",
+      !tr.tainted.contains `TaintEnv.clean && !tr.tainted.contains `TaintEnv.viaAx),
+    ("trusted constant with sorry in its statement is reported",
+      tr.typeTainted == #[`TaintEnv.badAx]),
+    ("without T, the walk agrees with Lean.collectAxioms on every root", agree),
+    ("without T, the vouched lemma's caller and companion are tainted",
+      untrusted.tainted.contains `TaintEnv.viaEv &&
+      untrusted.tainted.contains `TaintEnv.evSorried.mvcgen_spec),
+    ("tag-set reader: probe-lean's own registration is read off its init function",
+      ownReg == some (`externally_verified, ``ProbeLean.externallyVerifiedAttr)),
+    ("tag-set reader: the extension name must be the registering constant",
+      isExternallyVerifiedExt env ``ProbeLean.externallyVerifiedAttr &&
+      !isExternallyVerifiedExt env ``ProbeLean.primarySpecAttr && !isExternallyVerifiedExt env ``Nat.add),
+    ("tag-set reader: a module with no entries yields an empty set and no extension",
+      (externallyVerifiedTagSet env attrsFilter).tagged.isEmpty &&
+      (externallyVerifiedTagSet env attrsFilter).extensions.isEmpty),
+    ("tag audit: scan-only names are reported, companions and projections left out",
+      audit.1 == #[`TaintEnv.viaProof]),
+    ("tag audit: tag-only names are noted", audit.2 == #[`TaintEnv.noRangeMid]),
+    ("isSourceVisible: the companion is (it is emitted as an atom)",
+      has `TaintEnv.evSorried.mvcgen_spec (isSourceVisible env `TaintEnv.evSorried.mvcgen_spec ·)),
+    ("isSourceVisible: a constructor is not", has `Nat.succ (!isSourceVisible env `Nat.succ ·)),
+    ("computeTrustBase: only the axioms without attributes",
+      trustNoAttrs.size == 4 && trustNoAttrs[`TaintEnv.trustAx]? == some "axiom" &&
+      trustNoAttrs[`TaintEnv.badAx]? == some "axiom" && trustNoAttrs[`TaintEnv.genAx]? == some "axiom" &&
+      trustNoAttrs[`TaintEnv.nd._native.native_decide.ax_1_1]? == some "axiom"),
+    ("computeTrustBase: the tagged lemma and the tagged range-less constant are trusted (a tag is a tag), the untagged companion is not",
+      trustAttrs[`TaintEnv.evSorried]? == some "externally_verified" &&
+      trustAttrs[`TaintEnv.evSorried.mvcgen_spec]? == none &&
+      trustAttrs[`TaintEnv.noRangeMid]? == some "externally_verified"),
+    ("computeTrustBase: a constant that only shows a neighbour's tag is not in the set, so not trusted",
+      trustAttrs[`TaintEnv.viaProof]? == none),
+    ("propTypedNames: a def whose type is a proposition, not a def of type Nat",
+      propTyped.contains `A.FunsExternal.p && !propTyped.contains `A.FunsExternal.n),
+    ("headerMerges: a project module with no duplicated names yields neither merged nor cross names",
+      noDup.1.isEmpty && noDup.2.isEmpty),
+    ("projectConstants-style membership: non-project roots are blocked",
+      !(projectTaint env (fun _ => false) (fun _ => false) roots).tainted.contains `TaintEnv.sorried)]
+  let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
+  elabCommand (← `(def $(mkIdent `taintEnvChecks) : Array (String × Bool) :=
+    #[$items,*]))
+
+def testMergedDecls (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing merged declarations (co-import kept one of several proofs)..."
+  let prop : Lean.Expr := .sort .zero
+  let mkThmWith (n : Lean.Name) (body : Lean.Expr) : Lean.ConstantInfo :=
+    .thmInfo { name := n, levelParams := [], type := prop, value := body, all := [n] }
+  let sorried := mkThmWith `shared (.const ``sorryAx [])
+  let proved := mkThmWith `shared (.const ``True.intro [])
+  let m : MergedDecl := { declName := `shared, versions := #[(`Bad, sorried), (`Good, proved)] }
+  let ch := mergedChildren m
+  result ← test "mergedChildren is the union over versions"
+    (ch.contains ``sorryAx && ch.contains ``True.intro) result
+  result ← test "mergedChildren has no duplicates"
+    ((mergedChildren { m with versions := #[(`A, proved), (`B, proved)] }).size ==
+      (constInfoChildren proved).size) result
+  result ← test "mergedChildrenMap keys on the declared name"
+    ((mergedChildrenMap #[m])[`shared]? == some ch) result
+  result ← test "no merged decls: empty override" (mergedChildrenMap #[]).isEmpty result
+  result ← test "warning: none for an empty list" (formatMergedWarning #[] == "") result
+  result ← test "warning: names the declaration"
+    (formatMergedWarning #[`shared] ==
+      "Warning: 1 declaration name(s) are declared by more than one project module with the \
+       same statement, and Lean kept one proof: shared; the walk follows every version's \
+       dependencies and no `@[externally_verified]` on them is honoured") result
+  let many := (Array.range 12).map fun i => Lean.Name.mkSimple s!"d{i}"
+  let w := formatMergedWarning many
+  result ← test "warning: capped list with a remainder count"
+    (w.startsWith "Warning: 12 declaration name(s)" && (w.splitOn ", … and 2 more").length == 2 &&
+     (w.splitOn "d11").length == 1) result
+  result ← test "realised note: none for an empty list" (formatRealisedMergedNote #[] == "") result
+  result ← test "realised note: names the theorems and the treatment"
+    (formatRealisedMergedNote #[`Std.Array.make.eq_1, `Foo.f.congr_simp] ==
+      "Note: 2 Lean-realised equational/congruence theorem(s) were realised in more than one \
+       module: Std.Array.make.eq_1, Foo.f.congr_simp; the walk follows every version's \
+       dependencies") result
+  return result
+
+/-- `classifyHeaderVersions`: the merged and cross-boundary declarations read off the
+    imported modules' header data, and the realised-theorem name classifier. -/
+def testHeaderMerges (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the header merge classification (project/project vs cross-boundary)..."
+  let prop : Lean.Expr := .sort .zero
+  let mkThm (n : Lean.Name) (body : Lean.Expr) : Lean.ConstantInfo :=
+    .thmInfo { name := n, levelParams := [], type := prop, value := body, all := [n] }
+  let proved := mkThm `shared (.const ``True.intro [])
+  let sorried := mkThm `shared (.const ``sorryAx [])
+  let inP (_ : Lean.Name) : Bool := true
+  -- Two project modules, no dependency: merged, versions sorted by module.
+  let (m1, c1) := classifyHeaderVersions
+    #[(`P.B, true, #[`shared], #[sorried]), (`P.A, true, #[`shared], #[proved])] inP
+  result ← test "project/project: merged, not cross" (m1.size == 1 && c1.isEmpty) result
+  result ← test "merged versions are both, sorted by module"
+    (m1[0]!.declName == `shared && m1[0]!.versions.map (·.1) == #[`P.A, `P.B]) result
+  result ← test "the union of the merged children carries the sorry"
+    ((mergedChildren m1[0]!).contains ``sorryAx && (mergedChildren m1[0]!).contains ``True.intro) result
+  -- A project module and a dependency listing the name: cross, walked from the project body.
+  -- The dependency's `constants` are left empty: only project constants are ever read.
+  let (m2, c2) := classifyHeaderVersions
+    #[(`P.Restate, true, #[`shared], #[proved]), (`Dep, false, #[`shared, `other], #[])] inP
+  result ← test "project + dependency: cross, not merged" (m2.isEmpty && c2.size == 1) result
+  result ← test "the cross versions are the project's only"
+    (c2[0]!.declName == `shared && c2[0]!.versions.map (·.1) == #[`P.Restate]) result
+  result ← test "the cross children are the project body's"
+    ((mergedChildren c2[0]!).contains ``True.intro && !(mergedChildren c2[0]!).contains ``sorryAx) result
+  -- Declared once by a project module but attributed outside the project by the environment.
+  let (m3, c3) := classifyHeaderVersions #[(`P.X, true, #[`shared], #[proved])] (fun _ => false)
+  result ← test "attributed outside the project: cross" (m3.isEmpty && c3.map (·.declName) == #[`shared]) result
+  -- A single un-duplicated name owned by the project: nothing.
+  let (m4, c4) := classifyHeaderVersions #[(`P.X, true, #[`shared], #[proved])] inP
+  result ← test "one project owner, no other declarer: nothing" (m4.isEmpty && c4.isEmpty) result
+  -- Two project owners plus a dependency: cross with both project versions.
+  let (m5, c5) := classifyHeaderVersions
+    #[(`P.B, true, #[`shared], #[sorried]), (`Dep, false, #[`shared], #[]), (`P.A, true, #[`shared], #[proved])] inP
+  result ← test "two project owners plus a dependency: cross with both versions"
+    (m5.isEmpty && c5.size == 1 && c5[0]!.versions.map (·.1) == #[`P.A, `P.B]) result
+  result ← test "a sorry in any project version is followed" ((mergedChildren c5[0]!).contains ``sorryAx) result
+  -- Several names: both outputs sorted by name; unrelated names stay out.
+  let (m6, c6) := classifyHeaderVersions
+    #[(`P.A, true, #[`zed, `alpha, `solo], #[proved, proved, proved]),
+      (`P.B, true, #[`alpha, `zed, `mid], #[sorried, sorried, proved]),
+      (`Dep, false, #[`mid], #[])] inP
+  result ← test "merged sorted by name" (m6.map (·.declName) == #[`alpha, `zed]) result
+  result ← test "cross holds the dependency-shared name only" (c6.map (·.declName) == #[`mid]) result
+  result ← test "realised theorem names: equation and congruence lemmas"
+    ([`F.f.eq_1, `F.f.eq_12, `F.f.eq_def, `F.f.eq_unfold, `F.f.congr_simp, `F.f.hcongr_5, `F.f.congr_2,
+      `F.f.match_1.congr_eq_3].all isRealisedTheoremName) result
+  result ← test "realised theorem names: hand-written names are not"
+    (![`F.f, `F.eq_lemma, `F.f.eq_, `F.f.eq_1a, `F.congr, `F.f.hcongr_, `F.f.congr_eq_, `shared, .anonymous].any
+      isRealisedTheoremName) result
+  return result
+
+def testProjectTaintEnv (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing projectTaint against a real environment..."
+  result ← test "environment-backed taint checks were generated" (taintEnvChecks.size ≥ 18) result
+  for (name, ok) in taintEnvChecks do
+    result ← test name ok result
+  return result
+
+/-- First half of the suite. `main` is split in two so neither `do` block grows
+    past the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
+    depth"): the single 80-bind chain hit `maxRecDepth`. -/
+def runSuiteA (result : TestResult) : IO TestResult := do
+  let mut result := result
   result ← testValueOfAndProofDeps result
   result ← testSpecsIgnoreProofDeps result
   result ← testPrimarySpecProofOnlyFallback result
@@ -4193,7 +5027,6 @@ def main : IO UInt32 := do
   result ← testAtomSpecsJson result
   result ← testAtomLanguageField result
   result ← testSorryDetection result
-  result ← testProofsOutputJson result
   result ← testUnifiedAtomJson result
   result ← testCodomainFacts result
   result ← testViewHelpers result
@@ -4216,6 +5049,11 @@ def main : IO UInt32 := do
   result ← testExampleJsonAtomRequiredFields result
   result ← testExampleJsonVerificationStatus result
   result ← testDeterminismInvariants result
+  return result
+
+/-- Second half of the suite (see `runSuiteA`). -/
+def runSuiteB (result : TestResult) : IO TestResult := do
+  let mut result := result
   result ← testReadToolchain result
   result ← testToolchainVersionParsing result
   result ← testFindProbeLeanLibPaths result
@@ -4253,6 +5091,26 @@ def main : IO UInt32 := do
   result ← testFoldBucketRouting result
   result ← testFoldClassifierEnv result
   result ← testPrimarySpecFoldFallback result
+  result ← testReachabilityBlocked result
+  result ← testReachabilityScaling result
+  result ← testTrustListingFormat result
+  result ← testApplyTaintStatus result
+  result ← testDivergenceLines result
+  result ← testTaintFormatting result
+  result ← testAttributeScan result
+  result ← testAttributeScanNegatives result
+  result ← testLoadedProjectModules result
+  result ← testLoadedOrphans result
+  result ← testTagSetLiterals result
+  result ← testMergedDecls result
+  result ← testHeaderMerges result
+  result ← testProjectTaintEnv result
+  return result
+
+def main : IO UInt32 := do
+  let mut result : TestResult := { passed := 0, failed := 0 }
+  result ← runSuiteA result
+  result ← runSuiteB result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

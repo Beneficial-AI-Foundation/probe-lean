@@ -64,14 +64,129 @@ jobs:
       # project), so the pin is duplicated. The `diff` keeps the copies in step:
       # without it, bumping the root pin would leave this check silently running
       # on the old elaborator — exactly the drift the precondition exists for.
-      - name: End-to-end aux-fold extract check
+      #
+      # The same fixture also carries the sorry-taint end-to-end check
+      # (`TaintCheck.lean`): the trusted base, a range-less carrier, a generated
+      # companion, fabricated-trust shapes the source scan must not read, the
+      # `Divergence(graph):` line on stderr and the `check-axioms` report.
+      # `check-status-consistency.py` then asserts the artifact and the report
+      # agree in *both* directions on every atom.
+      - name: End-to-end aux-fold and sorry-taint extract checks
         run: |
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           lake build probe-lean
           cd tests/fixtures/aux-fold
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
+          lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # The import fallback: two colliding modules force `extract --module` to
+      # import the selection only, and the selected module's transitively loaded
+      # project dependency carries a `sorry`. P must include that dependency.
+      - name: End-to-end import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
+          python3 check.py
+
+      # Merged declarations: two modules restate one theorem with the same
+      # statement, Lean's importer keeps one proof. The walk must follow both
+      # versions' dependencies, so the sorried one taints every caller.
+      - name: End-to-end merged-declaration check
+        run: |
+          diff lean-toolchain tests/fixtures/merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # A declaration merged across the project boundary: a project module restates
+      # a theorem of a (path) dependency with the same statement and a `sorry`. The
+      # olean preflight reads project modules only and cannot see the pair; the
+      # importer attributes the name to the dependency and keeps the sorried body.
+      # The post-import scan must flag it and taint both callers.
+      - name: End-to-end cross-boundary merge check
+        run: |
+          diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/cross-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # Merged declarations under the module system: two `module` files export the
+      # same `public theorem`, one `by sorry`. The import at the private level keeps
+      # each module's own body in the environment header, so the walk sees the sorry
+      # whichever version the lookup map kept.
+      - name: End-to-end module-system merge check
+        run: |
+          diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # The import fallback over module-system modules: the collision fixture with
+      # `module` headers. At the exported level both `public def dup` are axioms of
+      # type `Nat`, which the base-olean preflight tolerates, so the full import
+      # itself fails and the fallback takes over.
+      - name: End-to-end module-system import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m ModColl.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m ModColl.Main | tee check-axioms.out
+          python3 check.py
+
+      # A stale orphan olean the import still loads: after `Orph/Dep.lean` is deleted
+      # the build cache stays valid, discovery drops `Orph.Dep`, and importing
+      # `Orph.Main` loads its olean anyway. Both commands must abort instead of
+      # trusting the orphan's `sorry` as a dependency's.
+      - name: End-to-end stale-orphan abort check
+        run: |
+          diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
+            || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/orphan
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          rm Orph/Dep.lean
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract2.stderr; then
+            echo "::error::extract succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          cat extract2.stderr >&2
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . >check-axioms2.out 2>check-axioms2.err; then
+            echo "::error::check-axioms succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          git checkout -- Orph/Dep.lean
+          python3 check.py
 
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
@@ -110,6 +225,12 @@ jobs:
           # the fixture follows the root instead of silently running this job's
           # check on the pinned elaborator.
           cp lean-toolchain tests/fixtures/aux-fold/lean-toolchain
+          cp lean-toolchain tests/fixtures/collision/lean-toolchain
+          cp lean-toolchain tests/fixtures/merge/lean-toolchain
+          cp lean-toolchain tests/fixtures/cross-merge/lean-toolchain
+          cp lean-toolchain tests/fixtures/module-merge/lean-toolchain
+          cp lean-toolchain tests/fixtures/module-collision/lean-toolchain
+          cp lean-toolchain tests/fixtures/orphan/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -153,13 +274,118 @@ jobs:
       # dependent, and only a real `extract` run carries that through to
       # `verification-status`. `rm -rf .lake` above cleared the fixture's build
       # dir too, so this is a cold build of five declarations.
-      - name: End-to-end aux-fold extract check
+      - name: End-to-end aux-fold and sorry-taint extract checks
         run: |
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/aux-fold
-          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract .
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
           lake env lean --run AuxFoldCheck.lean
+          lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      - name: End-to-end import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
+          python3 check.py
+
+      # Merged declarations: two modules restate one theorem with the same
+      # statement, Lean's importer keeps one proof. The walk must follow both
+      # versions' dependencies, so the sorried one taints every caller.
+      - name: End-to-end merged-declaration check
+        run: |
+          diff lean-toolchain tests/fixtures/merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # A declaration merged across the project boundary: a project module restates
+      # a theorem of a (path) dependency with the same statement and a `sorry`. The
+      # olean preflight reads project modules only and cannot see the pair; the
+      # importer attributes the name to the dependency and keeps the sorried body.
+      # The post-import scan must flag it and taint both callers.
+      - name: End-to-end cross-boundary merge check
+        run: |
+          diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/cross-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # Merged declarations under the module system: two `module` files export the
+      # same `public theorem`, one `by sorry`. The import at the private level keeps
+      # each module's own body in the environment header, so the walk sees the sorry
+      # whichever version the lookup map kept.
+      - name: End-to-end module-system merge check
+        run: |
+          diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-merge
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
+      # The import fallback over module-system modules: the collision fixture with
+      # `module` headers. At the exported level both `public def dup` are axioms of
+      # type `Nat`, which the base-olean preflight tolerates, so the full import
+      # itself fails and the fallback takes over.
+      - name: End-to-end module-system import-fallback check
+        run: |
+          diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/module-collision
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m ModColl.Main 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m ModColl.Main | tee check-axioms.out
+          python3 check.py
+
+      # A stale orphan olean the import still loads: after `Orph/Dep.lean` is deleted
+      # the build cache stays valid, discovery drops `Orph.Dep`, and importing
+      # `Orph.Main` loads its olean anyway. Both commands must abort instead of
+      # trusting the orphan's `sorry` as a dependency's.
+      - name: End-to-end stale-orphan abort check
+        run: |
+          diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
+            || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/orphan
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          rm Orph/Dep.lean
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract2.stderr; then
+            echo "::error::extract succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          cat extract2.stderr >&2
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . >check-axioms2.out 2>check-axioms2.err; then
+            echo "::error::check-axioms succeeded although the imported Orph.Dep has no source"; exit 1; fi
+          git checkout -- Orph/Dep.lean
+          python3 check.py
 
   check-version:
     name: Version consistency

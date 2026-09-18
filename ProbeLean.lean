@@ -4,6 +4,8 @@ import ProbeLean.Environment
 import ProbeLean.Coimport
 import ProbeLean.Analysis
 import ProbeLean.AxiomCheck
+import ProbeLean.Trust
+import ProbeLean.Taint
 import ProbeLean.Loader
 import ProbeLean.Metadata
 import ProbeLean.Atomize

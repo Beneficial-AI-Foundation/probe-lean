@@ -7,6 +7,391 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`kind` reports classes and instances from Lean's registries** (#111). `class` was
+  decided by `Lean.isClass`, which reads an extension *state* that is empty under the
+  `loadExts := false` import probe-lean uses, so every class was emitted as `structure`.
+  `instance` was decided by an `inst` name prefix, so a user-named `instance fooNat` or an
+  `attribute [instance]` promotion read `def` and a `def instLike` read `instance`. Both
+  now read the declaring module's extension entries, the mechanism `getStructureInfo?`
+  already uses. Remaining limit: an `attribute [instance]` issued from a different module
+  than the declaration is not seen. Fixture: `tests/fixtures/aux-fold/Demo/Kinds.lean`.
+
+### Changed
+
+- `docs/SCHEMA.md` is a field reference again (about 260 lines, from 625). The three
+  overlapping atom-field tables are merged into one with a Source column, the envelope
+  example shows one definition and one trusted axiom, and the audit-level detail moved to
+  two companion documents: `docs/verification-status.md` (sorry attribution per toolchain,
+  cross-checks, executable bodies and `native_decide`, coverage of P, merged declarations,
+  the trust rules in full) and `docs/auxiliary-folding.md` (what the fold traverses, folded
+  targets, the `specs` fallback, the external asymmetry). `docs/USAGE.md` now points at
+  those documents instead of restating the policy. The Schema 1.x change list, the package
+  version survey and the Verus kind comparison are archived in
+  `docs/archive/schema-3.0-migration-notes.md`. No output format change.
+- Docs brought in line with the code where they had drifted: `is-relevant` is `true` for
+  every atom unless `relevant-crate` is configured; `kind: instance` is a name heuristic
+  (`inst` prefix); `package-version` reads `lakefile.toml` only; the `viewify` molecule
+  `rust-*`/`spec-*` fields are placeholders that never read `rust-source` or
+  `primary-spec`; `externally_verified` appears in `attributes` from the tag set **or** the
+  header scan; the `*-external` arrays extend the graph by direct edges only; `--skip-verify`
+  withholds statuses but the kernel walk still runs; the walk costs about a second on dalek,
+  not milliseconds; the `check-axioms` fixture totals are 119/20/26; `viewify` is listed as a
+  command in `README.md` and `docs/USAGE.md`; the README binary-availability section states
+  the per-minor `lean4-cli` resolution that the workflows implement.
+
+## [0.15.0] - 2026-09-16
+
+### Fixed
+
+- **`verification-status` is now decided by the kernel, and is sound with respect to the
+  project's own `sorry`s** (#87, #103). It used to be two heuristics over the *emitted*
+  atom graph: build-log `sorry` warnings seeded `unverified`, and a reverse-BFS over
+  `dependencies` upgraded whatever it did not reach to `transitively-verified`, treating
+  any dependency absent from the atom map as trusted. Three project-internal holes made
+  that unsound: a carrier probe-lean never emits (Aeneas's `impl_def` registers no
+  declaration range — SPQR's `Map.Insts…Iterator` instance, whose `next` is `sorry`) was
+  silently trusted and everything above it read clean; the log is suppressed when a
+  module has errors or `warn.sorry` is off; and auxiliary folding recovers edges only
+  for the classes it knows.
+
+  `extract` now walks the constant graph: `sorry` elaborates to the `sorryAx` axiom, and
+  a memoized reachability walk over **every** constant of **every** built project module
+  — regardless of `--module`/`--library`, and including constants that never become
+  atoms — finds which rest on it. The walk stops at the project boundary (Lean and every
+  dependency package are the trusted base) and at trusted project declarations, so a
+  `sorry` inside or below a trusted declaration does not taint its callers. Trust is one
+  shared rule set (`ProbeLean/Trust.lean`, precedence: `axiom` → membership in the
+  `externally_verified` tag set → non-proof in a `*External` module), used by
+  `trusted-reason`, by the walk and by `check-axioms`. Statuses: `trusted` if trusted;
+  `unverified` if the declaration's own type or value names `sorryAx`; `verified` if an
+  unexcused project `sorry` is reachable; `transitively-verified` otherwise. Attribution
+  is per kernel constant, so it follows the elaborator: on Lean ≤ 4.28 a `def`'s sorried
+  proof obligation is abstracted into `X._proof_N`, which is then the direct carrier while
+  `X` reads `verified` (and, the emitted graph having no node for the auxiliary, gets a
+  `Divergence(graph)` line); from Lean 4.29 the `sorry` stays inline and `X` reads
+  `unverified`. 0.14.0 attributed the `sorry` by source range, so against a 0.14 artifact
+  this is an `unverified → verified` move (accepted by `compare-extract.py
+  --status-policy taint`); on every toolchain such an atom is tainted. Companions
+  (`X.mvcgen_spec`) get their own status: a companion of a trusted theorem is
+  `transitively-verified`, not `trusted` (it still *shows* the parent's scanned
+  attributes; those no longer make it trusted). The join to atoms is by Lean `Name`,
+  before names are published as `probe:…`, so private-name collisions cannot swap
+  statuses (partially addresses #88). `docs/SCHEMA.md` states the contract.
+
+  The old graph-BFS still runs, as a **cross-check**: every atom on which it disagrees
+  with the walk is printed as `Divergence(graph): <atom> graph says clean, oracle says
+  tainted` (or the reverse) on stderr, followed by a `Graph cross-check: <n> atom(s) …`
+  summary, and never reconciled — a divergence localises a node or edge the emitted graph
+  is missing. The build log is likewise still parsed and compared with the walk's direct
+  carriers (`Divergence(log): <atom> build log says sorry, kernel says clean modulo trust`
+  / `… kernel says sorry, no warning in the log`); trusted atoms are skipped there, since
+  a `sorry` under a trusted declaration is excused, not missed. `--skip-verify` keeps its shape (no status except
+  `trusted`); `--skip-enrich` caps clean atoms at `verified`. If the full module set
+  cannot be co-imported under a selection, the walk runs over the selected modules and
+  every project module they import transitively (P is the project inventory restricted to
+  what the environment loaded, so no emitted atom's dependency closure leaves P) and prints
+  `Warning: <n> project module(s) not imported (full import failed); …` for the modules
+  outside that closure, which only the `check-axioms` audit misses. A trusted declaration
+  whose *statement* names `sorry` directly is reported. An atom whose name the walk never
+  saw gets **no** status and a `Warning: atom … not a project constant the kernel walk
+  covered` line, instead of being read as clean.
+
+  **`@[externally_verified]` is read from the environment, not from source text.** Rule 2
+  used to be decided by scanning the declaration's header for the tag, and every review
+  round found a new way for a `sorry` to reach `trusted` through that scan: a window off
+  by one line; a tag inside a comment, docstring or string; range-sharers (a `deriving`
+  instance, a projection, a `.mvcgen_spec` companion) inheriting a neighbour's tag; then a
+  Lean-generated `instInhabitedBox.default` helper whose name ends in the field named on
+  the tagged line, string content inside an `s!"…{"…"}…"` interpolation lexed as code, and
+  two commands on one line sharing a line range. The tag set is in the olean:
+  `registerTagAttribute` stores the tagged names under the registering constant's name.
+  `ProbeLean/TagSet.lean` reads it statically — for each extension with entries in a
+  project module it finds the `TagAttribute` constant of that name, reads the attribute
+  name and extension name off the `initialize` body's `registerTagAttribute` application,
+  and reads the entries — so no target initializer runs and no source text decides trust;
+  probe-lean's own handle stays as a second source. Policy consequences (spec decision 3,
+  amended): a tag is a tag, whatever syntax attached it — an after-the-fact
+  `attribute [externally_verified] foo` command is now honoured, and so is a tag on a
+  range-less constant — and nothing that merely shares a tagged declaration's range is
+  trusted. The source scan stays for the informative `attributes` array (the only source
+  for `step`, `progress`, `simp`, …): it lexes the file from the top with comments, strings,
+  raw strings, interpolated strings, char literals and `«…»` identifiers stripped, reads
+  the header only, and no longer looks at the two lines above a declaration's range (a
+  pure attribute line there belonged to the previous command — a syntax quotation, in
+  the reproduced case). Range-sharers still *show* the neighbour's attributes, which
+  `primary-spec` relies on (the companion of a `@[step]` axiom is that axiom's spec
+  proxy). A **tag audit** prints every disagreement between the scan and the set on
+  stderr — `Divergence(tag): <n> header shows @[externally_verified] naming it, but the
+  attribute's tag set does not contain it; the source text does not decide trust` for the
+  shapes the scan used to trust, `Note(tag): <n> is tagged externally_verified by an
+  \`attribute\` command or a macro; its header does not show the tag; the tag set decides
+  trust` for the tags it cannot see (both lines report set membership, not the final
+  status: an `axiom` in the first position is still trusted by rule 1, a merged name in
+  the second is not trusted by rule 2) — and the
+  pass prints where the set came from (`externally_verified tag set: <n> name(s) from
+  <extension>`). A registration the reader does not understand (an explicit `ref`, a
+  wrapper, a `ParametricAttribute`) is under-trust, never over-trust: loud for tags
+  written `@[…]` on a declaration (a `Divergence(tag)` line each), silent for a tag such a
+  registration attaches with no header to scan (an `attribute` command, a range-less
+  constant).
+
+  **The `*External` rule excludes proofs, not only `theorem`s.** A `def admitted : False :=
+  by sorry` or an `opaque` of Prop type in a `*External` module used to be trusted as a
+  non-theorem; rule 3 now runs `Meta.isProp` on the statement of every non-theorem,
+  non-axiom constant there: theorems and Prop-typed declarations get their normal status,
+  and every other declaration in a `*External` module is trusted as a model, whatever its
+  type — a Prop-*valued* `def p : Prop`, and also `def e : Empty := sorry` (no
+  inhabitedness test is made; the `check-axioms` listing of T below is where such a model
+  is reviewed).
+
+  **The trusted base is visible.** `check-axioms` lists T after the tainted list — every
+  trusted constant with its `trusted-reason`, the module the environment attributes it to
+  and, for a rule-3 entry, its statement (`N trusted constant(s) (T):` / `  <name>
+  [<reason>] <module>[ : <type>]`); the soundness claim ("clean modulo T") rests on exactly
+  those constants and `extract` shows only the ones that are atoms. Since Lean 4.31
+  `native_decide` no longer references `Lean.ofReduceBool` but adds a generated project
+  axiom (`X._native.native_decide.ax_N`) per proof, which rule 1 trusts; its name is
+  internal (it does carry the theorem's declaration range), so it was never an atom and
+  appeared in no output while the proof rests on compiled code. Both commands now print
+  one `Note(axiom): <n> generated project axiom(s) trusted by rule 1 (not source-visible
+  declarations, e.g. from native_decide): a, b, …` line per run (names capped at 10, the
+  T listing names every one) for the trusted axioms that are not source-visible
+  declarations (internal name or no range; 31 on dalek, 58 on SPQR). Generated axioms stay
+  trusted (#109, decided 2026-09-18): Lean's compiler is part of the trusted base, as
+  `Lean.ofReduceBool` was before 4.31, and the `Note(axiom)` line and the `[axiom]`
+  entries of T are what tell a compiler-generated axiom from a hand-written one. Known gap:
+  a project
+  `@[implemented_by]`/`@[extern]` body is kernel-unchecked code such an evaluation runs, so
+  a wrong one can make `native_decide` prove a false statement undetected (neither target
+  has one). The other half of the trusted base, the
+  dependency boundary, is named too: both commands print `Note: <n> imported module
+  root(s) outside the project are trusted wholesale (Lean and dependency packages): Init,
+  Lean, Mathlib, …` once per run — every package `lake-manifest.json` lists, a second Lake
+  package holding the project's own code included (`tests/fixtures/cross-merge`'s `dep`);
+  move code into the main package to have it analysed.
+
+  **Merged declarations fail closed.** Lean's importer accepts two project modules that
+  restate a theorem with the same name and statement and keeps *one* proof in its lookup
+  map without comparing the bodies (the co-import preflight tolerates the same pair on
+  purpose), so after import the name no longer identifies one project proof: a sorried
+  problem-file `theorem shared` and a proved solution-file `theorem shared` collapse to
+  whichever survived, and a caller built against the sorried one could read clean. The
+  importer collapses only the lookup map, though: the environment header keeps every
+  imported module's own constants (`Environment.header.moduleData`), and the import runs
+  at the private level, so every version is in the environment already — module-system
+  `public theorem`s with their proofs included. `extract` and `check-axioms` read the
+  versions from there (`Taint.headerMerges`); the walk follows the union of all versions'
+  dependencies, so a `sorry` in any version makes the name `unverified` and every caller
+  `verified`; rule 2 never applies to them (a tag sits in one file); and `Warning: <n>
+  declaration name(s) are declared by more than one project module with the same
+  statement, and Lean kept one proof: …` is printed by `extract` and `check-axioms`. Lean's
+  on-demand realisations — equation lemmas (`f.eq_1`, `eq_def`, `eq_unfold`), congruence
+  theorems (`congr_simp`, `hcongr_N`, `congr_N`) and matcher congruence equations
+  (`match_1.congr_eq_N`) — that several modules realised independently are walked the
+  same way but announced as `Note: <n> Lean-realised equational/congruence theorem(s) were
+  realised in more than one module: …` instead, since nothing was written twice by hand;
+  every merged name on both targets is of that kind (16 on dalek, 39 on SPQR), so neither
+  prints the `Warning:`. New fixtures `tests/fixtures/merge` and `tests/fixtures/module-merge`
+  (two `module` files exporting the same `public theorem`, one sorried) pin it in CI. A
+  module-system olean whose `.olean.server` or `.olean.private` part is missing aborts the
+  extraction before the import, which would fail on it (`missing data file`). The co-import
+  preflight is a pre-import collision diagnostic and nothing more: it reads each module's
+  base `.olean` only. At the exported level of a module-system module a non-exposed
+  `public def` is an axiom, and the preflight tolerates two same-type axioms where the
+  importer's `isPropCheap` does not, so a def/def collision between module-system modules
+  is found at import time and lands on the fallback (or the import-failure hint) instead of
+  the preflight message (`tests/fixtures/module-collision`).
+
+  **Kernel dependencies, not executable bodies.** A `partial def`'s body compiles to
+  `X._unsafe_rec`, and the kernel constant `X` is an opaque inhabitant with no edge to it;
+  an `@[implemented_by target]` host has no edge to `target`. A `sorry` there does not
+  taint the host: `loopy` in `partial def loopy … sorry …` reads `transitively-verified`
+  while `loopy._unsafe_rec` is a direct carrier listed `[direct] [not emitted]`, and the
+  build-log cross-check prints `Note(log): <atom> build log says sorry; it sits in the
+  compiled body <X._unsafe_rec> of a \`partial def\` …` instead of a divergence.
+  Documented in `docs/SCHEMA.md`; whether such hosts should count as carriers is a spec
+  decision, not made here.
+
+  A project theorem restating a **dependency's** theorem was still fail-open:
+  `finalizeImport` attributes the name to the first module imported and keeps the last
+  body, so in one import order the sorried project body sat under a non-project name
+  (blocked, "trusted wholesale") and in the other the project name carried the
+  dependency's clean body. Both left the caller clean. `Taint.headerMerges` also flags
+  every name a project module declares that a non-project module declares too, or that
+  the environment attributes outside the project; they are added to P whatever module
+  owns them, and the walk follows the **project's own version(s)** from the header under
+  the merged-declaration policy: a `sorry` in any project version makes the name
+  `unverified` and every caller `verified`, whichever body the environment kept —
+  including the case where the project won the name and the environment holds the
+  dependency's clean proof — while a proved restatement of a proved dependency theorem
+  stays clean, since the other body is a dependency's and already in the trusted base; no
+  `@[externally_verified]` on them is honoured. Reported as `Note: <n> declaration name(s)
+  are declared by a project module and by a module outside the project (a dependency), and
+  Lean kept one body: …` (realised theorems under their own `Note:`, as above). Fixture
+  `tests/fixtures/cross-merge` (a path dependency) pins both import orders with a sorried
+  and a proved project body each.
+
+  **A stale orphan olean the import loads aborts the extraction.** Module discovery drops
+  an `.olean` with no backing `.lean` source and says so, but `importModules` still loads
+  it when a kept module imports it; such a module was outside P — blocked, hence trusted
+  like a dependency package — and a `sorry` in it shielded its callers. Reachable after a
+  source is deleted while the build cache stays valid (it only looks for *newer* files),
+  so `lake build` is skipped. `extract` and `check-axioms` now check the dropped orphans
+  against the imported module set and abort with `<n> stale module(s) with no .lean source
+  were imported by a live module: …; run \`lake clean\` in the target project and rebuild`.
+  Aborting rather than adding the module to P: the walk would be fixed but the atoms would
+  point at a source that does not exist. New fixture `tests/fixtures/orphan` pins it in CI.
+
+  The reachability core (`AxiomCheck.reachingNames`) also fixes #103: the shared memo
+  finalised a frame's answer while a back-edge into it was still suppressed, so
+  `check-axioms` could miss a `sorry` depending on root order. It now uses Tarjan-style
+  SCC finalisation and is validated against `Lean.collectAxioms` in the unit suite.
+
+  **Measured** 2026-09-17, `main` (`fa581ed`, 0.14.0) against this branch, both built for
+  Lean 4.31. Output comparison at the round-3 revision with
+  `tools/audit/compare-extract.py --status-policy taint` and `check-status-consistency.py`
+  passing on both targets; the later revisions (olean-part loading, the orphan abort,
+  cross-boundary walking, the three performance fixes below) were checked to produce
+  byte-identical `extract` JSON (timestamp aside) and identical `check-axioms` tainted
+  lists against the round-4 head on both targets. Wall-clock at the final revision with a
+  valid build cache, 10 pairs per target, the two binaries alternated run by run so machine
+  drift hits both equally, paired difference with a 95% confidence interval (the round-4
+  head, before the performance fixes, was +1.57 s ± 0.04 on SPQR and +0.58 s ± 0.11 on
+  dalek against `main` by the same method; absolute means move by up to 0.4 s between
+  sessions, so the paired delta is the number to quote):
+
+  - curve25519-dalek-lean-verify `f6c7fabd` (231 modules, 11,293 project constants,
+    2352 atoms): atom set and all four dependency arrays byte-identical, `primary-spec`
+    unchanged; 3 atoms move `trusted → transitively-verified`: the `.mvcgen_spec`
+    companions of the two `@[externally_verified]` theorems, and `externallyVerifiedAttr`
+    — the `initialize` that *registers* the tag, which the old scan had trusted because its
+    docstring quotes `@[externally_verified]`. No other status moves; 0 divergences; 112
+    tainted constants (4 direct carriers), 150 trusted; the tag set read from the olean
+    holds exactly the 2 tagged theorems, and the tag audit is silent (the scan and the set
+    agree on every declaration). `attributes` change on 15 atoms, all drops: `step`
+    quoted in three Lint helpers' docstrings, `irreducible` quoted in a docstring,
+    `externally_verified` quoted in `externallyVerifiedAttr`'s docstring, junk tokens
+    split out of string arguments (`@[rust_fun "…<u8>}::from"]`, 6 atoms), and `mk_iff`
+    on 5 `IsValid.toOnCurve` projections — the structure's attribute two lines above,
+    which only the dropped look-back ever contributed. `extract` 8.75 s → 6.68 s (−2.08 s
+    ± 0.05, −23.7%, faster in 10 of 10 pairs), peak RSS 6.45 GB → 6.44 GB.
+  - SparsePostQuantumRatchet-verify `66939b9` (261 modules, 15,534 project constants,
+    2819 atoms; one module-system file, imported at the private level):
+    the walk's 146 tainted constants are **name for name** the 146 entries of SPQR's own
+    `collectAxioms`-based `sorry-manifest.txt`; 31 atoms drop `transitively-verified →
+    verified`, all downstream of the range-less `Map` iterator instance and each printed
+    as a divergence; every `unverified` atom is a direct carrier; nothing moves the other
+    way; no `externally_verified` registration exists, so the tag set is empty and rule 2
+    never fires. `attributes` change on 10 atoms (the three Lint helpers, junk tokens).
+    `extract` 5.50 s → 4.90 s (−0.60 s ± 0.03, −10.9%, faster in 10 of 10 pairs), peak RSS
+    unchanged at 2.85 GB.
+  - A narrow selection is slower by design: `extract -m Curve25519Dalek.ExternallyVerified`
+    on dalek, 3 alternating pairs, `main` 2.84–2.87 s, this branch 4.04–4.12 s (+1.22 s),
+    because the kernel walk imports every built project module whatever `--module`
+    selected, where 0.14.0 imported the selection only. Accepted: `extract` is normally
+    run without `--module`, and the selection cannot be walked soundly on its own.
+
+### Changed
+
+- **`check-axioms`** runs the same pass as `extract` and lists every project constant
+  that rests on an unexcused project `sorry`, atoms and non-atoms alike, marking
+  `[direct]` carriers and `[not emitted]` constants (the SPQR instance above appears as
+  `[direct] [not emitted]`), then the trusted base T (reason, module, and the statement of
+  each rule-3 model). It no longer walks through dependency packages, so it takes
+  well under a second where it used to be `O(declarations × closure)`; `-m`/`-l` now only
+  decide the `[not emitted]` marker.
+- The `*External` trust rule keys on the **module name** (`Pkg.FunsExternal`) instead of
+  the source path, so it also applies when the path lookup fails.
+- The orphan-dependency warning reads `… not found in atom map (graph cross-check only;
+  status comes from the kernel walk)`; "treated as trusted" was no longer true.
+- `extract` prints a `Project constants: … | trusted: … | direct sorry carriers: … |
+  tainted: …` summary and `Direct sorry carriers (kernel): n of m atoms` from the walk.
+  The `Verified: n/m declarations` line is gone: it counted every non-direct atom —
+  tainted and trusted ones included — under a word that is also a status; the enrich step's
+  `Transitively verified | Locally verified | Not verified` line has the exclusive counts.
+- `docs/SCHEMA.md`: the `verification-status` and `trusted-reason` table cells are one
+  paragraph each; the definitions, cross-checks, coverage, merged-declaration and
+  trusted-base detail moved to a "Verification status and the trusted base" section.
+- `tools/audit/compare-extract.py --status-policy taint` accepts the status moves of this
+  release and reports every move by kind.
+- New `tools/audit/check-status-consistency.py ARTIFACT check-axioms.out`: asserts the
+  artifact and the `check-axioms` report agree in **both** directions on every emitted atom
+  (`unverified` ⇔ listed `[direct]`, `verified` ⇔ listed, clean ⇔ not listed). Run in CI on
+  the fixtures; the one-directional "every `unverified` atom is a direct carrier" check
+  passed vacuously.
+
+### Removed
+
+- The dead `proofs` vocabulary: `VerifyStatus` (`success`/`sorries`/`failure`), `ProofEntry`,
+  `ProofsOutput` and `atomToProofEntry`. Nothing has constructed or serialised them since
+  the status moved to the kernel walk, and a second status vocabulary next to
+  `verification-status` invited drift. `SorryInfo` and the log parser stay (they feed the
+  build-log cross-check).
+
+### Internal
+
+- `Taint.propTypedNames` (rule 3's `Meta.isProp` test) catches heartbeat and
+  recursion-limit exceptions per candidate (`tryCatchRuntimeEx`, each candidate with its
+  own heartbeat budget), so the documented fail-closed fallback is real; `Core.tryCatch`
+  rethrew them and aborted `extract`.
+- Dead code removed: `Analysis.readFileLines`, `getModuleName`, `getProjectDecls`;
+  `AxiomCheck.sorryReachingNames`, `dependsOnSorryAxIn`, `isDirectSorryCarrier`.
+- `Environment.allImportedModuleNames` builds its array on every call; the per-constant
+  passes now fetch it once (`Analysis.moduleNameOf`). `projectConstants` sorts
+  structurally rather than by `Name.toString`. Together with computing each constant's
+  children once for both the walk and the direct-carrier test, this kept the whole pass
+  under a second on dalek.
+- Three costs found in the round-5 review, each measured before and after with the phase
+  isolated: the walk's `finalizeFrom` kept the state record referenced while mutating its
+  maps, so every SCC finalisation copied the memo — quadratic in |P|, 964 ms on SPQR and
+  463 ms on dalek; the fields are now taken out of the record before the loop (12 ms /
+  9 ms, identical tainted sets; a scaling test pins linear growth). `isProjectModule`
+  compared `toString` forms, two allocations per (environment module × project module)
+  pair, 0.4–0.9 s per `mkProjectFilter` with two filters built per run; it now uses
+  `Name.isPrefixOf` (component-wise ancestry, pinned on the two degenerate names where the
+  predicates differ). `projectConstants` scanned the whole imported constant map (Mathlib
+  included) for the project's constants, 0.5–1.2 s; it now enumerates the project modules'
+  own `constNames`, keeping the environment's attribution and body for each name (a
+  unit test asserts both formulations agree on a real environment; the merge fixtures
+  give identical reports).
+- The aux-fold `TaintCheck.lean` fixture called the internal `CollectAxioms.collect`,
+  private with a different interface since Lean 4.33, so the newest-toolchain CI job
+  failed to compile it; it uses the public `Lean.collectAxioms`.
+- The aux-fold fixture (`tests/fixtures/aux-fold`) gained `ownSorry`, a `def` whose own
+  proof obligation is `sorry`: `TaintCheck.lean` reads whether the toolchain abstracted it
+  into `ownSorry._proof_1` (≤ 4.28: `verified`, a `Divergence(graph)` line, the auxiliary
+  listed `[direct] [not emitted]`) or kept it inline (≥ 4.29: `unverified`) and asserts the
+  matching shape; tainted on both. It also gained a target-registered
+  `externally_verified` tag, a `step_theorem` companion macro, a `*External` module (with
+  a Prop-typed `def` and a Prop-valued `def`), a range-less `addDecl` carrier, a tagged
+  one-line `structure … deriving Repr` whose derived instance rests on a sorried project
+  instance, and four fabricated-trust shapes (tagged one-liner above an untagged
+  neighbour, tag quoted in a docstring and a body comment, tag commented out in a block
+  comment above), and the round-3 shapes (a tagged one-line `structure Box where default
+  : … deriving Inhabited` whose generated `instInhabitedBox.default` rests on a sorried
+  instance; an `s!"…{"…"}…"` interpolation spelling the tag; two commands on one line; a
+  syntax quotation ending in a pure attribute line; an `attribute [externally_verified]`
+  command; a `_root_.` declaration; a `partial def` with a `sorry` body); `TaintCheck.lean`
+  asserts the statuses, the `Divergence(graph):`, `Divergence(tag):`, `Note(tag):` lines,
+  the tag-set line and the `check-axioms` report on both CI toolchains (the generated
+  `instInhabitedBox.default` has `Box`'s range on v4.28–v4.31 and none on v4.33, so the
+  check asserts an atom with the shared tag and its own `Divergence(tag)` line, or no
+  atom, no line and `[not emitted]` in the report, whichever the toolchain produces),
+  and reads the tag set straight from the olean entries as a precondition. CI now keeps `extract`'s stderr
+  in the job log when `extract` fails.
+- New fixture `tests/fixtures/collision`: two colliding modules force the import fallback
+  under `--module`, and the selected module's transitively loaded project dependency is a
+  `sorry`; `check.py` asserts the dependent reads `verified` and the fallback warning counts
+  the two modules outside the import closure.
+- New fixture `tests/fixtures/module-collision`: the `collision` fixture with `module`
+  headers. The base-olean preflight sees both `public def dup` as same-type axioms and
+  tolerates them, so the full import itself fails and `extract -m` goes through the
+  fallback with module-system modules in the selection.
+- New fixture `tests/fixtures/orphan`: `extract` once, delete a source, `extract` and
+  `check-axioms` again; both must abort with the stale-module message.
+
 ## [0.14.0] - 2026-09-15
 
 ### Fixed

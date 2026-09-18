@@ -75,6 +75,20 @@ def main():
     ap.add_argument("--oracle", help="TSV from tools/audit/Audit6.lean")
     ap.add_argument("--report", type=int, default=10,
                     help="how many example violations to print per check")
+    ap.add_argument("--status-policy", choices=("fold", "taint"), default="fold",
+                    help="which verification-status moves are legitimate: `fold` "
+                         "(default) allows only transitively-verified -> verified, "
+                         "the one move adding edges can cause; `taint` is for the "
+                         "0.14 -> 0.15 comparison, where status comes from the "
+                         "kernel walk: it additionally allows trusted -> "
+                         "transitively-verified (generated companions no longer "
+                         "inherit their parent's tag) and unverified -> verified "
+                         "(0.14 attributed a `sorry` to the atom whose source range "
+                         "held it; 0.15 attributes it to the kernel constant that "
+                         "names sorryAx, and on Lean <= 4.28 a def's sorried proof "
+                         "obligation is abstracted into X._proof_N, so X reads "
+                         "verified with the auxiliary as the direct carrier), and "
+                         "reports every move by kind")
     args = ap.parse_args()
 
     before, after = load(args.before), load(args.after)
@@ -231,20 +245,39 @@ def main():
                      if deg_before.get(name, 0) == 0 and deg_after.get(name, 0) > 0)
     notes.append(f"in-degree 0 -> >0: {len(rescued)}")
 
-    # Status changes: the fold can only ever *add* edges, so the only legitimate
-    # move is a downgrade away from `transitively-verified`.
+    # Status changes. Under the `fold` policy the fold can only ever *add* edges,
+    # so the only legitimate move is a downgrade away from `transitively-verified`.
+    # Under `taint` (the kernel-walk comparison) a `trusted` companion may also
+    # rise to `transitively-verified`, and an atom the build log called
+    # `unverified` may read `verified` when its `sorry` sits in an abstracted
+    # `X._proof_N` (Lean <= 4.28); every move is counted by kind so the golden
+    # numbers can be checked against the expected delta.
+    allowed = {("transitively-verified", "verified")}
+    if args.status_policy == "taint":
+        allowed.add(("trusted", "transitively-verified"))
+        allowed.add(("unverified", "verified"))
     bad_status = []
-    downgrades = 0
+    moves = Counter()
     for name in common:
         b, a = before[name].get("verification-status"), after[name].get("verification-status")
         if b == a:
             continue
-        if b == "transitively-verified" and a == "verified":
-            downgrades += 1
-        else:
+        moves[(b, a)] += 1
+        if (b, a) not in allowed:
             bad_status.append(f"{name}: {b} -> {a}")
-    notes.append(f"transitively-verified -> verified: {downgrades}")
-    fail("verification-status moved in a direction the fold cannot cause", bad_status)
+    for (b, a), n in sorted(moves.items(), key=lambda kv: str(kv[0])):
+        notes.append(f"{b} -> {a}: {n}")
+    if not moves:
+        notes.append("verification-status: no moves")
+    fail(f"verification-status moved in a direction the `{args.status_policy}` policy forbids",
+         bad_status)
+    if args.status_policy == "taint":
+        attr_changes = [f"{name}: {deps(before[name], 'attributes')} -> {deps(after[name], 'attributes')}"
+                        for name in common
+                        if deps(before[name], "attributes") != deps(after[name], "attributes")]
+        notes.append(f"attributes changed: {len(attr_changes)}")
+        for line in attr_changes[:args.report]:
+            notes.append(f"  {line}")
 
     # --- specs / primary-spec blast radius ----------------------------------
     # Not an invariant: `computeSpecs`' `@[primary_spec]` fallback walks the
