@@ -118,7 +118,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   from native_decide); trusted by rule 1` for every trusted axiom that is not a
   source-visible declaration (internal name or no range; 31 on dalek, 58 on SPQR).
   Whether generated axioms should stay trusted is a spec decision left to a follow-up;
-  this release only makes them visible.
+  this release only makes them visible. The other half of the trusted base, the
+  dependency boundary, is named too: both commands print `Note: <n> imported module
+  root(s) outside the project are trusted wholesale (Lean and dependency packages): Init,
+  Lean, Mathlib, …` once per run — every package `lake-manifest.json` lists, a second Lake
+  package holding the project's own code included (`tests/fixtures/cross-merge`'s `dep`);
+  move code into the main package to have it analysed.
 
   **Merged declarations fail closed.** Lean's importer accepts two project modules that
   restate a theorem with the same name and statement and keeps *one* proof in its lookup

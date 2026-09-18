@@ -4272,6 +4272,18 @@ def testTrustListingFormat (result : TestResult) : IO TestResult := do
     (formatGeneratedAxiomNote `t._native.native_decide.ax_1_1 ==
       "Note(axiom): t._native.native_decide.ax_1_1 is a generated project axiom (not a \
        source-visible declaration, e.g. from native_decide); trusted by rule 1") result
+  -- The dependency boundary: roots of the imported modules outside P, once each, sorted.
+  let pf : ProjectFilter := { moduleIdxs := Std.HashSet.ofList [1, 3] }
+  result ← test "dependency roots: outside P only, root component, deduplicated, sorted"
+    (dependencyRoots #[`Init.Prelude, `Proj.A, `Mathlib.Data.Nat, `Proj.B, `Init.Core, `Dep] pf ==
+      #[`Dep, `Init, `Mathlib]) result
+  result ← test "dependency roots: everything in P → none"
+    (dependencyRoots #[`Proj.A, `Proj.B] { moduleIdxs := Std.HashSet.ofList [0, 1] }).isEmpty result
+  result ← test "dependency-roots note"
+    (formatDependencyRootsNote #[`Dep, `Init] ==
+      "Note: 2 imported module root(s) outside the project are trusted wholesale (Lean and \
+       dependency packages): Dep, Init") result
+  result ← test "dependency-roots note: empty for no roots" (formatDependencyRootsNote #[] == "") result
   return result
 
 def testTaintFormatting (result : TestResult) : IO TestResult := do

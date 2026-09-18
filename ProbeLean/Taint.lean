@@ -70,6 +70,10 @@ structure ProjectTaint where
       trusted, otherwise invisible constant (`generatedTrustedAxioms`). Sorted; each is
       reported as a note. -/
   generatedAxioms : Array Name := #[]
+  /-- The root components of the imported modules outside P (`Init`, `Lean`, `Mathlib`,
+      a dependency package's root — `dependencyRoots`): the boundary the walk stops at
+      and trusts wholesale. Sorted, deduplicated; reported as a note. -/
+  dependencyRoots : Array Name := #[]
   /-- |P|. -/
   pSize : Nat
   /-- Number of project modules imported. -/
@@ -161,6 +165,22 @@ def headerMerges (env : Environment) (pFilter : ProjectFilter)
     let d := data[i]!
     (names[i]?.getD .anonymous, pFilter.moduleIdxs.contains i, d.constNames, d.constants)
   classifyHeaderVersions mods (pFilter.contains env)
+
+/-- The root components of the imported modules that are not the project's
+    (`moduleNames` indexed like `pFilter.moduleIdxs`): Lean's own libraries and every
+    dependency package the walk stops at, a second Lake package holding the project's
+    own code included (spec decision 2: every dependency package is trusted wholesale).
+    Deduplicated and sorted, so the note names each package once. -/
+def dependencyRoots (moduleNames : Array Name) (pFilter : ProjectFilter) : Array Name := Id.run do
+  let mut seen : Std.HashSet Name := {}
+  let mut out : Array Name := #[]
+  for i in [:moduleNames.size] do
+    if pFilter.moduleIdxs.contains i then continue
+    let root := moduleNames[i]!.getRoot
+    if !seen.contains root then
+      seen := seen.insert root
+      out := out.push root
+  return out.qsort fun a b => a.toString < b.toString
 
 /-- Whether the last component of `n` names one of Lean's on-demand realisations —
     `eq_<N>`, `eq_def`, `eq_unfold` (equation lemmas), `congr_simp`, `congr_<N>`,
@@ -381,8 +401,10 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
   let (mergedHand, mergedRealised) := (merged.map (·.declName)).partition (!isRealisedTheoremName ·)
   let (crossHand, crossRealised) := crossNames.partition (!isRealisedTheoremName ·)
   let realised := (mergedRealised ++ crossRealised).qsort fun a b => a.toString < b.toString
+  let roots := dependencyRoots env.header.moduleNames pFilter
   return ({ trust, taint, constants, merged := mergedHand, crossWalked := crossHand, realised,
-            tagSet, scanOnlyTags, tagOnly, generatedAxioms, pSize := consts.size, moduleCount },
+            tagSet, scanOnlyTags, tagOnly, generatedAxioms, dependencyRoots := roots,
+            pSize := consts.size, moduleCount },
           attrs)
 
 /-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
@@ -460,6 +482,14 @@ def formatCrossWalkedNote (names : Array Name) : String :=
       follows the project's own version(s), the other body is in the trusted base, and no \
       `@[externally_verified]` on them is honoured"
 
+/-- Printed once per run for `ProjectTaint.dependencyRoots`: the packages the walk
+    treats as the trusted base. Nothing else in the output says which they were, and the
+    T listing shows trusted *project* constants only. Empty when there are none. -/
+def formatDependencyRootsNote (roots : Array Name) : String :=
+  if roots.isEmpty then "" else
+    s!"Note: {roots.size} imported module root(s) outside the project are trusted wholesale \
+      (Lean and dependency packages): {", ".intercalate (roots.map (·.toString)).toList}"
+
 /-- Printed per `ProjectTaint.scanOnlyTags` entry. The line states what the audit knows —
     set membership — not the final status: an `axiom` in this position is still trusted by
     rule 1. -/
@@ -490,9 +520,11 @@ def formatTrustHeader (n : Nat) : String :=
 def formatTrustedLine (n : Name) (reason : String) (module : Name) (type : Option String) : String :=
   s!"  {n} [{reason}] {module}" ++ (match type with | some t => s!" : {t}" | none => "")
 
-/-- Print the type-taint, merged-declaration, cross-boundary, realised-theorem,
-    tag-audit and generated-axiom diagnostics to stderr. -/
+/-- Print the dependency-boundary, type-taint, merged-declaration, cross-boundary,
+    realised-theorem, tag-audit and generated-axiom diagnostics to stderr. -/
 def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
+  if !pt.dependencyRoots.isEmpty then
+    IO.eprintln (formatDependencyRootsNote pt.dependencyRoots)
   for n in pt.taint.typeTainted do
     IO.eprintln (formatTypeTaintWarning n)
   if !pt.merged.isEmpty then

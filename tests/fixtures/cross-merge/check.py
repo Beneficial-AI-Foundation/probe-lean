@@ -30,6 +30,8 @@ import sys
 failures = []
 
 NOTE = "Note: 4 declaration name(s) are declared by a project module and by a module outside the project"
+BOUNDARY = "Note: "
+BOUNDARY_TAIL = " imported module root(s) outside the project are trusted wholesale"
 
 
 def check(name, ok):
@@ -84,6 +86,15 @@ def main():
               for l in stderr))
     check("no project/project merge warning (these are cross-boundary pairs)",
           not any("declared by more than one project module" in l for l in stderr))
+    # The dependency boundary is named: the `dep` path package is trusted wholesale like
+    # Lean's own libraries, and the project's own root is not among the roots.
+    boundary = [l for l in stderr if l.startswith(BOUNDARY) and BOUNDARY_TAIL in l]
+    check("exactly one dependency-boundary note", len(boundary) == 1)
+    roots = boundary[0].split(": ", 2)[-1].split(", ") if boundary else []
+    check("the note names Dep and Init and not the project's root",
+          "Dep" in roots and "Init" in roots and "CrossMerge" not in roots)
+    check("the note's count matches the roots it lists",
+          bool(boundary) and boundary[0].startswith(f"Note: {len(roots)} imported module root(s)"))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))
     check("no atom was left uncovered by the walk",

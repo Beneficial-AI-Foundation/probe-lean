@@ -99,6 +99,12 @@ Project constants: 11293 in 231 module(s) | trusted: 150 | direct sorry carriers
 externally_verified tag set: 2 name(s) from externallyVerifiedAttr
 ```
 
+and names the boundary it stopped at, once per run on stderr: `Note: <n> imported module
+root(s) outside the project are trusted wholesale (Lean and dependency packages): Init, Lean,
+Mathlib, …`. Every package `lake-manifest.json` lists is trusted wholesale, a second Lake
+package holding the project's own code (a `path = "…"` require, a sibling repository) included;
+move code into the main package to have it analysed.
+
 Two cross-checks run alongside it and print lines on stderr, never changing a status: the
 build log's `sorry` warnings against the walk's direct carriers (`Divergence(log): <atom>
 build log says sorry, kernel says clean modulo trust`, or `… kernel says sorry, no warning
