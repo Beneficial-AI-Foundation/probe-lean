@@ -58,8 +58,7 @@ def check (fs : Failures) (name : String) (ok : Bool) : IO Unit := do
     fs.modify (·.push name)
 
 /-- The body of a theorem or definition, read by pattern match: since Lean 4.30
-    `ConstantInfo.value?`/`value!` hide theorem bodies unless `allowOpaque := true`
-    (the `value!` on the newest toolchain panicked here). -/
+    `ConstantInfo.value?`/`value!` hide theorem bodies unless `allowOpaque := true`. -/
 def bodyOf (ci : ConstantInfo) : Option Expr :=
   match ci with
   | .thmInfo v => some v.value
@@ -70,8 +69,8 @@ def usesSorry (ci : ConstantInfo) : Bool :=
   ci.type.getUsedConstants.contains ``sorryAx ||
     ((bodyOf ci).map (·.getUsedConstants.contains ``sorryAx)).getD false
 
-/-- `Lean.collectAxioms` from IO: the public entry point, stable across 4.28–4.33
-    (the internal `CollectAxioms.collect` is private since 4.33). -/
+/-- `Lean.collectAxioms` from IO: the public entry point, stable across 4.28–4.34; the
+    internal `CollectAxioms.collect` is private since 4.30. -/
 def axiomsOf (env : Environment) (n : Name) : IO (Array Name) := do
   let (axs, _) ← (collectAxioms n : CoreM (Array Name)).toIO
     { fileName := "<TaintCheck>", fileMap := default } { env }
@@ -317,12 +316,12 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect :
   -- Direct carriers and clean declarations.
   expect "probe:sorried_bound" "unverified"
   expect "probe:cleanUse" "transitively-verified"
+  expect "probe:theoremUse" "verified"
   -- The own-sorry def: `unverified` when its constant names `sorryAx`, `verified` when
   -- the toolchain abstracted the proof obligation into `ownSorry._proof_1` (which is
   -- then the direct carrier and never an atom). Never `transitively-verified`.
   expect "probe:ownSorry" (if ownSorryDirect then "unverified" else "verified")
   check fs "ownSorry._proof_1 is not an atom" (data.getObjVal? "probe:ownSorry._proof_1").toOption.isNone
-  expect "probe:theoremUse" "verified"
   checkRound3 fs data helperHasRange
 
 def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
@@ -420,6 +419,7 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
       l.startsWith "  endorsed" || l.startsWith "  laterVouched" || l.startsWith "  rootVouched")
   check fs "clean-modulo-T declarations are not listed"
     (!lines.any fun l => l.startsWith "  viaVouched" || l.startsWith "  usesExternal" ||
+      l.startsWith "  cleanUse" || l.startsWith "  Tagged.p" || l == "  loopy" || l.startsWith "  quoted")
   -- The own-sorry def: listed on every toolchain; `[direct]` itself, or plain with its
   -- abstracted proof obligation as the direct, non-emitted carrier.
   check fs "ownSorry is listed with the toolchain's carrier shape"
@@ -427,7 +427,6 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
      else has "  ownSorry" && has "  ownSorry._proof_1 [direct] [not emitted]")
   -- 24 constants before `ownSorry`; it adds itself, plus its auxiliary when abstracted.
   let expectedTainted := 24 + (if ownSorryDirect then 1 else 2)
-      l.startsWith "  cleanUse" || l.startsWith "  Tagged.p" || l == "  loopy" || l.startsWith "  quoted")
   check fs "the count line matches"
     (allLines.contains s!"{expectedTainted} constant(s) rest on an unexcused project sorry:")
   check fs s!"the tainted section lists exactly {expectedTainted} constants" (lines.size == expectedTainted)

@@ -15,7 +15,8 @@ theorem viaVouched : (0 : Nat) < 5 := vouched
 Fabricated-trust shapes. Rule 2 is membership in the tag set, so a
 `@[externally_verified]` that is *not* the declaration's own annotation must never
 make it trusted, and the source scan that fills `attributes` must not show it either.
-Each of the declarations below is a plain `sorry` and must read `unverified`.
+`taggedOneLiner` is the tagged control; every other declaration in this section is a
+plain `sorry` and must read `unverified`.
 -/
 
 /-- Tagged, one line, directly above an untagged neighbour: `trusted`. -/
@@ -31,17 +32,17 @@ theorem docMention : (0 : Nat) < 5 := by
 /-
 @[externally_verified]
 -/
-/-- A commented-out tag in the block comment just above (the way one removes trust
-temporarily). The scan lexes the file from the top, so the comment's content is not a
+/-- A commented-out tag in the block comment just above, the way one removes trust
+temporarily. The scan lexes the file from the top, so the comment's content is not a
 pure attribute line: `unverified`. -/
 theorem commentedOutTag : (0 : Nat) < 5 := by sorry
 
 /-!
 Range-sharers. A one-line `structure … deriving …` puts the structure, its derived
 instance and its projection on the same declaration range, so all three *show* the
-structure's scanned `@[externally_verified]` in `attributes`. Only the structure is
-named on that line, so only the structure is trusted; the instance, which rests on
-a project `sorry`, must not become a trusted leaf that shields its callers.
+structure's scanned `@[externally_verified]` in `attributes`. Only the structure is in
+the tag set, so only the structure is trusted; the instance, which rests on a project
+`sorry`, must not become a trusted leaf that shields its callers.
 -/
 
 /-- A field type whose `Repr` instance is a project `sorry`. -/
@@ -72,11 +73,11 @@ inductive Cell | mk
 instance : Inhabited Cell := sorry
 
 /-- Tagged, one line, with a field named like a generated helper. Lean derives
-`instInhabitedBox` **and** `instInhabitedBox.default`; both share this range, the
-helper is neither a projection nor internal, and its name ends in the field's name,
-so the head-line rule named it and the scan would have trusted it (`Divergence(tag)`
-is printed for it). Only `Box` is in the tag set: `Box` is `trusted`, the helper and
-the instance are `verified`. -/
+`instInhabitedBox` **and** `instInhabitedBox.default`; the helper is neither a projection
+nor internal and its name ends in the field's name, so where it shares this range
+(v4.28–v4.31; v4.33 registers no range for it) the head-line rule named it, the scan
+would have trusted it, and a `Divergence(tag)` line is printed for it. Only `Box` is in
+the tag set: `Box` is `trusted`, the helper and the instance are `verified`. -/
 @[externally_verified] structure Box where default : Cell deriving Inhabited
 
 /-- Through the derived instance: `verified`. -/

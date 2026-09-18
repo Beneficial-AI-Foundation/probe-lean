@@ -13,8 +13,8 @@ theorem usesExternal : externalOp = externalOp := rfl
 /-- A theorem in an `External` module gets its normal status: `unverified`. -/
 theorem extThm : (0 : Nat) < 1 := by sorry
 
-/-- A proof in disguise: a `def` whose *type* is a proposition. Rule 3 excludes it
-(the convention trusts models of external functions and types, not admitted facts):
+/-- A proof in disguise: a `def` whose *type* is a proposition. Rule 3 excludes it, since
+the convention trusts models of external functions and types, not admitted facts:
 `unverified`. -/
 def admittedFact : (0 : Nat) < 1 := by sorry
 

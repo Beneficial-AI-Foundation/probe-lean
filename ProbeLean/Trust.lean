@@ -32,11 +32,15 @@ def isExternalModule (moduleName : Name) : Bool :=
   | _ => false
 
 /-- `X.mvcgen_spec` — the companion theorem Aeneas's `@[step]` generates next to a
-    tagged `theorem X`. It shares the parent's declaration range, so a source scan of
-    the `@[…]` block above that range would hand it the parent's attributes. A
-    companion is never a source-visible declaration of its own and therefore can
-    never carry an `@[externally_verified]` mark of its own (decision 4 of the spec:
-    companions get their own status, not inherited trust). -/
+    tagged `theorem X`. It shares the parent's declaration range, so it passes
+    `isSourceVisible` and a header scan hands it the parent's `@[…]` attributes; nothing
+    in the source is its own. Two consumers share this name test so they cannot
+    disagree about what a companion is: `generatedCompanionTheoremNames` flags it
+    `is-aeneas-generated`, and `tagAudit` leaves it out of the scan-only side, since a
+    parent's `@[externally_verified]` showing on it is expected. Trust is not decided
+    here: a companion gets its own status (spec decision 4), and an explicit
+    `attribute [externally_verified] X.mvcgen_spec` command would put it in the tag set
+    like any constant. -/
 def isCompanionName : Name → Bool
   | .str _ "mvcgen_spec" => true
   | _ => false
@@ -45,16 +49,17 @@ def isCompanionName : Name → Bool
 
     1. kind `axiom` — a kernel fact, applies to every project constant;
     2. `@[externally_verified]` — a human vouches for the declaration. `externallyVerified`
-       is membership in the attribute's **tag set**, read from the environment
-       (`TagSet.externallyVerifiedTagSet`: the entries the target's own
-       `registerTagAttribute` extension stored in the olean, plus probe-lean's handle).
-       A tag is a tag, whatever syntax attached it — `@[…]` on the declaration or an
-       `attribute [externally_verified] foo` command — and whatever the constant is
-       (a range-less `impl_def`, a companion, an instance a macro tagged on purpose).
-       What the set does **not** contain: anything that merely shares a tagged
-       declaration's source range (a `deriving` instance, a projection, a generated
-       `.mvcgen_spec` companion, an `instX.field` helper). Those were exactly the
-       false-trust paths of the source scan, which no longer feeds trust;
+       is membership in the attribute's **tag set**, read from the environment: the
+       entries the target's own `registerTagAttribute` extension stored in the olean
+       (`TagSet.externallyVerifiedTagSet`) plus probe-lean's own handle
+       (`Taint.externallyVerifiedNames`). A tag is a tag, whatever syntax attached it —
+       `@[…]` on the declaration or an `attribute [externally_verified] foo` command —
+       and whatever the constant is: a range-less `impl_def`, a companion, an instance
+       a macro tagged on purpose. What the set does **not** contain: anything that
+       merely shares a tagged declaration's source range — a `deriving` instance, a
+       projection, a generated `.mvcgen_spec` companion, an `instX.field` helper.
+       Those were exactly the false-trust paths of the source scan, which no longer
+       feeds trust;
     3. a non-proof in a `*External` module — Aeneas's trust-base convention for
        hand-written models of external functions and types. `isProof` is true for every
        `theorem` and for any other declaration whose type is a proposition (`def

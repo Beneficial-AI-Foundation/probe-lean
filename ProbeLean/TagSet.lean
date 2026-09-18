@@ -54,7 +54,8 @@ private def natLiteral? (e : Expr) : Option Nat :=
     | .const ``OfNat.ofNat _, #[_, .lit (.natVal n), _] => some n
     | _, _ => none
 
-/-- A `String` literal. -/
+/-- A `String` literal, `.lit (.strVal s)`; an interpolation or any computed string is
+    `none`. -/
 private def strLiteral? (e : Expr) : Option String :=
   match e.consumeMData with
   | .lit (.strVal s) => some s
@@ -146,10 +147,10 @@ structure TagSet where
   /-- Every project constant tagged `externally_verified`, from every registration
       of that attribute the project modules carry entries for. -/
   tagged : Std.HashSet Name := {}
-  /-- The extension names the set was read from, sorted. Empty when no project
-      module carries an `externally_verified` entry — a target that does not use the
-      tag (SPQR), or one whose registration the reader does not understand (then
-      `Taint.tagAudit` says so per declaration). -/
+  /-- The extension names the set was read from, sorted. Empty when no project module
+      carries an `externally_verified` entry: the target does not use the tag (SPQR),
+      or its registration is one the reader does not understand. In the second case
+      `Taint.tagAudit` reports every tagged declaration the header shows. -/
   extensions : Array Name := #[]
 
 /-- The `externally_verified` tag set over the project modules (`pFilter`), read from

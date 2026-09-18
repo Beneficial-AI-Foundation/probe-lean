@@ -73,13 +73,12 @@ def isProjectModule (projectModules : Array Name) (modName : Name) : Bool :=
 
 The obvious formulation — resolve the constant's module name, then prefix-match it
 against every project module — builds a string per comparison. That is fine once
-but it is the dominant cost of extraction in bulk: `projectConstants` tests every
-constant in the environment (Mathlib included), and `declInfoToAtom` every
-dependency occurrence, which on a 190-module project with proof-term dependencies
-included runs to tens of thousands. Deciding membership per *module* up front turns
-each test into a hash lookup, and made `extract` on SPQR 8× faster. The per-module
-test itself (`isProjectModule`) is allocation-free too, so building a filter costs
-milliseconds. -/
+but it is the dominant cost of extraction in bulk: `declInfoToAtom` tests every
+dependency occurrence of every emitted declaration, which on a 190-module project
+with proof-term dependencies included runs to tens of thousands. Deciding
+membership per *module* up front turns each test into a hash lookup, and made
+`extract` on SPQR 8× faster. The per-module test itself (`isProjectModule`) is
+allocation-free too, so building a filter costs milliseconds. -/
 structure ProjectFilter where
   moduleIdxs : Std.HashSet Nat
 
@@ -446,7 +445,8 @@ def generatedCompanionTheoremNames (decls : Array DeclInfo)
 /-- Every constant of the project's modules — **P** in the spec's terms: no name,
     kind or declaration-range filtering. This is the root set of the kernel taint
     walk; `getProjectDeclsFrom` carves the emitted declarations out of it. Sorted by
-    name (P14). -/
+    structural `Name.lt` for determinism; the P14 string order is applied downstream,
+    by `getProjectDeclsFrom`. -/
 def projectConstants (env : Environment) (pf : ProjectFilter) : Array (Name × ConstantInfo) := Id.run do
   -- Enumerate the project modules' own `constNames` instead of scanning the whole
   -- imported constant map (`env.constants.map₁`, Mathlib included: ~0.5–1.2 s per
@@ -542,17 +542,16 @@ private def charLiteralEnd? (cs : Array Char) (i : Nat) : Option Nat := Id.run d
 private def opensInterpolation (cs : Array Char) (i : Nat) : Bool :=
   i ≥ 2 && cs[i - 1]! == '!' && Lean.isIdRest cs[i - 2]!
 
-/-- The code text of one source line: line comments, (nested) block comments —
-    docstrings included — string literals, raw string literals, interpolated strings
-    (their `{…}` code included), char literals and `«…»` identifiers removed. `st` is
-    the state at the start of the line; the state at its end is returned. Inside an
-    interpolation, braces are counted and a nested plain string literal is skipped,
-    so `s!"{(f "x")} {"@[…]"}"` is one literal: the old lexer closed the outer string
-    at the first `"` of the inner one and read the inner literal's content as code. A
-    nested *interpolated* string inside an interpolation is lexed as a plain one (an
-    inner `"` would then mis-pair), which only affects the informative `attributes`
-    array — trust reads the tag set (`TagSet`). A guillemet identifier's *content* is
-    dropped because it may spell `@[…]`. -/
+/-- The code text of one source line: line comments, nested block comments, docstrings
+    included, string literals, raw string literals, interpolated strings with their
+    `{…}` code, char literals and `«…»` identifiers removed. `st` is the state at the
+    start of the line; the state at its end is returned. Inside an interpolation, braces
+    are counted and a nested plain string literal is skipped, so `s!"{(f "x")} {"@[…]"}"`
+    is one literal rather than a string that closes at the inner `"` and leaks the inner
+    literal's content as code. A nested *interpolated* string inside an interpolation is
+    lexed as a plain one: recognising it would let an inner `"` mis-pair. That only
+    affects the informative `attributes` array; trust reads the tag set (`TagSet`). A
+    guillemet identifier's *content* is dropped because it may spell `@[…]`. -/
 def stripLine (line : String) (st : LexState) : String × LexState := Id.run do
   let cs := line.toList.toArray
   let mut out : String := ""
@@ -727,31 +726,29 @@ def isDeclHeadLine (code : String) : Bool :=
 /-- What the header scan reads for one declaration: the attribute names, and the code
     text of the head lines — from the range's start through the head line
     (`isDeclHeadLine`), `@[…]` blocks removed. The head text is what `headerNamesDecl`
-    tests; since 2026-09-17 that feeds only the tag audit (`Taint.tagAudit`), not
-    trust. -/
+    tests; it feeds only the tag audit (`Taint.tagAudit`), never trust. -/
 structure HeaderScan where
   attributes : Array String := #[]
   headCode : String := ""
   deriving Repr, BEq, Inhabited
 
 /-- The header of a declaration whose source range covers lines `[startLine, endLine]`
-    (0-based) of a file's **code text** (`lineAt`: the whole file lexed from the top,
+    (0-based) of a file's **code text**. `lineAt` is the whole file lexed from the top,
     so a block comment, docstring or string literal that opened above the range is
-    already gone). Only the declaration **header** is read: the scan stops after the
+    already gone. Only the declaration **header** is read: the scan stops after the
     head line, so an annotation in the body is never attributed to the declaration.
-    Nothing before the range is read either — a declaration's range starts at its
-    first modifier (docstring or `@[…]`), and the two-line look-back the scan used to
-    have read a pure attribute line out of the previous declaration's body (a syntax
-    quotation ending in `)` is neither a head line nor pure, so it did not reset the
-    window).
+    Nothing before the range is read either: a declaration's range starts at its first
+    modifier, docstring or `@[…]`, and a look-back would read a pure attribute line out
+    of the previous declaration's body, since a syntax quotation ending in `)` is
+    neither a head line nor a pure attribute line.
 
     The scan is by **line**, deliberately: a constant that shares a declaration's
     range — a `.mvcgen_spec` companion whose range starts at the `step` token of
     `@[step]`, an `@[ext]`-generated lemma, a `deriving` instance — is meant to show
-    the declaration's attributes (the companion of a `@[step]` axiom is that axiom's
-    spec proxy for `primary-spec`), and a column-based start would take that away.
-    The price is that a second command on the same line as a tagged one shows the
-    first's tag; that is cosmetic, since trust reads the tag set, and the tag audit
+    the declaration's attributes, and a column-based start would take that away. The
+    companion of a `@[step]` axiom is that axiom's spec proxy for `primary-spec`. The
+    price is that a second command on the same line as a tagged one shows the first's
+    tag; that is cosmetic, since trust reads the tag set, and the tag audit
     (`Taint.tagAudit`) reports it. -/
 def scanHeader (lineAt : Nat → Option String) (startLine endLine : Nat) : HeaderScan := Id.run do
   let mut attrs : Array String := #[]
@@ -837,15 +834,15 @@ def stripLeadingDotSlash (path : String) : String :=
 /-- How the auxiliary-fold pass treats one dependency occurrence. -/
 inductive DepClass where
   /-- A fold *target*: a project constant that survives the name filter and has
-      a declaration range. Collected, never traversed through (so the fold does
-      not flatten a host's graph past its real dependencies).
+      a declaration range. Collected, never traversed through, so the fold does
+      not flatten a host's graph past its real dependencies.
 
       That is every atom **plus named inductive constructors**: `isSourceVisible`
       additionally skips `.ctorInfo`/`.recInfo`, which this classifier does not
       mirror, so a project `Color.red` is a target while never being emitted as
       an atom of its own. Benign, and identical to how a *direct* edge to such a
-      constructor already behaves (`partitionMissingDeps` treats a constructor
-      whose parent type is extracted as benign) — but "targets are exactly the
+      constructor already behaves: `partitionMissingDeps` treats a constructor
+      whose parent type is extracted as benign. But "targets are exactly the
       atoms" is false, and `docs/SCHEMA.md` says so too. -/
   | emitted
   /-- Not emitted as an atom, value-bearing, not a structural member: traversed
@@ -1208,8 +1205,9 @@ def declAttributes (env : Environment) (projectPath : System.FilePath) (fileCach
   return { attributes := attrs.qsort (· < ·), headerShowsTag := shows, headerNamesTag := names }
 
 /-- Convert a DeclInfo to an Atom. `attrs` is the declaration's attribute list from
-    `declAttributes`, computed once by the caller for every project constant that
-    can carry one (the trusted base needs them for non-emitted constants too). -/
+    `declAttributes`, computed once by the caller (`Taint.computeAttributes`) for every
+    source-visible constant of P: the tag audit needs them for non-emitted constants
+    too. -/
 def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilter : ProjectFilter)
     (crate : String) (pathCache : ModulePathCache) (auxCache : AuxDepCache)
     (attrs : Array String) (info : DeclInfo) : IO Atom := do

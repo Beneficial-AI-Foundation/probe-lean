@@ -17,14 +17,14 @@ namespace ProbeLean
 
 open Lean
 
-/-- A declaration name the importer collapsed to one body, with every version the
-    imported project modules declare for it (`headerMerges`): the same name declared
-    by more than one project module with the same statement (the importer accepts the
-    set and keeps one version), or by a project module and a module outside the
-    project. `versions` holds every project `(owning module, constant info)`, sorted by
-    module; at least one, two or more for a project/project pair. The bodies come
-    from `Environment.header.moduleData`, which keeps each module's own constants
-    even when the lookup map kept another module's. -/
+/-- A name the importer collapsed to one body although several modules declare it
+    (`headerMerges`): either two or more project modules declare it with the same
+    statement — the importer accepts the set and keeps one version — or a project
+    module and a module outside the project both do. `versions` holds every project
+    `(owning module, constant info)`, sorted by module: one for a cross-boundary name,
+    two or more for a project/project restatement. The bodies are read from
+    `Environment.header.moduleData`, which keeps each module's own constants even when
+    the lookup map kept another module's. -/
 structure MergedDecl where
   declName : Name
   versions : Array (Name × ConstantInfo)   -- sorted by module name, ≥ 1 entry
@@ -58,17 +58,18 @@ structure ProjectTaint where
       naming them — what the source scan would have trusted — while the tag set does
       not contain them. Sorted by name; each is reported. -/
   scanOnlyTags : Array Name := #[]
-  /-- Tag audit: constants in the tag set whose header does not show the tag (an
-      `attribute [externally_verified] foo` command, a macro). Sorted; reported as a
-      note. -/
+  /-- Tag audit: source-visible constants in the tag set whose scanned header does not
+      show the tag — an `attribute [externally_verified] foo` command or a macro attached
+      it. A tagged constant with no declaration range is trusted but never scanned, so it
+      is not listed here. Sorted; reported as a note. -/
   tagOnly : Array Name := #[]
-  /-- Trusted project axioms (rule 1) that are not source-visible declarations — an
-      internal name or no declaration range — so not written by a human and never an
-      atom. Since Lean 4.31 `native_decide` adds one per proof
-      (`X._native.native_decide.ax_N`, which *does* carry the theorem's range) instead
-      of referencing `Lean.ofReduceBool`, so the proof rests on compiled code behind a
-      trusted, otherwise invisible constant (`generatedTrustedAxioms`). Sorted; each is
-      reported as a note. -/
+  /-- Trusted project axioms (rule 1) that are not source-visible declarations: an
+      internal name or no declaration range, so not written by a human and never an
+      atom (`generatedTrustedAxioms`). Since Lean 4.31 `native_decide` adds one per
+      proof, `X._native.native_decide.ax_N`, instead of referencing `Lean.ofReduceBool`;
+      that axiom carries the theorem's range and is hidden only by its internal name.
+      Such a proof rests on compiled code behind a trusted, otherwise invisible
+      constant. Sorted; reported as a note. -/
   generatedAxioms : Array Name := #[]
   /-- The root components of the imported modules outside P (`Init`, `Lean`, `Mathlib`,
       a dependency package's root — `dependencyRoots`): the boundary the walk stops at
@@ -96,7 +97,7 @@ def mergedChildrenMap (merged : Array MergedDecl) : Std.HashMap Name (Array Name
 
 /-- One imported module as the environment header holds it: its name, whether it is a
     project module, and its own `constNames`/`constants` arrays, positionally paired —
-    `ModuleData.constants[k]` is the body module declared for `constNames[k]`. -/
+    `ModuleData.constants[k]` is the body the module declared for `constNames[k]`. -/
 abbrev HeaderModule := Name × Bool × Array Name × Array ConstantInfo
 
 /-- Pure core of `headerMerges`. For every name a project module declares, collect the
@@ -150,13 +151,14 @@ def classifyHeaderVersions (mods : Array HeaderModule) (ownedByProject : Name �
           cross.qsort (fun a b => a.declName.toString < b.declName.toString))
 
 /-- The merged and cross-boundary declarations of an imported environment, read from
-    `env.header.moduleData`: `finalizeImport` collapses only the constant *lookup map*
-    (keeping the last subsuming body under the first owner's module index), while the
-    header keeps every module's own `constNames`/`constants`; with the import at
-    `OLeanLevel.private` that data is each module's private level, module-system files
-    included. So every version of a restated declaration is in the environment already,
-    and no second read of the oleans is needed. `pFilter` decides which modules are
-    the project's; `ProjectFilter.contains` is the ownership test. -/
+    `env.header.moduleData`. `finalizeImport` collapses only the constant *lookup map*:
+    a later body that subsumes the earlier one replaces it, while `const2ModIdx` keeps
+    the first owner's module index. The header keeps every module's own
+    `constNames`/`constants`, and with the import at `OLeanLevel.private` that is each
+    module's private level, module-system files included. So every version of a
+    restated declaration is in the environment already and no second read of the
+    oleans is needed. `pFilter` decides which modules are the project's;
+    `ProjectFilter.contains` is the ownership test. -/
 def headerMerges (env : Environment) (pFilter : ProjectFilter)
     : Array MergedDecl × Array MergedDecl :=
   let data := env.header.moduleData
@@ -201,13 +203,14 @@ def isRealisedTheoremName (n : Name) : Bool :=
 /-- Trust for a merged declaration: every version must be trusted on its own by
     rules 1 and 3 (kind and owning module). Rule 2 never applies — an
     `@[externally_verified]` sits in one file and vouches for one body, and the
-    environment does not say which body survived. A theorem/axiom pair is
-    therefore not trusted: the theorem version carries a proof the axiom version
-    would excuse. `isProof` is the name's rule-3 input (`propTypedNames`); every
-    version has the same statement, so it is shared — and since the importer only
-    merges theorem/axiom pairs (`subsumesInfo`), a version is never a `def` and the
-    flag cannot change the verdict in practice. Returns the reason of the first
-    version when all agree. -/
+    environment does not say which body survived. A theorem/axiom pair is therefore
+    not trusted: the theorem version carries a proof the axiom version would excuse.
+    `isProof` is the name's rule-3 input (`propTypedNames`); every version has the same
+    statement, so it is shared. Since the importer only merges theorems and axioms
+    (`subsumesInfo`: theorem/theorem, theorem/axiom, axiom/axiom), a version is never
+    a `def` and the flag cannot change the verdict in practice. Returns `none` as soon
+    as one version is untrusted, otherwise the first version's reason; the reasons are
+    not compared. -/
 def mergedTrustedReason (env : Environment) (m : MergedDecl) (isProof : Bool := false)
     : Option String := do
   let reasons ← m.versions.mapM fun (owner, ci) =>
@@ -234,13 +237,14 @@ def externallyVerifiedNames (env : Environment) (pFilter : ProjectFilter)
     `attributes` array, the scan supplies every other name.
 
     A constant that shares a tagged declaration's range — a generated companion
-    (`X.mvcgen_spec`), a `deriving` instance or a projection of a one-line structure
-    — *shows* the scanned attributes here, as it always has: the emitted `attributes`
-    array is unchanged, and the primary-spec signals keep reading them (the companion
-    of a `@[step]` axiom is that axiom's spec proxy). It also shows
-    `externally_verified` if its neighbour's header carries it — and is not trusted by
-    it, since it is not in the tag set; `tagAudit` reports the ones whose head line
-    names them, the shapes the scan used to trust. -/
+    `X.mvcgen_spec`, a `deriving` instance, a projection of a one-line structure —
+    shows the scanned attributes here, as before: the emitted `attributes` array is
+    unchanged and the primary-spec signals (`step`, `progress`, `pspec`) keep reading
+    them, which is how the companion of a `@[step]` axiom stays that axiom's spec
+    proxy. It also shows `externally_verified` when its neighbour's header carries it,
+    but is not trusted by it: trust is membership in the tag set. `tagAudit` reports
+    the range-sharers whose head line names them — the shapes the scan used to trust —
+    companions and projections excepted. -/
 def computeAttributes (env : Environment) (projectPath : System.FilePath) (fileCache : FileCache)
     (pathCache : ModulePathCache) (consts : Array (Name × ConstantInfo))
     (tagged : Std.HashSet Name := {}) : IO (Std.HashMap Name DeclAttrs) := do
@@ -324,16 +328,20 @@ def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
   return trust
 
 /-- The tag audit: where the source scan and the tag set disagree about
-    `externally_verified`. `scanOnly` — the header shows the tag and names the
-    constant (`DeclAttrs.headerNamesTag`), yet the tag set lacks it: either a shape
-    the scan gets wrong (a generated `instX.field` helper, two commands on one line)
-    or a registration the tag-set reader does not understand; either way rule 2 does
-    not apply to the constant (rules 1 and 3 still may, so the line reports membership,
-    not a status). Projections and `.mvcgen_spec` companions are left out of that side,
-    as the scan-based rule left them out by kind: a one-line structure's projection is
-    named by its field on the head line, which is known and benign. `tagOnly` — the set
-    has it, the header does not show it: an `attribute` command or a macro attached the
-    tag. Both sorted by name. -/
+    `externally_verified`, over the source-visible constants in `attrs`. Both sides
+    report set membership, not a status: a constant on either side may still be
+    trusted by rule 1 or 3.
+
+    `scanOnly`: the header shows the tag and names the constant
+    (`DeclAttrs.headerNamesTag`), yet the tag set lacks it — either a shape the scan
+    gets wrong (a generated `instX.field` helper, two commands on one line) or a
+    registration the tag-set reader does not understand; either way rule 2 does not
+    apply. Projections and `.mvcgen_spec` companions are left out by kind, as the
+    scan-based rule left them out: a one-line structure's projection is named by its
+    field on the head line, which is known and benign.
+
+    `tagOnly`: the set has the constant, the header does not show the tag — an
+    `attribute` command or a macro attached it. Both sorted by name. -/
 def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : Std.HashSet Name)
     : Array Name × Array Name := Id.run do
   let mut scanOnly : Array Name := #[]
@@ -450,7 +458,8 @@ def formatTagSetLine (ts : TagSet) : String :=
 def formatTaintedLine (n : Name) (direct emitted : Bool) : String :=
   s!"  {n}" ++ (if direct then " [direct]" else "") ++ (if emitted then "" else " [not emitted]")
 
-/-- How many merged names the warning lists individually. -/
+/-- How many names `listNames` prints individually before `… and N more`; shared by the
+    merged warning and the realised, cross-boundary and generated-axiom notes. -/
 def maxListedMerged : Nat := 10
 
 /-- `a, b, c, … and N more`, capped at `maxListedMerged`. -/

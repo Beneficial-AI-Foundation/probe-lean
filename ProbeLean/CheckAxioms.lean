@@ -18,8 +18,9 @@ namespace ProbeLean
 open Lean
 
 /-- The statements of the rule-3 entries of T, pretty-printed on one line each: a
-    hand-written model in a `*External` module is trusted whatever its type, so the
-    type is what a reviewer has to judge. -/
+    hand-written model in a `*External` module is trusted once its type is not a
+    proposition, with nothing checked about what that type says, so the type is what
+    a reviewer has to judge. -/
 def externalStatements (env : Environment) (names : Array Name) : IO (Std.HashMap Name String) := do
   if names.isEmpty then return {}
   let act : MetaM (Std.HashMap Name String) := do

@@ -18,6 +18,6 @@ run_cmd do
     pure (← instantiateMVars (← Meta.inferType v), v)
   liftCoreM <| addDecl (.thmDecl { name := `noRangeMid, levelParams := [], type, value })
 
-/-- Rests on a carrier `extract` never emits: `verified` (locally sorry-free, rests
-on an unexcused project `sorry`), never `transitively-verified`. -/
+/-- Rests on a carrier `extract` never emits. Locally sorry-free but reaching an unexcused
+project `sorry`: `verified`, never `transitively-verified`. -/
 theorem viaNoRange : (0 : Nat) < 5 := noRangeMid

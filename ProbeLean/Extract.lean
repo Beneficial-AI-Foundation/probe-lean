@@ -226,11 +226,10 @@ structure PreparedProject where
   /-- Captured `lake build` output (or the cached copy). -/
   buildOutput : String
 
-/-- Build (honouring the cache) and discover/select the project's modules.
-    Shared by `runExtractInProject` and the `check-axioms` command so the audit path
-    and the extraction path can't drift on nix detection, build, or module selection.
-    Returns the built and selected modules, nix mode and captured build output, or an
-    exit code. -/
+/-- Build (honouring the cache) and discover/select the project's modules. Shared by
+    `runExtractInProject` and `check-axioms` (`runCheckAxiomsInProject`) so the audit
+    path and the extraction path cannot drift on nix detection, build, or module
+    selection. Returns the `PreparedProject` or the exit code to fail with. -/
 def prepareProject (projectPath : System.FilePath) (libraries : Option (Array String))
     (moduleFilter : Option String) : IO (Except UInt32 PreparedProject) := do
   if !(← isLakeProject projectPath) then

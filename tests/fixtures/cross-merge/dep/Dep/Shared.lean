@@ -12,5 +12,5 @@ theorem shared3 : True := True.intro
 
 /-- Restated with a `sorry` by `CrossMerge.ABad`, imported before this module: the
 project wins the name and the environment keeps *this* proved body, so only the
-preflight's copy of the project version shows the `sorry`. -/
+environment header's copy of the project version shows the `sorry`. -/
 theorem shared4 : True := True.intro

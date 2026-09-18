@@ -106,10 +106,10 @@ def testAxiomReachability (result : TestResult) : IO TestResult := do
     (mixed.contains `g && mixed.contains `x && !mixed.contains `c && !mixed.contains `h) result
   return result
 
-/-- `reachingNames` on `n` nodes: chains of 50 (`k → k-1` unless `k % 50 == 0`),
-    every node its own SCC, roots in descending order so the memo grows to `n`
-    finalised entries. The memo used to be copied on every finalisation (the state
-    record kept a reference), which made the walk quadratic: ×4.3–4.7 per doubling. -/
+/-- `reachingNames` on `n` nodes: chains of 50 (`k → k-1` unless `k % 50 == 0`), every
+    node its own SCC, roots in descending order so the memo grows to `n` finalised
+    entries. The state record used to keep a reference to the memo, so every
+    finalisation copied it and the walk was quadratic: ×4.3–4.7 per doubling. -/
 def scalingWalk (n : Nat) : IO Nat := do
   let children : Lean.Name → Array Lean.Name := fun c => match c with
     | .num p k => if k % 50 == 0 || k == 0 then #[] else #[.num p (k - 1)]
@@ -4257,7 +4257,8 @@ def testDivergenceLines (result : TestResult) : IO TestResult := do
   result ← test "statusCounts" (statusCounts oracle == (2, 1, 3)) result
   return result
 
-/-- The `check-axioms` listing of T and the generated-axiom note. -/
+/-- The `check-axioms` listing of T, the generated-axiom note, and the dependency-roots
+    note with `dependencyRoots` behind it. -/
 def testTrustListingFormat (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
