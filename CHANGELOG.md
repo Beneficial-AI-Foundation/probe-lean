@@ -32,7 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `externally_verified` tag set → non-proof in a `*External` module), used by
   `trusted-reason`, by the walk and by `check-axioms`. Statuses: `trusted` if trusted;
   `unverified` if the declaration's own type or value names `sorryAx`; `verified` if an
-  unexcused project `sorry` is reachable; `transitively-verified` otherwise. Companions
+  unexcused project `sorry` is reachable; `transitively-verified` otherwise. Attribution
+  is per kernel constant, so it follows the elaborator: on Lean ≤ 4.28 a `def`'s sorried
+  proof obligation is abstracted into `X._proof_N`, which is then the direct carrier while
+  `X` reads `verified` (and, the emitted graph having no node for the auxiliary, gets a
+  `Divergence(graph)` line); from Lean 4.29 the `sorry` stays inline and `X` reads
+  `unverified`. 0.14.0 attributed the `sorry` by source range, so against a 0.14 artifact
+  this is an `unverified → verified` move (accepted by `compare-extract.py
+  --status-policy taint`); on every toolchain such an atom is tainted. Companions
   (`X.mvcgen_spec`) get their own status: a companion of a trusted theorem is
   `transitively-verified`, not `trusted` (it still *shows* the parent's scanned
   attributes; those no longer make it trusted). The join to atoms is by Lean `Name`,
@@ -114,12 +121,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   axiom (`X._native.native_decide.ax_N`) per proof, which rule 1 trusts; its name is
   internal (it does carry the theorem's declaration range), so it was never an atom and
   appeared in no output while the proof rests on compiled code. Both commands now print
-  `Note(axiom): <n> is a generated project axiom (not a source-visible declaration, e.g.
-  from native_decide); trusted by rule 1` for every trusted axiom that is not a
-  source-visible declaration (internal name or no range; 31 on dalek, 58 on SPQR).
-  Generated axioms stay trusted (#109, decided 2026-09-18): Lean's compiler is part of the
-  trusted base, as `Lean.ofReduceBool` was before 4.31, and the `Note(axiom)` lines are
-  what tell a compiler-generated axiom from a hand-written one. Known gap: a project
+  one `Note(axiom): <n> generated project axiom(s) trusted by rule 1 (not source-visible
+  declarations, e.g. from native_decide): a, b, …` line per run (names capped at 10, the
+  T listing names every one) for the trusted axioms that are not source-visible
+  declarations (internal name or no range; 31 on dalek, 58 on SPQR). Generated axioms stay
+  trusted (#109, decided 2026-09-18): Lean's compiler is part of the trusted base, as
+  `Lean.ofReduceBool` was before 4.31, and the `Note(axiom)` line and the `[axiom]`
+  entries of T are what tell a compiler-generated axiom from a hand-written one. Known gap:
+  a project
   `@[implemented_by]`/`@[extern]` body is kernel-unchecked code such an evaluation runs, so
   a wrong one can make `native_decide` prove a false statement undetected (neither target
   has one). The other half of the trusted base, the
@@ -264,8 +273,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The orphan-dependency warning reads `… not found in atom map (graph cross-check only;
   status comes from the kernel walk)`; "treated as trusted" was no longer true.
 - `extract` prints a `Project constants: … | trusted: … | direct sorry carriers: … |
-  tainted: …` summary; `Verified: n/m` and `Direct sorry carriers (kernel)` come from
-  the walk.
+  tainted: …` summary and `Direct sorry carriers (kernel): n of m atoms` from the walk.
+  The `Verified: n/m declarations` line is gone: it counted every non-direct atom —
+  tainted and trusted ones included — under a word that is also a status; the enrich step's
+  `Transitively verified | Locally verified | Not verified` line has the exclusive counts.
+- `docs/SCHEMA.md`: the `verification-status` and `trusted-reason` table cells are one
+  paragraph each; the definitions, cross-checks, coverage, merged-declaration and
+  trusted-base detail moved to a "Verification status and the trusted base" section.
 - `tools/audit/compare-extract.py --status-policy taint` accepts the status moves of this
   release and reports every move by kind.
 - New `tools/audit/check-status-consistency.py ARTIFACT check-axioms.out`: asserts the
@@ -311,7 +325,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The aux-fold `TaintCheck.lean` fixture called the internal `CollectAxioms.collect`,
   private with a different interface since Lean 4.33, so the newest-toolchain CI job
   failed to compile it; it uses the public `Lean.collectAxioms`.
-- The aux-fold fixture (`tests/fixtures/aux-fold`) gained a target-registered
+- The aux-fold fixture (`tests/fixtures/aux-fold`) gained `ownSorry`, a `def` whose own
+  proof obligation is `sorry`: `TaintCheck.lean` reads whether the toolchain abstracted it
+  into `ownSorry._proof_1` (≤ 4.28: `verified`, a `Divergence(graph)` line, the auxiliary
+  listed `[direct] [not emitted]`) or kept it inline (≥ 4.29: `unverified`) and asserts the
+  matching shape; tainted on both. It also gained a target-registered
   `externally_verified` tag, a `step_theorem` companion macro, a `*External` module (with
   a Prop-typed `def` and a Prop-valued `def`), a range-less `addDecl` carrier, a tagged
   one-line `structure … deriving Repr` whose derived instance rests on a sorried project

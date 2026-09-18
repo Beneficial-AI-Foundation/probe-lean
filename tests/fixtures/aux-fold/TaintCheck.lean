@@ -36,6 +36,13 @@
   `Divergence(tag)` line, or no atom, no line and `[not emitted]` in the report. The
   tainted count of 24 is the same either way on the toolchains CI tests; it is
   agreement, not an invariant.
+
+  Round 8 (2026-09-18): `ownSorry`, a `def` whose own proof obligation is `sorry`. Lean
+  ≤ 4.28 abstracts it into `ownSorry._proof_1`, so the kernel constant is tainted but not
+  direct (`verified`, a `Divergence(graph)` line, the auxiliary listed `[direct] [not
+  emitted]`); Lean ≥ 4.29 keeps the `sorry` inline (`unverified`, no divergence). The
+  precondition reads which shape the toolchain produced and the output half asserts the
+  matching one; on both it is tainted and never `transitively-verified`.
 -/
 import Lean
 import Demo
@@ -70,9 +77,12 @@ def axiomsOf (env : Environment) (n : Name) : IO (Array Name) := do
     { fileName := "<TaintCheck>", fileMap := default } { env }
   return axs
 
-/-- Returns whether `instInhabitedBox.default` has a declaration range on this
-    toolchain: it decides which shape of the output half applies to it. -/
-def checkPrecondition (fs : Failures) : IO Bool := do
+/-- Returns `(helperHasRange, ownSorryDirect)`: whether `instInhabitedBox.default` has a
+    declaration range on this toolchain, and whether `ownSorry`'s own kernel constant
+    names `sorryAx` (Lean ≥ 4.29) or the elaborator abstracted the sorried proof
+    obligation into `ownSorry._proof_1` (Lean ≤ 4.28). Both decide which shape of the
+    output half applies. -/
+def checkPrecondition (fs : Failures) : IO (Bool × Bool) := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{ module := `Demo }] {} (level := OLeanLevel.private)
   IO.println "Precondition: the fixture has the shapes it claims"
@@ -157,7 +167,21 @@ def checkPrecondition (fs : Failures) : IO Bool := do
     ([`vouched, `taggedOneLiner, `Tagged, `Box, `endorsed, `laterVouched, `rootVouched].all tagSet.contains &&
      !tagSet.contains `instInhabitedBox.default && !tagSet.contains `victim &&
      !tagSet.contains `interpolationVictim && !tagSet.contains `victim2)
-  return helperHasRange
+  -- The own-sorry def: rests on a sorry on every toolchain; whether its own constant
+  -- names `sorryAx` or the proof obligation sits in `ownSorry._proof_1` depends on the
+  -- elaborator (abstracted on ≤ 4.28, inline from 4.29).
+  let ownSorryDirect := match env.find? `ownSorry with
+    | some ci => usesSorry ci
+    | none => false
+  check fs "ownSorry exists" (env.contains `ownSorry)
+  let axs4 ← axiomsOf env `ownSorry
+  check fs "ownSorry rests on a sorry" (axs4.contains ``sorryAx)
+  IO.println s!"  (ownSorry names sorryAx in its own constant: {ownSorryDirect})"
+  if !ownSorryDirect then
+    match env.find? `ownSorry._proof_1 with
+    | none => check fs "ownSorry._proof_1 exists (the abstracted proof obligation)" false
+    | some ci => check fs "ownSorry._proof_1 carries the sorry" (usesSorry ci)
+  return (helperHasRange, ownSorryDirect)
 
 def findArtifact (fs : Failures) : IO (Option System.FilePath) := do
   let dir : System.FilePath := ".verilib/probes"
@@ -233,7 +257,7 @@ def checkRound3 (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Unit 
   expect "probe:loopy" "transitively-verified"
   check fs "loopy._unsafe_rec is not an atom" (data.getObjVal? "probe:loopy._unsafe_rec").toOption.isNone
 
-def checkStatuses (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Unit := do
+def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
   IO.println "Extract output: statuses under the trusted base"
   let expect (atom status : String) : IO Unit :=
@@ -293,10 +317,15 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Uni
   -- Direct carriers and clean declarations.
   expect "probe:sorried_bound" "unverified"
   expect "probe:cleanUse" "transitively-verified"
+  -- The own-sorry def: `unverified` when its constant names `sorryAx`, `verified` when
+  -- the toolchain abstracted the proof obligation into `ownSorry._proof_1` (which is
+  -- then the direct carrier and never an atom). Never `transitively-verified`.
+  expect "probe:ownSorry" (if ownSorryDirect then "unverified" else "verified")
+  check fs "ownSorry._proof_1 is not an atom" (data.getObjVal? "probe:ownSorry._proof_1").toOption.isNone
   expect "probe:theoremUse" "verified"
   checkRound3 fs data helperHasRange
 
-def checkStderr (fs : Failures) (path : String) (helperHasRange : Bool) : IO Unit := do
+def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
   IO.println s!"Extract stderr ({path}): the graph-BFS disagreement is printed"
   let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
@@ -306,8 +335,16 @@ def checkStderr (fs : Failures) (path : String) (helperHasRange : Bool) : IO Uni
     (!lines.any fun l => l.startsWith "Divergence(graph): probe:viaVouched")
   check fs "no divergence on the companion"
     (!lines.any fun l => l.startsWith "Divergence(graph): probe:vouched.mvcgen_spec")
-  check fs "exactly one graph divergence"
-    (lines.contains "Graph cross-check: 1 atom(s) where the emitted graph disagrees with the kernel walk")
+  -- With the proof obligation abstracted, the emitted graph has no node for
+  -- `ownSorry._proof_1` (the fold recovers project edges, and the auxiliary has none),
+  -- so the graph-BFS sees `ownSorry` as clean while the walk does not.
+  let ownSorryDiv := "Divergence(graph): probe:ownSorry graph says clean, oracle says tainted"
+  check fs (if ownSorryDirect then "no graph divergence on ownSorry (direct carrier, seeded on both sides)"
+            else "divergence on ownSorry (its sorry sits in an auxiliary the graph has no node for)")
+    (lines.contains ownSorryDiv == !ownSorryDirect)
+  let expectedGraphDivs := if ownSorryDirect then 1 else 2
+  check fs s!"exactly {expectedGraphDivs} graph divergence(s)"
+    (lines.contains s!"Graph cross-check: {expectedGraphDivs} atom(s) where the emitted graph disagrees with the kernel walk")
   check fs "the full module set was imported (no fallback warning)"
     (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
   check fs "every atom was covered by the walk (no unknown-atom warning)"
@@ -350,7 +387,7 @@ def sectionUnder (lines : Array String) (header : String → Bool) : Array Strin
     else if inside then out := out.push l
   return out
 
-def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange : Bool) : IO Unit := do
+def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
   IO.println s!"check-axioms report ({path}): the same tainted set, non-atoms marked"
   let allLines := ((← IO.FS.readFile path).splitOn "\n").toArray
@@ -383,10 +420,17 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange : Bool) : 
       l.startsWith "  endorsed" || l.startsWith "  laterVouched" || l.startsWith "  rootVouched")
   check fs "clean-modulo-T declarations are not listed"
     (!lines.any fun l => l.startsWith "  viaVouched" || l.startsWith "  usesExternal" ||
+  -- The own-sorry def: listed on every toolchain; `[direct]` itself, or plain with its
+  -- abstracted proof obligation as the direct, non-emitted carrier.
+  check fs "ownSorry is listed with the toolchain's carrier shape"
+    (if ownSorryDirect then has "  ownSorry [direct]" && !has "  ownSorry._proof_1 [direct] [not emitted]"
+     else has "  ownSorry" && has "  ownSorry._proof_1 [direct] [not emitted]")
+  -- 24 constants before `ownSorry`; it adds itself, plus its auxiliary when abstracted.
+  let expectedTainted := 24 + (if ownSorryDirect then 1 else 2)
       l.startsWith "  cleanUse" || l.startsWith "  Tagged.p" || l == "  loopy" || l.startsWith "  quoted")
   check fs "the count line matches"
-    (allLines.contains "24 constant(s) rest on an unexcused project sorry:")
-  check fs "the tainted section lists exactly 24 constants" (lines.size == 24)
+    (allLines.contains s!"{expectedTainted} constant(s) rest on an unexcused project sorry:")
+  check fs s!"the tainted section lists exactly {expectedTainted} constants" (lines.size == expectedTainted)
   check fs "the tag-set line names the target's extension"
     (allLines.contains "externally_verified tag set: 7 name(s) from externallyVerifiedAttr")
   -- The trusted base itself: every rule's entries with reason and module, and the
@@ -411,7 +455,7 @@ def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]
   let some stderrPath := args[0]? | IO.eprintln "usage: TaintCheck.lean <extract.stderr> <check-axioms.out>"; return 2
   let some reportPath := args[1]? | IO.eprintln "usage: TaintCheck.lean <extract.stderr> <check-axioms.out>"; return 2
-  let helperHasRange ← checkPrecondition fs
+  let (helperHasRange, ownSorryDirect) ← checkPrecondition fs
   match ← findArtifact fs with
   | none => pure ()
   | some path =>
@@ -421,9 +465,9 @@ def main (args : List String) : IO UInt32 := do
     | .ok json =>
       match json.getObjVal? "data" with
       | .error _ => check fs "artifact has a data object" false
-      | .ok data => checkStatuses fs data helperHasRange
-  checkStderr fs stderrPath helperHasRange
-  checkAxiomsReport fs reportPath helperHasRange
+      | .ok data => checkStatuses fs data helperHasRange ownSorryDirect
+  checkStderr fs stderrPath helperHasRange ownSorryDirect
+  checkAxiomsReport fs reportPath helperHasRange ownSorryDirect
   let failures ← fs.get
   IO.println ""
   if failures.isEmpty then

@@ -370,10 +370,12 @@ private def runVerifyStep (config : ExtractConfig) (buildOutput : String) (atoms
     | none => pure buildOutput
   let warnings := parseSorryWarnings verifyOutput
   IO.println s!"Found {warnings.size} sorry warnings (build log)"
+  -- Only the direct count is printed here: the final statuses are mutually exclusive
+  -- and the enrich step prints them (`Transitively verified | Locally verified | Not
+  -- verified`); a "verified n/m" of the non-direct atoms would count tainted and
+  -- trusted atoms alike under a word that is also a status.
   let direct := atoms.filter fun a => pt.taint.direct.contains a.leanName
-  let clean := atoms.filter fun a => !pt.taint.direct.contains a.leanName
-  IO.println s!"Direct sorry carriers (kernel): {direct.size}"
-  IO.println s!"Verified: {clean.size}/{atoms.size} declarations"
+  IO.println s!"Direct sorry carriers (kernel): {direct.size} of {atoms.size} atoms"
   if warnings.isEmpty && !direct.isEmpty then
     IO.eprintln s!"Note: the build log carries no sorry warnings (cached build without output, \
       or warnings suppressed); the kernel finds {direct.size} direct carrier(s)"

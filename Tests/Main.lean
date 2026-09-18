@@ -4268,10 +4268,16 @@ def testTrustListingFormat (result : TestResult) : IO TestResult := do
   result ← test "trusted line: external with its statement"
     (formatTrustedLine `Foo.op "external" `Pkg.FunsExternal (some "Nat → Nat") ==
       "  Foo.op [external] Pkg.FunsExternal : Nat → Nat") result
-  result ← test "generated-axiom note"
-    (formatGeneratedAxiomNote `t._native.native_decide.ax_1_1 ==
-      "Note(axiom): t._native.native_decide.ax_1_1 is a generated project axiom (not a \
-       source-visible declaration, e.g. from native_decide); trusted by rule 1") result
+  result ← test "generated-axiom note: one line, count and names"
+    (formatGeneratedAxiomNote #[`t._native.native_decide.ax_1_1, `u._native.decide.ax_1_1] ==
+      "Note(axiom): 2 generated project axiom(s) trusted by rule 1 (not source-visible \
+       declarations, e.g. from native_decide): t._native.native_decide.ax_1_1, \
+       u._native.decide.ax_1_1") result
+  result ← test "generated-axiom note: capped at maxListedMerged names"
+    (let names := (Array.range (maxListedMerged + 3)).map fun i => Lean.Name.mkSimple s!"ax{i}"
+     (formatGeneratedAxiomNote names).endsWith ", … and 3 more") result
+  result ← test "generated-axiom note: empty when there are none"
+    (formatGeneratedAxiomNote #[] == "") result
   -- The dependency boundary: roots of the imported modules outside P, once each, sorted.
   let pf : ProjectFilter := { moduleIdxs := Std.HashSet.ofList [1, 3] }
   result ← test "dependency roots: outside P only, root component, deduplicated, sorted"

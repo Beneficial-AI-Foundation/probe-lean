@@ -503,12 +503,14 @@ def formatTagOnlyLine (n : Name) : String :=
   s!"Note(tag): {n} is tagged externally_verified by an `attribute` command or a macro; its \
     header does not show the tag; the tag set decides trust"
 
-/-- Printed per `ProjectTaint.generatedAxioms` entry. Visibility only: the axiom is
-    trusted by rule 1 like any other; whether a generated axiom should be is a spec
-    decision not made here. -/
-def formatGeneratedAxiomNote (n : Name) : String :=
-  s!"Note(axiom): {n} is a generated project axiom (not a source-visible declaration, e.g. \
-    from native_decide); trusted by rule 1"
+/-- Printed once for `ProjectTaint.generatedAxioms`, capped like the merged warning
+    (`listNames`); the `check-axioms` T listing names every one of them individually.
+    Visibility only: the axioms are trusted by rule 1 like any other (#109). Empty when
+    there are none. -/
+def formatGeneratedAxiomNote (names : Array Name) : String :=
+  if names.isEmpty then "" else
+    s!"Note(axiom): {names.size} generated project axiom(s) trusted by rule 1 (not source-visible \
+      declarations, e.g. from native_decide): {listNames names}"
 
 /-- Header of the `check-axioms` listing of T. -/
 def formatTrustHeader (n : Nat) : String :=
@@ -537,7 +539,7 @@ def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
     IO.eprintln (formatScanOnlyTagLine n)
   for n in pt.tagOnly do
     IO.eprintln (formatTagOnlyLine n)
-  for n in pt.generatedAxioms do
-    IO.eprintln (formatGeneratedAxiomNote n)
+  if !pt.generatedAxioms.isEmpty then
+    IO.eprintln (formatGeneratedAxiomNote pt.generatedAxioms)
 
 end ProbeLean

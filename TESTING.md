@@ -51,7 +51,7 @@ All tests run without external tools.
 | `testApplyTaintStatus` | `applyTaintStatus` verdict matrix (trusted / trusted direct carrier / direct / tainted / clean / unknown name), `--skip-enrich` cap, `--skip-verify` shape, `unifyAtom` carries `leanName` and no status, `leanName` not serialised |
 | `testDivergenceLines` | Graph-vs-oracle divergence text in both directions, `demoteTransitive`, `statusCounts` |
 | `testTaintFormatting` | Fallback / type-taint / unknown-atom warnings, the proofless abort text, the cross-boundary note, `check-axioms` report lines, summary line, `Divergence(log):` lines (aux-carried sorry is agreement; generated and trusted atoms skipped) |
-| `testTrustListingFormat` | `check-axioms` T listing text: `formatTrustHeader`, `formatTrustedLine` (an axiom without a type, a rule-3 entry with its statement), the `Note(axiom):` generated-axiom line; `dependencyRoots` (modules outside P only, root component, deduplicated, sorted, empty when all in P) and the dependency-boundary `Note:` |
+| `testTrustListingFormat` | `check-axioms` T listing text: `formatTrustHeader`, `formatTrustedLine` (an axiom without a type, a rule-3 entry with its statement), the aggregated `Note(axiom):` line (count and names, capped at `maxListedMerged`, empty for none); `dependencyRoots` (modules outside P only, root component, deduplicated, sorted, empty when all in P) and the dependency-boundary `Note:` |
 | `testAttributeScan` | Header-only `@[…]` scan: the `stripLine` lexer (nested block comments, docstrings, strings across lines, escaped quotes, raw strings, interpolated strings, char literals, `«…»`, `stripLines` from the top), head-line detection, no look-back above the range, 1-based range conversion (the old scan read the *next* declaration's tag) |
 | `testAttributeScanNegatives` | Fabricated-trust shapes yield nothing: tag quoted in a docstring, body comment or string literal; tagged one-line neighbour above; a neighbour's attribute line then its head; block comment / module docstring / multi-line string opened above the window; raw string, char literal, guillemet identifier spelling the tag; the declaration's own tag still survives. `headerNamesDecl`: dotted names, private names, anonymous instances, range-sharers (derived instance, companion) not named |
 | `testTagSetLiterals` | The tag-set reader: `nameLiteral?` over every `Name` literal spelling (`mkStr1`/`mkStr3`, `str`/`mkStr` nesting, `num`/`mkNum` with raw and `OfNat` literals, `anonymous`, `mkSimple`, mdata) and its negatives (computed name, wrong arity, unrelated constant); `tagAttributeRegistration?` reads the attribute name and `ref` off a `registerTagAttribute` application (four arguments suffice; too few, a computed `ref` or another registering function yield nothing; mdata transparent) |
@@ -90,8 +90,11 @@ hand-patched and sat at tool version `0.4.5` while the real format moved on.
 2. **Test** -- builds `tests` target, then runs `.lake/build/bin/tests`
 3. **End-to-end** -- builds `tests/fixtures/aux-fold`, runs `probe-lean extract` and
    `probe-lean check-axioms` on it, then `AuxFoldCheck.lean` (recovered auxiliary edges)
-   and `TaintCheck.lean` (kernel-backed statuses, the `Divergence(graph):` line, the
-   `check-axioms` report) and `tools/audit/check-status-consistency.py` (artifact and
+   and `TaintCheck.lean` (kernel-backed statuses, the `Divergence(graph):` line(s), the
+   `check-axioms` report; two shapes are read off the toolchain first — whether the
+   derived `instInhabitedBox.default` has a declaration range, and whether `ownSorry`'s
+   sorried proof obligation was abstracted into `ownSorry._proof_1` — and the matching
+   assertions applied) and `tools/audit/check-status-consistency.py` (artifact and
    report agree on every atom in both directions); then builds `tests/fixtures/collision`,
    whose two colliding modules force the import fallback under `--module`, and runs
    `check.py` (a transitively loaded sorried module still taints the selected caller);

@@ -82,7 +82,13 @@ def main():
                          "0.14 -> 0.15 comparison, where status comes from the "
                          "kernel walk: it additionally allows trusted -> "
                          "transitively-verified (generated companions no longer "
-                         "inherit their parent's tag) and reports every move by kind")
+                         "inherit their parent's tag) and unverified -> verified "
+                         "(0.14 attributed a `sorry` to the atom whose source range "
+                         "held it; 0.15 attributes it to the kernel constant that "
+                         "names sorryAx, and on Lean <= 4.28 a def's sorried proof "
+                         "obligation is abstracted into X._proof_N, so X reads "
+                         "verified with the auxiliary as the direct carrier), and "
+                         "reports every move by kind")
     args = ap.parse_args()
 
     before, after = load(args.before), load(args.after)
@@ -242,11 +248,14 @@ def main():
     # Status changes. Under the `fold` policy the fold can only ever *add* edges,
     # so the only legitimate move is a downgrade away from `transitively-verified`.
     # Under `taint` (the kernel-walk comparison) a `trusted` companion may also
-    # rise to `transitively-verified`; every move is counted by kind so the
-    # golden numbers can be checked against the expected delta.
+    # rise to `transitively-verified`, and an atom the build log called
+    # `unverified` may read `verified` when its `sorry` sits in an abstracted
+    # `X._proof_N` (Lean <= 4.28); every move is counted by kind so the golden
+    # numbers can be checked against the expected delta.
     allowed = {("transitively-verified", "verified")}
     if args.status_policy == "taint":
         allowed.add(("trusted", "transitively-verified"))
+        allowed.add(("unverified", "verified"))
     bad_status = []
     moves = Counter()
     for name in common:

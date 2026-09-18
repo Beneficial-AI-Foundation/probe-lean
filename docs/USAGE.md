@@ -247,8 +247,9 @@ base T is listed next — `<name> [<trusted-reason>] <module>`, with the stateme
 rule-3 (`external`) model — so the constants the "clean modulo T" claim rests on can be reviewed;
 `extract` shows only the trusted constants that are atoms. Generated axioms among them (a
 `native_decide` proof on Lean ≥ 4.31 adds `X._native.native_decide.ax_N`, trusted by rule 1) are
-also announced on stderr, one `Note(axiom): <n> is a generated project axiom (not a source-visible
-declaration, e.g. from native_decide); trusted by rule 1` each, by both commands. They stay
+also announced on stderr by both commands, one `Note(axiom): <n> generated project axiom(s) trusted
+by rule 1 (not source-visible declarations, e.g. from native_decide): a, b, …` line per run (names
+capped at 10; the T listing names every one). They stay
 trusted by decision: Lean's compiler is part of the trusted base, as `Lean.ofReduceBool` was
 before 4.31; a project `@[implemented_by]`/`@[extern]` body is the one kind of unchecked project
 code such an evaluation can run, and a wrong one is not detected. The walk is
