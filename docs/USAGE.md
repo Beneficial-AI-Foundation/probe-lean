@@ -248,7 +248,10 @@ rule-3 (`external`) model — so the constants the "clean modulo T" claim rests 
 `extract` shows only the trusted constants that are atoms. Generated axioms among them (a
 `native_decide` proof on Lean ≥ 4.31 adds `X._native.native_decide.ax_N`, trusted by rule 1) are
 also announced on stderr, one `Note(axiom): <n> is a generated project axiom (not a source-visible
-declaration, e.g. from native_decide); trusted by rule 1` each, by both commands. The walk is
+declaration, e.g. from native_decide); trusted by rule 1` each, by both commands. They stay
+trusted by decision: Lean's compiler is part of the trusted base, as `Lean.ofReduceBool` was
+before 4.31; a project `@[implemented_by]`/`@[extern]` body is the one kind of unchecked project
+code such an evaluation can run, and a wrong one is not detected. The walk is
 memoized and stops at the project boundary and the trusted base, so it costs milliseconds even on
 a 230-module Mathlib-backed project; `-m`/`-l` no longer narrow it.
 

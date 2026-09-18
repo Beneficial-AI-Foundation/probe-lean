@@ -117,8 +117,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `Note(axiom): <n> is a generated project axiom (not a source-visible declaration, e.g.
   from native_decide); trusted by rule 1` for every trusted axiom that is not a
   source-visible declaration (internal name or no range; 31 on dalek, 58 on SPQR).
-  Whether generated axioms should stay trusted is a spec decision left to a follow-up;
-  this release only makes them visible. The other half of the trusted base, the
+  Generated axioms stay trusted (#109, decided 2026-09-18): Lean's compiler is part of the
+  trusted base, as `Lean.ofReduceBool` was before 4.31, and the `Note(axiom)` lines are
+  what tell a compiler-generated axiom from a hand-written one. Known gap: a project
+  `@[implemented_by]`/`@[extern]` body is kernel-unchecked code such an evaluation runs, so
+  a wrong one can make `native_decide` prove a false statement undetected (neither target
+  has one). The other half of the trusted base, the
   dependency boundary, is named too: both commands print `Note: <n> imported module
   root(s) outside the project are trusted wholesale (Lean and dependency packages): Init,
   Lean, Mathlib, …` once per run — every package `lake-manifest.json` lists, a second Lake
