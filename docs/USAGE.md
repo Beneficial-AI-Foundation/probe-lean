@@ -210,7 +210,7 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 On `tests/fixtures/aux-fold` (abridged; the full report has one line per listed constant):
 
 ```
-Project constants: 104 in 7 module(s) | trusted: 9 | direct sorry carriers: 20 | tainted: 26
+Project constants: 119 in 8 module(s) | trusted: 9 | direct sorry carriers: 20 | tainted: 26
 externally_verified tag set: 7 name(s) from externallyVerifiedAttr
 26 constant(s) rest on an unexcused project sorry:
   admittedFact [direct]

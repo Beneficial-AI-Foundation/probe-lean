@@ -134,7 +134,7 @@ same field name with Verus's own values.
 | `class` | `class` | Type class |
 | `structure` | `structure` | Record type |
 | `inductive` | `inductive` | Inductive type |
-| `instance` | `instance` | Detected by name: the last component starts with `inst`, Lean's auto-naming. A user-named instance is emitted as `def`; a `def instFoo` as `instance`. |
+| `instance` | `instance` | Registered in Lean's instance table: the keyword, `scoped instance`, or `attribute [instance]` in the declaring module |
 | `axiom` | `axiom` | Assumed without proof; always `"trusted"` |
 | `opaque` | `opaque` | Opaque definition (no unfolding) |
 | `quot` | `Quot` | Quotient type (built-in) |

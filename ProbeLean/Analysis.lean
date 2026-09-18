@@ -99,20 +99,36 @@ def ProjectFilter.contains (pf : ProjectFilter) (env : Environment) (name : Name
   | some idx => pf.moduleIdxs.contains idx.toNat
   | none => false
 
-/-- Check if a declaration is an auto-named type class instance.
-    Lean auto-names instances with an `inst` prefix (e.g., `instAddNat`,
-    `instDecidableValidLengths`). User-named instances are not detected
-    by this heuristic. -/
-def isInstanceName (name : Name) : Bool :=
-  match name.componentsRev.head? with
-  | some (.str _ s) => s.startsWith "inst"
-  | _ => false
+/-- Whether `name` is registered in Lean's instance table: the `instance` keyword,
+    `scoped instance`, or an `attribute [instance] name` command, however the
+    constant is named. Read from the declaring module's extension **entries**, the
+    way `getStructureInfo?` reads structures: probe-lean imports with
+    `loadExts := false`, under which every extension's *state* is its initial
+    value, so `Meta.isInstanceCore` (which reads the state) is `false` for every
+    imported constant. A locally elaborated constant has no module index and falls
+    back to the live state. An `attribute [instance]` issued from a *different*
+    module than the declaration is not seen (issue #111). -/
+def isRegisteredInstance (env : Environment) (name : Name) : Bool :=
+  match env.getModuleIdxFor? name with
+  | some modIdx =>
+    (Meta.instanceExtension.ext.getModuleEntries env modIdx).any fun
+      | .global e => e.globalName? == some name
+      | .scoped _ e => e.globalName? == some name
+  | none => Meta.isInstanceCore env name
+
+/-- Whether `name` is registered as a type class. Same mechanism and same reason as
+    `isRegisteredInstance`: `Lean.isClass` reads `classExtension`'s state, which is
+    empty without `loadExts`, so every class used to fall through to `structure`. -/
+def isRegisteredClass (env : Environment) (name : Name) : Bool :=
+  match env.getModuleIdxFor? name with
+  | some modIdx => (classExtension.getModuleEntries env modIdx).any (·.name == name)
+  | none => Lean.isClass env name
 
 /-- Determine the kind of a declaration -/
 def getDeclKind (env : Environment) (name : Name) (info : ConstantInfo) : DeclKind :=
   match info with
   | .defnInfo defInfo =>
-    if isInstanceName name then
+    if isRegisteredInstance env name then
       .instance
     else if env.isProjectionFn name then
       .projection
@@ -123,7 +139,7 @@ def getDeclKind (env : Environment) (name : Name) (info : ConstantInfo) : DeclKi
   | .thmInfo _ => .theorem
   | .inductInfo _ =>
     -- Check if it's a class, structure, or plain inductive
-    if Lean.isClass env name then
+    if isRegisteredClass env name then
       .class
     else if Lean.isStructure env name then
       .structure

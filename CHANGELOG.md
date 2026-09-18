@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`kind` reports classes and instances from Lean's registries** (#111). `class` was
+  decided by `Lean.isClass`, which reads an extension *state* that is empty under the
+  `loadExts := false` import probe-lean uses, so every class was emitted as `structure`.
+  `instance` was decided by an `inst` name prefix, so a user-named `instance fooNat` or an
+  `attribute [instance]` promotion read `def` and a `def instLike` read `instance`. Both
+  now read the declaring module's extension entries, the mechanism `getStructureInfo?`
+  already uses. Remaining limit: an `attribute [instance]` issued from a different module
+  than the declaration is not seen. Fixture: `tests/fixtures/aux-fold/Demo/Kinds.lean`.
+
 ### Changed
 
 - `docs/SCHEMA.md` is a field reference again (about 260 lines, from 625). The three
@@ -26,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `primary-spec`; `externally_verified` appears in `attributes` from the tag set **or** the
   header scan; the `*-external` arrays extend the graph by direct edges only; `--skip-verify`
   withholds statuses but the kernel walk still runs; the walk costs about a second on dalek,
-  not milliseconds; the `check-axioms` fixture totals are 104/20/26; `viewify` is listed as a
+  not milliseconds; the `check-axioms` fixture totals are 119/20/26; `viewify` is listed as a
   command in `README.md` and `docs/USAGE.md`; the README binary-availability section states
   the per-minor `lean4-cli` resolution that the workflows implement.
 

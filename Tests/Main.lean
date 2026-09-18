@@ -3935,6 +3935,13 @@ class Marked (α : Type) where
   mark : α
 axiom trustMe : Nat
 
+/-- `kind` fixtures (issue #111): registration decides `instance`, not the name. -/
+instance markedNat : Marked Nat := ⟨0⟩
+instance : Marked Bool := ⟨true⟩
+def instLooksLike : Nat := 0
+def markedUnit : Marked Unit := ⟨()⟩
+attribute [instance] markedUnit
+
 end AuxFoldEnv
 
 open Lean Elab Command Term in
@@ -4013,6 +4020,7 @@ run_cmd do
   let (hostUnion, hostType, hostTerm) ←
     foldAtomDeps env inProject auxCache hostInfo hostProjType #[]
   let hostAdded := (← auxCache.get).addedEdges
+  let kindOf (n : Name) : Option DeclKind := (env.find? n).map (getDeclKind env n)
   let checks : Array (String × Bool) := #[
     ("internal name with a source range is foldable",
       cls `AuxFoldEnv.host._proof_9 == .foldable),
@@ -4073,7 +4081,20 @@ run_cmd do
       hostTerm == #[`AuxFoldEnv.Color]),
     ("foldAtomDeps derives dependencies as the union of both buckets",
       hostUnion == sortDedupNames (hostType ++ hostTerm)),
-    ("foldAtomDeps counts the edges it added", hostAdded == 1)]
+    ("foldAtomDeps counts the edges it added", hostAdded == 1),
+    -- `getDeclKind` on locally elaborated constants (no module index, so the
+    -- live extension state is consulted; the imported-module path is covered
+    -- end-to-end by `tests/fixtures/aux-fold/Demo/Kinds.lean`).
+    ("a class is kind class, not structure", kindOf `AuxFoldEnv.Marked == some .class),
+    ("a structure is kind structure", kindOf `AuxFoldEnv.Pair == some .structure),
+    ("a user-named instance is kind instance",
+      kindOf `AuxFoldEnv.markedNat == some .instance),
+    ("an auto-named instance is kind instance",
+      kindOf `AuxFoldEnv.instMarkedBool == some .instance),
+    ("a def named inst… is kind def, not instance",
+      kindOf `AuxFoldEnv.instLooksLike == some .def),
+    ("a def promoted by attribute [instance] is kind instance",
+      kindOf `AuxFoldEnv.markedUnit == some .instance)]
   -- `mkIdent`, not a plain quotation: a quoted binder name picks up macro
   -- scopes and the generated definition would be unreferenceable.
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
