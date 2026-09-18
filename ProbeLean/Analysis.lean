@@ -817,9 +817,9 @@ def stripLeadingDotSlash (path : String) : String :=
 -- filters those out of its output (`isInternalName`), which used to lose every
 -- edge underneath them: `host → aux → lemma` left no trace of `lemma`.
 --
--- The fold is a strictly **additive** second pass. Governing invariant, stated
--- once in `docs/SCHEMA.md` ("Auxiliary-dependency folding") and not restated
--- elsewhere:
+-- The fold is a strictly **additive** second pass. Governing invariant, whose
+-- authoritative statement is `docs/SCHEMA.md` ("Auxiliary-dependency folding"),
+-- quoted here:
 --
 --   It only ever *adds* names to `term-dependencies`. It never adds to
 --   `type-dependencies`, never removes an entry from any of the four dependency
@@ -843,7 +843,7 @@ inductive DepClass where
       an atom of its own. Benign, and identical to how a *direct* edge to such a
       constructor already behaves: `partitionMissingDeps` treats a constructor
       whose parent type is extracted as benign. But "targets are exactly the
-      atoms" is false, and `docs/SCHEMA.md` says so too. -/
+      atoms" is false, and `docs/auxiliary-folding.md` says so too. -/
   | emitted
   /-- Not emitted as an atom, value-bearing, not a structural member: traversed
       through, contributing whatever it reaches. -/
@@ -866,7 +866,8 @@ inductive DepClass where
       preserved" either, and which applies is decided by the name filter rather
       than by anything here. A direct reference that survives `isInternalName`
       stays in its project or `*-external` bucket as always; one the name filter
-      catches (every structural-member suffix, every recursor) is dropped from
+      catches (every structural-member suffix, the recursor suffixes included;
+      a nested-inductive `Foo.rec_1` matches none) is dropped from
       all four arrays by `partitionDeps`, also as always. Constructors split on
       that same rule, not as a class: `Color.red` is kept, `Foo.mk` is not. -/
   | ignored
@@ -1217,8 +1218,9 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
 
   -- External (non-project) deps: referenced but outside the project (Mathlib,
   -- core). Emitted alongside the project-filtered deps so a downstream
-  -- classifier can reconstruct the full reachability graph (it needs edges to
-  -- external anchors that `projTypeDeps`/`projTermDeps` drop).
+  -- classifier gets the direct edges to external anchors that
+  -- `projTypeDeps`/`projTermDeps` drop (direct only: the fold never adds here,
+  -- see `docs/auxiliary-folding.md`).
   --
   -- Partitioned in one pass per list rather than filtered once per output array:
   -- `isInternalName` scans the name and the module lookup hashes it, and with

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `docs/SCHEMA.md` is a field reference again (about 260 lines, from 625). The three
+  overlapping atom-field tables are merged into one with a Source column, the envelope
+  example shows one definition and one trusted axiom, and the audit-level detail moved to
+  two companion documents: `docs/verification-status.md` (sorry attribution per toolchain,
+  cross-checks, executable bodies and `native_decide`, coverage of P, merged declarations,
+  the trust rules in full) and `docs/auxiliary-folding.md` (what the fold traverses, folded
+  targets, the `specs` fallback, the external asymmetry). `docs/USAGE.md` now points at
+  those documents instead of restating the policy. The Schema 1.x change list, the package
+  version survey and the Verus kind comparison are archived in
+  `docs/archive/schema-3.0-migration-notes.md`. No output format change.
+- Docs brought in line with the code where they had drifted: `is-relevant` is `true` for
+  every atom unless `relevant-crate` is configured; `kind: instance` is a name heuristic
+  (`inst` prefix); `package-version` reads `lakefile.toml` only; the `viewify` molecule
+  `rust-*`/`spec-*` fields are placeholders that never read `rust-source` or
+  `primary-spec`; `externally_verified` appears in `attributes` from the tag set **or** the
+  header scan; the `*-external` arrays extend the graph by direct edges only; `--skip-verify`
+  withholds statuses but the kernel walk still runs; the walk costs about a second on dalek,
+  not milliseconds; the `check-axioms` fixture totals are 104/20/26; `viewify` is listed as a
+  command in `README.md` and `docs/USAGE.md`; the README binary-availability section states
+  the per-minor `lean4-cli` resolution that the workflows implement.
+
 ## [0.15.0] - 2026-09-16
 
 ### Fixed

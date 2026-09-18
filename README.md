@@ -75,10 +75,11 @@ releases, for `linux-x86_64` and `darwin-arm64`. The set of Lean versions tracke
   typically a superseded RC that tracked target projects still use (Mathlib cuts its releases
   against RC toolchains, so Mathlib-pinned projects commonly sit on one),
 
-restricted to versions that [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli)
-has tagged. probe-lean pins `lean4-cli` to the Lean version tag, so a Lean release without a
-matching `lean4-cli` tag — e.g. most patch releases (`v4.29.1`) — is skipped until that tag
-exists.
+restricted to versions for which [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli)
+has a compatible tag. `lean4-cli` tags `major.minor` lines and RCs but not every patch, so
+probe-lean resolves it to the highest tag in the Lean version's `major.minor` line (Lean
+`v4.32.2` builds against `lean4-cli v4.32.0`); patch releases are supported. A version is skipped
+only when `lean4-cli` has no tag in its `major.minor` line yet, typically a brand-new minor.
 
 These are generated automatically: a scheduled workflow watches `leanprover/lean4` and
 builds probe-lean for any newly released Lean version within about a day, appending the
@@ -116,7 +117,7 @@ The action auto-detects the Lean version, builds probe-lean, and runs extraction
 # Analyze a Lean project (builds with lake, extracts atoms, detects sorries)
 probe-lean extract ./my-lean-project
 
-# Skip sorry detection (faster, graph structure only)
+# Withhold verification-status (the kernel walk still runs; trusted atoms keep "trusted")
 probe-lean extract ./my-lean-project --skip-verify
 
 # Multi-library project: build only specific libraries
@@ -133,6 +134,7 @@ For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **
 |---------|-------------|
 | `extract` | Analyze a Lean 4 project: extract atoms, detect sorries, compute specs |
 | `check-axioms` | Audit a project: list every project constant that rests on an unexcused project `sorry` (same kernel walk as `extract`) |
+| `viewify` | Filter `extract` output into molecules for the web UI (`.verilib/views/molecules_all.json`) |
 
 ### `extract`
 
@@ -162,9 +164,9 @@ on an unexcused project `sorry` — atoms and non-atoms alike:
 On `tests/fixtures/aux-fold` (abridged):
 
 ```
-Project constants: 102 in 7 module(s) | trusted: 9 | direct sorry carriers: 19 | tainted: 24
+Project constants: 104 in 7 module(s) | trusted: 9 | direct sorry carriers: 20 | tainted: 26
 externally_verified tag set: 7 name(s) from externallyVerifiedAttr
-24 constant(s) rest on an unexcused project sorry:
+26 constant(s) rest on an unexcused project sorry:
   admittedFact [direct]
   instInhabitedBox
   loopy._unsafe_rec [direct] [not emitted]
@@ -187,7 +189,7 @@ atoms are exactly those `extract` marks `"verified"` or `"unverified"`; a listed
 trusted. The trusted base T follows: every trusted constant with its
 `trusted-reason`, its module and, for a `*External` model, its statement — the
 constants the "clean modulo T" claim rests on. The walk stops at the project
-boundary and at the trusted base, so it costs milliseconds on a 230-module project.
+boundary and at the trusted base, so it costs about a second on a 230-module Mathlib-backed project.
 
 ### Codomain facts & downstream classification
 
@@ -195,8 +197,9 @@ Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last
 facts about its result type, plus `type-dependencies-external` / `term-dependencies-external`
 (the non-project deps that the project-filtered `type-`/`term-dependencies` omit). These are
 domain-agnostic primitives: probe-lean does not classify declarations itself, but a downstream
-tool can reconstruct a declaration's codomain shape and the full dependency reachability graph
-from them. The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
+tool can reconstruct a declaration's codomain shape from them and extend the dependency graph
+past the project boundary by direct edges (externals reached only through an auxiliary are not
+listed, see [docs/auxiliary-folding.md](docs/auxiliary-folding.md)). The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
 `@[correctness_spec]`, `@[security_spec]`) are registered in `ProbeLean.Attrs` so target
 projects can annotate declarations; probe-lean emits them verbatim in each atom's `attributes`
 array without interpreting them.
@@ -231,15 +234,20 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
       "code-module": "MyModule",
       "code-path": "MyModule.lean",
       "code-text": { "lines-start": 5, "lines-end": 8 },
+      "is-in-package": true,
+      "is-relevant": true,
       "is-hidden": false,
       "is-lean-generated": false,
       "is-aeneas-generated": false,
       "is-ignored": false,
-      "is-relevant": true,
+      "is-primary-spec": false,
       "rust-source": null,
       "specs": ["probe:MyModule.helper_spec"],
       "primary-spec": "probe:MyModule.helper_spec",
-      "verification-status": "verified"
+      "verification-status": "transitively-verified",
+      "codomain-head": "MyModule.MyType",
+      "codomain-is-prop": false,
+      "codomain-last-arg-is-bool": false
     }
   }
 }
@@ -250,7 +258,7 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
 2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies, then **folds auxiliary edges**: Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not emit (`X._proof_N`, `X.match_N`, …), and a dependency reached only through one of those used to vanish from the graph entirely. Such edges are now recovered into the referencing declaration's `term-dependencies`. [docs/SCHEMA.md](docs/SCHEMA.md#auxiliary-dependency-folding) states the contract and its limits — the pass is strictly additive, `type-dependencies` is never added to, only project-internal targets are recovered, and structural members are not folded through. Two limits worth repeating here: folding fixes *edges*, not `verification-status` soundness, and a zero in-degree is still not a licence to delete a declaration
 3. **Filter** -- applies config-driven flags from `.verilib/probes/config.json` (`is-hidden`, `is-aeneas-generated`, `is-ignored`) and auto-detects generated code, flagged `is-hidden` plus an origin flag so `viewify` omits it: `deriving`-generated instance clusters and structure/class projections are core-Lean output (`is-lean-generated`), while attribute-machinery companion theorems (the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`; companions of tagged *axioms* stay visible as the axiom's spec proxy) are Aeneas-only (`is-aeneas-generated`). Generated theorems (either flag) are also excluded from `specs` lists and the heuristic primary-spec signals; an explicit `@[primary_spec]` still wins and re-admits the theorem into `specs`. Generated atoms are **kept in the dependency graph** (so transitive-verification stays sound), only hidden from the presented view. After enrichment, `is-hidden` is cleared on *contaminated* generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`) in the `extract` output, so consumers that read it directly (e.g. the web UI) can surface them for tracing; `viewify` molecules still omit all generated atoms regardless of `is-hidden`
-4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom from theorems' `type-dependencies` — a theorem specifies what its *statement* is about, not every constant its proof happens to invoke — using a multi-signal precedence chain:
+4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom from theorems' `type-dependencies` — a theorem specifies what its *statement* is about, not every constant its proof happens to invoke (one exception: a `@[primary_spec]` theorem whose statement names no specifiable constant falls back to its proof, see [docs/SCHEMA.md](docs/SCHEMA.md)) — using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
     2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
     3. `_spec` suffix — a theorem named `<def>_spec` is assigned as primary spec
@@ -320,6 +328,8 @@ are imported into a **single Lean environment** before atomizing.
 
 - [docs/USAGE.md](docs/USAGE.md) — full command reference and real-project walkthroughs
 - [docs/SCHEMA.md](docs/SCHEMA.md) — envelope schema specification
+- [docs/verification-status.md](docs/verification-status.md) — how the kernel walk decides `verification-status`: attribution, coverage, merged declarations, the trust rules in full
+- [docs/auxiliary-folding.md](docs/auxiliary-folding.md) — what the auxiliary-dependency fold does and does not traverse
 - [docs/lean-verification-landscape.md](docs/lean-verification-landscape.md) — how specs surface across Lean verification frameworks (Aeneas, Loom/Velvet, Std.Do.Triple, VCVio) and how probe-lean discovers them
 
 ## Testing

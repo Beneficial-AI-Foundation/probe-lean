@@ -5,7 +5,7 @@ constant `X` is an opaque inhabitant with no edge to it. So `loopy` reads
 `transitively-verified` although its body is a `sorry`, `loopy._unsafe_rec` is a
 direct carrier listed `[direct] [not emitted]` by `check-axioms`, and the build-log
 cross-check prints a specific `Note(log):` line instead of a generic divergence.
-Documented in `docs/SCHEMA.md` (`verification-status`); whether such hosts should
+Documented in `docs/verification-status.md`; whether such hosts should
 count as carriers is a spec decision, not a silent change.
 -/
 

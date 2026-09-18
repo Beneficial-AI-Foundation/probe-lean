@@ -233,8 +233,9 @@ def externallyVerifiedNames (env : Environment) (pFilter : ProjectFilter)
     source-visible declaration. Constants absent from the map have no attributes.
     With no `--module`/`--library` selection this is exactly the emitted atom set, so
     the scan runs once and `declInfoToAtom` reuses the result. `tagged` is the
-    `externally_verified` tag set; it decides the `externally_verified` entry of the
-    `attributes` array, the scan supplies every other name.
+    `externally_verified` tag set; membership puts `externally_verified` in the
+    `attributes` array, and so does a header-scan hit, so the entry is the union of
+    the two sources while trust reads the set alone.
 
     A constant that shares a tagged declaration's range — a generated companion
     `X.mvcgen_spec`, a `deriving` instance, a projection of a one-line structure —
