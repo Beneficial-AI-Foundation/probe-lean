@@ -30,6 +30,12 @@
   commands on one line; `loopy._unsafe_rec` carrying the `partial def`'s sorry), the
   output half asserts none of them is trusted, that an `attribute` command is, and
   that the tag audit prints exactly the expected `Divergence(tag)`/`Note(tag)` lines.
+  Whether `instInhabitedBox.default` has a declaration range at all depends on the
+  toolchain (v4.33 registers none), so the precondition reports that and the output
+  half asserts the matching shape: an atom with the shared tag and its own
+  `Divergence(tag)` line, or no atom, no line and `[not emitted]` in the report. The
+  tainted count of 24 is the same either way on the toolchains CI tests; it is
+  agreement, not an invariant.
 -/
 import Lean
 import Demo
@@ -64,7 +70,9 @@ def axiomsOf (env : Environment) (n : Name) : IO (Array Name) := do
     { fileName := "<TaintCheck>", fileMap := default } { env }
   return axs
 
-def checkPrecondition (fs : Failures) : IO Unit := do
+/-- Returns whether `instInhabitedBox.default` has a declaration range on this
+    toolchain: it decides which shape of the output half applies to it. -/
+def checkPrecondition (fs : Failures) : IO Bool := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{ module := `Demo }] {} (level := OLeanLevel.private)
   IO.println "Precondition: the fixture has the shapes it claims"
@@ -107,13 +115,20 @@ def checkPrecondition (fs : Failures) : IO Unit := do
   match env.find? `admittedFact with
   | none => check fs "admittedFact exists" false
   | some ci => check fs "admittedFact carries a sorry" (usesSorry ci)
-  -- Round 3. The generated helper: same range as the one-line structure, not a
-  -- projection, not internal, rests on the sorried `Inhabited Cell`.
-  match declRangeExt.find? env `Box, declRangeExt.find? env `instInhabitedBox.default with
-  | some r1, some r2 =>
-    check fs "instInhabitedBox.default shares Box's head line"
-      (r1.range.endPos.line == r2.range.pos.line)
-  | _, _ => check fs "Box and instInhabitedBox.default both have ranges" false
+  -- Round 3. The generated helper: not a projection, not internal, rests on the
+  -- sorried `Inhabited Cell`. Whether it has a declaration range depends on the
+  -- toolchain (v4.28–v4.31 give it `Box`'s range, v4.33 registers none), and that
+  -- decides whether it is an atom, shows the scanned tag and gets a `Divergence(tag)`
+  -- line below. What does not depend on the toolchain: it is never trusted and always
+  -- tainted.
+  let helperHasRange := (declRangeExt.find? env `instInhabitedBox.default).isSome
+  IO.println s!"  (instInhabitedBox.default has a declaration range: {helperHasRange})"
+  if helperHasRange then
+    match declRangeExt.find? env `Box, declRangeExt.find? env `instInhabitedBox.default with
+    | some r1, some r2 =>
+      check fs "instInhabitedBox.default shares Box's head line"
+        (r1.range.endPos.line == r2.range.pos.line)
+    | _, _ => check fs "Box has a range" false
   check fs "instInhabitedBox.default is neither a projection nor internal"
     (env.contains `instInhabitedBox.default && !env.isProjectionFn `instInhabitedBox.default &&
      !(`instInhabitedBox.default).isInternal)
@@ -142,6 +157,7 @@ def checkPrecondition (fs : Failures) : IO Unit := do
     ([`vouched, `taggedOneLiner, `Tagged, `Box, `endorsed, `laterVouched, `rootVouched].all tagSet.contains &&
      !tagSet.contains `instInhabitedBox.default && !tagSet.contains `victim &&
      !tagSet.contains `interpolationVictim && !tagSet.contains `victim2)
+  return helperHasRange
 
 def findArtifact (fs : Failures) : IO (Option System.FilePath) := do
   let dir : System.FilePath := ".verilib/probes"
@@ -174,21 +190,26 @@ def strArray (data : Json) (atom field : String) : Array String :=
 def boolOf (data : Json) (atom field : String) : Bool :=
   (atomField data atom field >>= (·.getBool?.toOption)).getD false
 
-def checkRound3 (fs : Failures) (data : Json) : IO Unit := do
+def checkRound3 (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Unit := do
   let expect (atom status : String) : IO Unit :=
     check fs s!"{atom} is {status}" (statusOf data atom == some status)
   let noTag (atom : String) : IO Unit :=
     check fs s!"{atom} shows no externally_verified"
       (!(strArray data atom "attributes").contains "externally_verified")
-  -- The generated helper named by a field: shows the tag (shared range), not trusted.
+  -- The generated helper named by a field: with a range it is an atom that shows
+  -- the tag (shared line) and is not trusted; without one it is not an atom at all.
   expect "probe:Box" "trusted"
   check fs "Box trusted-reason is externally_verified" (reasonOf data "probe:Box" == some "externally_verified")
   expect "probe:instInhabitedCell" "unverified"
   expect "probe:instInhabitedBox" "verified"
-  expect "probe:instInhabitedBox.default" "verified"
-  check fs "instInhabitedBox.default has no trusted-reason" (reasonOf data "probe:instInhabitedBox.default").isNone
-  check fs "instInhabitedBox.default shows the structure's scanned tag (shared line)"
-    ((strArray data "probe:instInhabitedBox.default" "attributes").contains "externally_verified")
+  if helperHasRange then
+    expect "probe:instInhabitedBox.default" "verified"
+    check fs "instInhabitedBox.default has no trusted-reason" (reasonOf data "probe:instInhabitedBox.default").isNone
+    check fs "instInhabitedBox.default shows the structure's scanned tag (shared line)"
+      ((strArray data "probe:instInhabitedBox.default" "attributes").contains "externally_verified")
+  else
+    check fs "instInhabitedBox.default is not an atom (no declaration range on this toolchain)"
+      (data.getObjVal? "probe:instInhabitedBox.default").toOption.isNone
   expect "probe:defaultBox" "verified"
   -- Interpolated string, two commands on one line, quotation look-back.
   expect "probe:interpolationVictim" "unverified"
@@ -212,7 +233,7 @@ def checkRound3 (fs : Failures) (data : Json) : IO Unit := do
   expect "probe:loopy" "transitively-verified"
   check fs "loopy._unsafe_rec is not an atom" (data.getObjVal? "probe:loopy._unsafe_rec").toOption.isNone
 
-def checkStatuses (fs : Failures) (data : Json) : IO Unit := do
+def checkStatuses (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Unit := do
   IO.println ""
   IO.println "Extract output: statuses under the trusted base"
   let expect (atom status : String) : IO Unit :=
@@ -273,9 +294,9 @@ def checkStatuses (fs : Failures) (data : Json) : IO Unit := do
   expect "probe:sorried_bound" "unverified"
   expect "probe:cleanUse" "transitively-verified"
   expect "probe:theoremUse" "verified"
-  checkRound3 fs data
+  checkRound3 fs data helperHasRange
 
-def checkStderr (fs : Failures) (path : String) : IO Unit := do
+def checkStderr (fs : Failures) (path : String) (helperHasRange : Bool) : IO Unit := do
   IO.println ""
   IO.println s!"Extract stderr ({path}): the graph-BFS disagreement is printed"
   let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
@@ -297,15 +318,20 @@ def checkStderr (fs : Failures) (path : String) : IO Unit := do
     (!lines.any fun l => l.startsWith "Divergence(log): probe:loopy")
   check fs "no cross-boundary note (nothing here restates a dependency)"
     (!lines.any fun l => l.startsWith "Note:" && (l.splitOn "by a module outside the project").length > 1)
-  -- The tag audit: the two shapes the scan would have trusted (the generated helper
-  -- named by its field, the second command on a tagged line), and the one tag the
-  -- scan cannot see (the `attribute` command).
-  check fs "Divergence(tag) for the generated helper the scan would have trusted"
-    (lines.contains "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; the source text does not decide trust")
+  -- The tag audit: the shapes the scan would have trusted (the generated helper
+  -- named by its field — only when it has a header to scan — and the second command
+  -- on a tagged line), and the one tag the scan cannot see (the `attribute` command).
+  if helperHasRange then
+    check fs "Divergence(tag) for the generated helper the scan would have trusted"
+      (lines.contains "Divergence(tag): instInhabitedBox.default header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; the source text does not decide trust")
+  else
+    check fs "no Divergence(tag) for the range-less generated helper (no header to scan)"
+      (!lines.any fun l => l.startsWith "Divergence(tag): instInhabitedBox.default")
   check fs "Divergence(tag) for the second command on a tagged line"
     (lines.contains "Divergence(tag): victim header shows @[externally_verified] naming it, but the attribute's tag set does not contain it; the source text does not decide trust")
-  check fs "exactly two Divergence(tag) lines"
-    ((lines.filter fun l => l.startsWith "Divergence(tag):").size == 2)
+  let expectedTagLines := if helperHasRange then 2 else 1
+  check fs s!"exactly {expectedTagLines} Divergence(tag) line(s)"
+    ((lines.filter fun l => l.startsWith "Divergence(tag):").size == expectedTagLines)
   check fs "Note(tag) for the attribute command"
     (lines.contains "Note(tag): laterVouched is tagged externally_verified by an `attribute` command or a macro; its header does not show the tag; the tag set decides trust")
   check fs "exactly one Note(tag) line" ((lines.filter fun l => l.startsWith "Note(tag):").size == 1)
@@ -324,7 +350,7 @@ def sectionUnder (lines : Array String) (header : String → Bool) : Array Strin
     else if inside then out := out.push l
   return out
 
-def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
+def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange : Bool) : IO Unit := do
   IO.println ""
   IO.println s!"check-axioms report ({path}): the same tainted set, non-atoms marked"
   let allLines := ((← IO.FS.readFile path).splitOn "\n").toArray
@@ -341,8 +367,10 @@ def checkAxiomsReport (fs : Failures) (path : String) : IO Unit := do
   check fs "the range-sharing derived instance and its caller are listed"
     (has "  instReprTagged" && has "  showTagged")
   check fs "the Prop-typed External def is listed as direct" (has "  admittedFact [direct]")
+  -- The helper is tainted on every toolchain; only whether it was emitted varies.
+  let helperLine := if helperHasRange then "  instInhabitedBox.default" else "  instInhabitedBox.default [not emitted]"
   check fs "round 3: the generated helper, the derived instance and their caller are listed"
-    (has "  instInhabitedBox" && has "  instInhabitedBox.default" && has "  defaultBox" &&
+    (has "  instInhabitedBox" && has helperLine && has "  defaultBox" &&
      has "  instInhabitedCell [direct]")
   check fs "round 3: the scan victims are listed as direct"
     (has "  interpolationVictim [direct]" && has "  victim [direct]" && has "  victim2 [direct]")
@@ -383,7 +411,7 @@ def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]
   let some stderrPath := args[0]? | IO.eprintln "usage: TaintCheck.lean <extract.stderr> <check-axioms.out>"; return 2
   let some reportPath := args[1]? | IO.eprintln "usage: TaintCheck.lean <extract.stderr> <check-axioms.out>"; return 2
-  checkPrecondition fs
+  let helperHasRange ← checkPrecondition fs
   match ← findArtifact fs with
   | none => pure ()
   | some path =>
@@ -393,9 +421,9 @@ def main (args : List String) : IO UInt32 := do
     | .ok json =>
       match json.getObjVal? "data" with
       | .error _ => check fs "artifact has a data object" false
-      | .ok data => checkStatuses fs data
-  checkStderr fs stderrPath
-  checkAxiomsReport fs reportPath
+      | .ok data => checkStatuses fs data helperHasRange
+  checkStderr fs stderrPath helperHasRange
+  checkAxiomsReport fs reportPath helperHasRange
   let failures ← fs.get
   IO.println ""
   if failures.isEmpty then

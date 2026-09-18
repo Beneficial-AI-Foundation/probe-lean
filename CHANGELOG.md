@@ -311,8 +311,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   syntax quotation ending in a pure attribute line; an `attribute [externally_verified]`
   command; a `_root_.` declaration; a `partial def` with a `sorry` body); `TaintCheck.lean`
   asserts the statuses, the `Divergence(graph):`, `Divergence(tag):`, `Note(tag):` lines,
-  the tag-set line and the `check-axioms` report on both CI toolchains, and reads the tag
-  set straight from the olean entries as a precondition. CI now keeps `extract`'s stderr
+  the tag-set line and the `check-axioms` report on both CI toolchains (the generated
+  `instInhabitedBox.default` has `Box`'s range on v4.28–v4.31 and none on v4.33, so the
+  check asserts an atom with the shared tag and its own `Divergence(tag)` line, or no
+  atom, no line and `[not emitted]` in the report, whichever the toolchain produces),
+  and reads the tag set straight from the olean entries as a precondition. CI now keeps `extract`'s stderr
   in the job log when `extract` fails.
 - New fixture `tests/fixtures/collision`: two colliding modules force the import fallback
   under `--module`, and the selected module's transitively loaded project dependency is a
