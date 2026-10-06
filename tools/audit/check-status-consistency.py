@@ -118,6 +118,8 @@ def main():
         name = key[len(PREFIX):] if key.startswith(PREFIX) else key
         atoms[name] = atom.get("verification-status")
         origins[name] = atom.get("status-origin")
+        if "status-origin" in atom and not isinstance(origins[name], str):
+            report_problems.append(f"{name}: status-origin is {origins[name]!r}, not a string")
 
     bad = list(report_problems)
     counts = {"unverified": 0, "verified": 0, "clean": 0, "trusted": 0, "missing": 0}

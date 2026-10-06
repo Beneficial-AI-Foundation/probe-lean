@@ -4295,6 +4295,8 @@ def testStatusOriginReader (result : TestResult) : IO TestResult := do
     (match decode (withOrigin "stale") with | .ok _ => false | .error _ => true) result
   result ← test "reader: non-string status-origin is an error"
     (match decode (withOrigin (17 : Nat)) with | .ok _ => false | .error _ => true) result
+  result ← test "reader: null status-origin is an error"
+    (match decode (withOrigin .null) with | .ok _ => false | .error _ => true) result
   return result
 
 def testDivergenceLines (result : TestResult) : IO TestResult := do

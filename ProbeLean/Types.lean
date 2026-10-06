@@ -534,9 +534,9 @@ instance : Lean.FromJson UnifiedAtom where
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
     let trustedReason ← json.getObjValAs? (Option String) "trusted-reason" <|> pure none
     -- Strict, unlike the other optional fields: the marker blocks promotion, so a
-    -- present but invalid value is an error, never a silent `none`.
+    -- present but invalid value (`null` included) is an error, never a silent `none`.
     let statusOrigin ← match json.getObjVal? "status-origin" with
-      | .error _ | .ok .null => pure none
+      | .error _ => pure none
       | .ok v => some <$> Lean.fromJson? (α := StatusOrigin) v
     let codomainHead ← json.getObjValAs? (Option String) "codomain-head" <|> pure none
     let codomainIsProp ← json.getObjValAs? Bool "codomain-is-prop" <|> pure false
