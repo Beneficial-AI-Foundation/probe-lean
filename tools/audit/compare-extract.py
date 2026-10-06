@@ -34,7 +34,13 @@ limits worth knowing when reading its output:
 Usage:
 
     tools/audit/compare-extract.py BEFORE.json AFTER.json [--oracle oracle.tsv]
-                                   [--report N]
+                                   [--report N] [--status-policy fold|taint]
+                                   [--exec-hosts NAME,...]
+
+`--status-policy taint` is the 0.14 -> 0.15 comparison (status from the kernel
+walk). `--exec-hosts` names the `partial def` / `@[implemented_by]` hosts whose
+0.14 `unverified` came from a `sorry` in an executable body the kernel constant does
+not reference; see the option help for which moves that excuses.
 
 Exit status is 0 only if every invariant holds.
 """
@@ -89,7 +95,21 @@ def main():
                          "obligation is abstracted into X._proof_N, so X reads "
                          "verified with the auxiliary as the direct carrier), and "
                          "reports every move by kind")
+    ap.add_argument("--exec-hosts", default="",
+                    help="comma-separated atom names (without `probe:`) whose 0.14 "
+                         "status came from a `sorry` in an executable body the kernel "
+                         "constant does not reference: a `partial def` (the sorry is "
+                         "in X._unsafe_rec, see `Note(log)` on extract's stderr and "
+                         "`X._unsafe_rec [direct] [not emitted]` in check-axioms) or "
+                         "an @[implemented_by] host. Under `taint` these may move "
+                         "unverified -> transitively-verified, and an atom whose old "
+                         "`dependencies` reached one of them (what the 0.14 BFS "
+                         "tainted) may move verified -> transitively-verified. Any "
+                         "other atom making either move still fails")
     args = ap.parse_args()
+    exec_hosts = {h.strip() for h in args.exec_hosts.split(",") if h.strip()}
+    if exec_hosts and args.status_policy != "taint":
+        ap.error("--exec-hosts only applies under --status-policy taint")
 
     before, after = load(args.before), load(args.after)
     failures = []
@@ -252,19 +272,57 @@ def main():
     # `unverified` may read `verified` when its `sorry` sits in an abstracted
     # `X._proof_N` (Lean <= 4.28); every move is counted by kind so the golden
     # numbers can be checked against the expected delta.
+    #
+    # The one clean-ward move 0.14 -> 0.15 can legitimately make is through an
+    # executable body: the build log attributed a `partial def`'s or an
+    # `@[implemented_by]` host's `sorry` to the host (`unverified`) and the BFS
+    # tainted its callers (`verified`), while the kernel constant has no edge to
+    # that body, so 0.15 reads both clean. That is also exactly the move an
+    # unsound walk would produce, so it is not allowed wholesale: the hosts are
+    # named with `--exec-hosts`, and a caller qualifies only if its *old*
+    # `dependencies` reached a named host, the same closure the 0.14 BFS used.
     allowed = {("transitively-verified", "verified")}
     if args.status_policy == "taint":
         allowed.add(("trusted", "transitively-verified"))
         allowed.add(("unverified", "verified"))
+    exec_keys = {PREFIX + h for h in exec_hosts}
+    unknown_hosts = sorted(h for h in exec_keys if h not in before)
+    fail("--exec-hosts names an atom the BEFORE artifact does not have",
+         [strip(h) for h in unknown_hosts])
+    reached_host = set()
+    if exec_keys:
+        rdeps = defaultdict(set)   # target -> atoms whose old `dependencies` name it
+        for name in before:
+            for dep in deps(before[name], "dependencies"):
+                rdeps[dep].add(name)
+        stack = list(exec_keys & set(before))
+        while stack:
+            cur = stack.pop()
+            for caller in rdeps.get(cur, ()):
+                if caller not in reached_host and caller not in exec_keys:
+                    reached_host.add(caller)
+                    stack.append(caller)
     bad_status = []
     moves = Counter()
+    exec_moves = Counter()
     for name in common:
         b, a = before[name].get("verification-status"), after[name].get("verification-status")
         if b == a:
             continue
         moves[(b, a)] += 1
-        if (b, a) not in allowed:
-            bad_status.append(f"{name}: {b} -> {a}")
+        if (b, a) in allowed:
+            continue
+        if a == "transitively-verified" and (
+                (b == "unverified" and name in exec_keys) or
+                (b == "verified" and name in reached_host)):
+            exec_moves[(b, a)] += 1
+            continue
+        bad_status.append(f"{name}: {b} -> {a}")
+    if exec_keys:
+        notes.append(f"--exec-hosts: {len(exec_keys)} host(s), {len(reached_host)} atom(s) "
+                     f"reached one in the old graph; excused moves: "
+                     + (", ".join(f"{b} -> {a}: {n}" for (b, a), n in sorted(exec_moves.items()))
+                        or "none"))
     for (b, a), n in sorted(moves.items(), key=lambda kv: str(kv[0])):
         notes.append(f"{b} -> {a}: {n}")
     if not moves:

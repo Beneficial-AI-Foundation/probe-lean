@@ -22,7 +22,11 @@ Usage:
 
 Names: the artifact prints private declarations through `privateToUserName`; the
 report prints raw `Name`s, so `_private.<module>.0.` prefixes are stripped before
-matching and any name still unmatched is reported (not failed) as unresolvable.
+matching (`user_name`, the same normalisation). A listed name marked emitted that is
+still not an atom after that is a failure like any other: the stripping is exact, so
+there is no residual class of "unresolvable" names, and treating one as such let
+the gate pass while an emitted private atom was missing from the artifact. The
+message says when a prefix was stripped so the raw name can be found in the report.
 
 Exit status is 0 only if every equivalence holds.
 """
@@ -44,9 +48,9 @@ TAINTED_HEADER = re.compile(r"^\d+ constant\(s\) rest on an unexcused project so
 
 
 def parse_report(path):
-    """{name: (direct, emitted, stripped)} for every listed tainted constant; `stripped`
-    records that a `_private.<module>.0.` prefix was removed, so an unmatched name can
-    still be told apart from a genuine inconsistency after the prefix is gone.
+    """{name: (direct, emitted, raw)} for every listed tainted constant, keyed by the
+    user-facing name; `raw` is the name as the report printed it, which differs from
+    the key only for a private declaration.
 
     Only the indented lines under the tainted header are read: the report goes on to
     list the trusted base (`N trusted constant(s) (T):`) with the same indentation."""
@@ -65,7 +69,7 @@ def parse_report(path):
             parts = line.strip().split(" ")
             name = user_name(parts[0])
             flags = " ".join(parts[1:])
-            listed[name] = ("[direct]" in flags, "[not emitted]" not in flags, name != parts[0])
+            listed[name] = ("[direct]" in flags, "[not emitted]" not in flags, parts[0])
     return listed
 
 
@@ -124,19 +128,16 @@ def main():
         else:
             bad.append(f"{name}: unexpected status {status!r}")
 
-    unresolved = []
-    for name, (direct, emitted, stripped) in sorted(listed.items()):
+    for name, (direct, emitted, raw) in sorted(listed.items()):
+        private = f" (private, listed as {raw})" if raw != name else ""
         if emitted and name not in atoms:
-            (unresolved if stripped else bad).append(
-                f"{name}: listed as emitted but not an atom of the artifact")
+            bad.append(f"{name}: listed as emitted but not an atom of the artifact{private}")
         if not emitted and name in atoms:
-            bad.append(f"{name}: listed [not emitted] but is an atom")
+            bad.append(f"{name}: listed [not emitted] but is an atom{private}")
 
     print(f"atoms {len(atoms)} | unverified {counts['unverified']} | verified {counts['verified']} "
           f"| transitively-verified {counts['clean']} | trusted {counts['trusted']} "
           f"| no status {counts['missing']} | listed {len(listed)}")
-    for u in unresolved:
-        print(f"unresolvable: {u}")
     if bad:
         print(f"{len(bad)} inconsistenc{'y' if len(bad) == 1 else 'ies'} between the artifact and check-axioms:")
         for b in bad:

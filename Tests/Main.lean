@@ -3632,29 +3632,6 @@ def testPrimarySpecProofOnlyFallback (result : TestResult) : IO TestResult := do
     ambNoAttach result
   return result
 
-/-- `mkProjectFilter` decides project membership per module via `isProjectModule`,
-so pin that predicate's contract — notably that a name-prefix collision
-(`SpqrExtra` vs `Spqr`) is not a match. -/
-def testProjectModuleMembership (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing isProjectModule..."
-  let mods : Array Lean.Name := #[`Spqr, `SrcTranslated]
-  result ← test "exact module matches" (isProjectModule mods `Spqr) result
-  result ← test "descendant module matches" (isProjectModule mods `Spqr.Specs.Poly) result
-  result ← test "unrelated module does not match" (!isProjectModule mods `Mathlib.Data.Nat) result
-  result ← test "name-prefix collision does not match"
-    (!isProjectModule mods `SpqrExtra.Foo) result
-  result ← test "empty module set matches nothing" (!isProjectModule #[] `Spqr) result
-  -- The predicate is component-wise ancestry (`Name.isPrefixOf`), pinned on the two
-  -- degenerate names where a string-prefix test would answer differently. Neither
-  -- shape arises from a path-derived module name.
-  result ← test "anonymous project module is a structural prefix of everything"
-    (isProjectModule #[.anonymous] `Spqr) result
-  result ← test "a single component whose printed form contains `.` is not a descendant"
-    (!isProjectModule mods (Lean.Name.mkSimple "Spqr.Specs")) result
-  return result
-
 /-- Module names are derived from olean paths one atomic component per path
 segment, so segments that are not plain identifiers (and would need guillemets
 in source) must survive — `String.toName` collapsed them to `.anonymous`,
@@ -4962,7 +4939,20 @@ run_cmd do
       !attrsFilter'.contains env sdn && namesFilter.contains env sdn &&
       !namesFilter.contains env ``ProbeLean.probeRef),
     ("projectConstants-style membership: non-project roots are blocked",
-      !(projectTaint env (fun _ => false) (fun _ => false) roots).tainted.contains `TaintEnv.sorried)]
+      !(projectTaint env (fun _ => false) (fun _ => false) roots).tainted.contains `TaintEnv.sorried),
+    -- Project membership is by module identity. `ProbeLean` (the root module) is a
+    -- strict name-prefix of `ProbeLean.Attrs`; naming the root alone must not pull in
+    -- the descendant, which is the shape of a dependency module below a project
+    -- module's name (project `Foo`, dependency `Foo.Bar`).
+    ("mkProjectFilter: a named module's constants are in",
+      attrsFilter.contains env ``ProbeLean.externallyVerifiedAttr),
+    ("mkProjectFilter: a descendant of a named module is not in by prefix",
+      !(mkProjectFilter env #[`ProbeLean]).contains env ``ProbeLean.externallyVerifiedAttr),
+    ("mkProjectFilter: an unrelated module is not in",
+      !attrsFilter.contains env ``Nat.succ),
+    ("mkProjectFilter: an empty inventory contains nothing",
+      (mkProjectFilter env #[]).moduleIdxs.isEmpty &&
+      !(mkProjectFilter env #[]).contains env ``ProbeLean.externallyVerifiedAttr)]
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
   elabCommand (← `(def $(mkIdent `taintEnvChecks) : Array (String × Bool) :=
     #[$items,*]))
@@ -5155,7 +5145,6 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testValueOfAndProofDeps result
   result ← testSpecsIgnoreProofDeps result
   result ← testPrimarySpecProofOnlyFallback result
-  result ← testProjectModuleMembership result
   result ← testPathToModuleName result
   result ← testConstants result
   result ← testAnalysisHelpers result

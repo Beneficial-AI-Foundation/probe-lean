@@ -69,6 +69,8 @@ def main():
     check("callerGood (built against the proved version) is verified too: fail closed",
           status(data, "probe:callerGood") == "verified")
     check("callerSub (submodule of Merge.Good) is verified", status(data, "probe:callerSub") == "verified")
+    check("privCaller (private) is an atom under its user-facing name, verified",
+          status(data, "probe:privCaller") == "verified" and "probe:_private.Merge.Use.0.privCaller" not in data)
     check("shared's edges are both versions' (sorryAx and True.intro)",
           both_bodies(data.get("probe:shared", {})))
 
@@ -109,6 +111,8 @@ def main():
     print("check-axioms report")
     check("shared is listed as a direct carrier", "  shared [direct]" in report)
     check("both callers are listed", "  caller" in report and "  callerGood" in report)
+    check("the private caller is listed under its raw name, as emitted",
+          "  _private.Merge.Use.0.privCaller" in report)
     check("the same warning is printed by check-axioms",
           any("declared by more than one project module" in l for l in report + stderr))
 

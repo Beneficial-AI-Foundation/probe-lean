@@ -57,18 +57,6 @@ def isInternalName (name : Name) : Bool :=
 def moduleNameOf (modNames : Array Name) (env : Environment) (name : Name) : Option Name :=
   env.getModuleIdxFor? name >>= fun idx => modNames[idx.toNat]?
 
-/-- Whether a module belongs to the project: it is one of `projectModules`, or a
-descendant of one. The one place project membership is decided. -/
-def isProjectModule (projectModules : Array Name) (modName : Name) : Bool :=
-  -- Component-wise ancestry (`Name.isPrefixOf`): equal, or a descendant. No
-  -- allocation per pair — the string form (`toString.startsWith (toString ++ ".")`)
-  -- cost two allocations for each of the ~3000 × 260 (environment module × project
-  -- module) pairs, 0.4–0.9 s per `mkProjectFilter`. On degenerate names the two
-  -- differ: `.anonymous` is a structural prefix of every module, and a single
-  -- component whose printed form contains `.` (through `«…»` escaping) is not a
-  -- structural descendant. Path-derived module names hit neither.
-  projectModules.any fun projMod => projMod.isPrefixOf modName
-
 /-- Whether a declaration belongs to the project, as a set of module *indices*.
 
 The obvious formulation — resolve the constant's module name, then prefix-match it
@@ -77,8 +65,8 @@ but it is the dominant cost of extraction in bulk: `declInfoToAtom` tests every
 dependency occurrence of every emitted declaration, which on a 190-module project
 with proof-term dependencies included runs to tens of thousands. Deciding
 membership per *module* up front turns each test into a hash lookup, and made
-`extract` on SPQR 8× faster. The per-module test itself (`isProjectModule`) is
-allocation-free too, so building a filter costs milliseconds. -/
+`extract` on SPQR 8× faster. Building a filter is one pass over the environment's
+module names with a hash lookup each, milliseconds. -/
 structure ProjectFilter where
   moduleIdxs : Std.HashSet Nat
   /-- Constants that count as selected whatever module the environment attributes
@@ -88,14 +76,23 @@ structure ProjectFilter where
       emitted graph connects to the atom (`ProjectFilter.withNames`). -/
   names : Std.HashSet Name := {}
 
-/-- Precompute the project's module indices. -/
+/-- Precompute the module indices of exactly `projectModules`. Membership is by module
+    identity, not by name prefix: the callers pass the full inventory of built project
+    modules (`getProjectModules`, narrowed by `--module`/`--library` through
+    `selectModules`), so every project module is named and nothing else is one. The
+    earlier ancestry test (`projMod.isPrefixOf modName`) gave the same set on every
+    environment Lean can import — `SearchPath.findWithExt` resolves a module root to
+    the first search-path entry holding its directory, so a dependency cannot supply
+    `Foo.Bar` next to the project's `Foo` — but P's definition is the inventory, and
+    this does not rest on that argument. -/
 def mkProjectFilter (env : Environment) (projectModules : Array Name) : ProjectFilter :=
   Id.run do
+    let project := Std.HashSet.ofArray projectModules
     let names := env.allImportedModuleNames
     let mut idxs : Std.HashSet Nat := {}
     for i in [:names.size] do
       if h : i < names.size then
-        if isProjectModule projectModules names[i] then
+        if project.contains names[i] then
           idxs := idxs.insert i
     return { moduleIdxs := idxs }
 

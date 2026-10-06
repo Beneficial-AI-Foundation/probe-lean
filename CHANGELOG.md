@@ -207,7 +207,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   root(s) outside the project are trusted wholesale (Lean and dependency packages): Init,
   Lean, Mathlib, …` once per run — every package `lake-manifest.json` lists, a second Lake
   package holding the project's own code included (`tests/fixtures/cross-merge`'s `dep`);
-  move code into the main package to have it analysed.
+  move code into the main package to have it analysed. P is the set of built project
+  modules by identity (`mkProjectFilter` keeps exactly the modules it is given, no name
+  prefix test). The prefix test it replaces gave the same set on every environment Lean
+  can import — a module root resolves to one search-path directory, so a dependency
+  cannot supply `Foo.Bar` next to the project's `Foo` — but the definition of P should not
+  rest on that argument.
 
   **Merged declarations fail closed.** Lean's importer accepts two project modules that
   restate a theorem with the same name and statement and keeps *one* proof in its lookup
@@ -352,12 +357,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   paragraph each; the definitions, cross-checks, coverage, merged-declaration and
   trusted-base detail moved to a "Verification status and the trusted base" section.
 - `tools/audit/compare-extract.py --status-policy taint` accepts the status moves of this
-  release and reports every move by kind.
+  release and reports every move by kind. The clean-ward move through an executable body
+  (a sorried `partial def` or `@[implemented_by]` host read `unverified` from the build log
+  and its callers `verified`; the kernel constant has no edge to that body, so both read
+  clean now) is accepted only for hosts named with `--exec-hosts NAME,...` and for atoms
+  whose *old* `dependencies` reached one — the closure the 0.14 BFS tainted — since the
+  same move is what an unsound walk would produce.
 - New `tools/audit/check-status-consistency.py ARTIFACT check-axioms.out`: asserts the
   artifact and the `check-axioms` report agree in **both** directions on every emitted atom
   (`unverified` ⇔ listed `[direct]`, `verified` ⇔ listed, clean ⇔ not listed). Run in CI on
   the fixtures; the one-directional "every `unverified` atom is a direct carrier" check
-  passed vacuously.
+  passed vacuously. Private names are matched after stripping `_private.<module>.0.`,
+  and a listed emitted name that is still not an atom fails like any other (an earlier
+  revision printed it as "unresolvable" and exited 0).
 
 ### Removed
 
@@ -384,11 +396,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   isolated: the walk's `finalizeFrom` kept the state record referenced while mutating its
   maps, so every SCC finalisation copied the memo — quadratic in |P|, 964 ms on SPQR and
   463 ms on dalek; the fields are now taken out of the record before the loop (12 ms /
-  9 ms, identical tainted sets; a scaling test pins linear growth). `isProjectModule`
+  9 ms, identical tainted sets; a scaling test pins linear growth). `mkProjectFilter`
   compared `toString` forms, two allocations per (environment module × project module)
-  pair, 0.4–0.9 s per `mkProjectFilter` with two filters built per run; it now uses
-  `Name.isPrefixOf` (component-wise ancestry, pinned on the two degenerate names where the
-  predicates differ). `projectConstants` scanned the whole imported constant map (Mathlib
+  pair, 0.4–0.9 s per filter with two filters built per run; it is one pass over the
+  environment's module names with a hash lookup each. `projectConstants` scanned the whole imported constant map (Mathlib
   included) for the project's constants, 0.5–1.2 s; it now enumerates the project modules'
   own `constNames`, keeping the environment's attribution and body for each name (a
   unit test asserts both formulations agree on a real environment; the merge fixtures

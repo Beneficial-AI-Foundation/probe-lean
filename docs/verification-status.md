@@ -69,7 +69,10 @@ The walk follows what the kernel constant references, which is not always what r
   inhabitant with no edge to it. So `loopy` in `partial def loopy … sorry …` reads
   `"transitively-verified"` while `loopy._unsafe_rec` is a direct carrier, listed `[direct] [not
   emitted]` by `check-axioms`. The build-log cross-check prints a `Note(log)` line naming the
-  compiled body instead of a divergence.
+  compiled body instead of a divergence. Against a build-log artifact this is an `unverified →
+  transitively-verified` move for the host and `verified → transitively-verified` for its
+  callers; `compare-extract.py --status-policy taint` accepts it only for hosts named with
+  `--exec-hosts`.
 - An `@[implemented_by target]` host has no edge to `target`. The target is a constant of its own
   and gets its own status; nothing links the host to it.
 - `unsafe def` bodies *are* walked.
