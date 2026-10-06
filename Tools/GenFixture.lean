@@ -55,11 +55,12 @@ private def boundsRef : String := addProbePrefix "ExampleProject.helper_bounds"
 private def correctRef : String := addProbePrefix "ExampleProject.helper_correct"
 private def unprovedRef : String := addProbePrefix "ExampleProject.unproved"
 
-/-- The fixture atoms. Deliberately covers every shape the integration tests
-    assert on: a `def`, a `theorem`, a `projection`, a `structure`, and an
-    `axiom`; at least one `verified` and one `trusted` atom; `trusted-reason`
-    present only on trusted atoms; and `specs` / `primary-spec` / `attributes`
-    populated on a target.
+/-- The fixture atoms. They cover every shape the integration tests assert on:
+
+    - a `def`, a `theorem`, a `projection`, a `structure`, and an `axiom`
+    - at least one `verified` and one `trusted` atom
+    - `trusted-reason` present only on trusted atoms
+    - `specs` / `primary-spec` / `attributes` populated on a target
 
     Statuses are those of a default-mode extract (no `--skip-enrich`): clean atoms
     read `transitively-verified`, and `unproved_corollary`, which depends on the

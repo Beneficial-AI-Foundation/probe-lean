@@ -182,7 +182,14 @@ probe-lean viewify <PROJECT_PATH> [OPTIONS]
 | `--with-atoms <FILE>` | `-a` | Path to the `extract` output (default: auto-detected under `.verilib/probes/`). |
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/views/molecules_all.json`). |
 
-`viewify` keeps an atom as a molecule if all of these are true: it is not hidden, not lean- or aeneas-generated, it is relevant, and its `code-path` ends with `Funs.lean`. [schema.md](schema.md), section "Molecules (`probe-lean/viewify`)", lists the molecule fields.
+`viewify` keeps an atom as a molecule only when all of these are true:
+
+- It is not hidden.
+- It is not lean- or aeneas-generated.
+- It is relevant.
+- Its `code-path` ends with `Funs.lean`.
+
+[schema.md](schema.md), section "Molecules (`probe-lean/viewify`)", lists the molecule fields.
 
 ---
 
@@ -327,7 +334,7 @@ Example `.verilib/probes/config.json`:
 
 ### Build takes hours
 
-`lake build` is compiling Mathlib from source. This happens when the automatic cache download failed (see "Mathlib cache" above). Run `lake exe cache get` in the target project.
+If the automatic cache download fails (see "Mathlib cache" above), `lake build` compiles Mathlib from source. Run `lake exe cache get` in the target project.
 
 ### "Co-importability check failed"
 
@@ -342,7 +349,11 @@ Fixes, best first:
 
 ### "environment already contains '...'" after you rename or delete a file
 
-An orphan `.olean` from the old module is still on disk (Lake does not remove oleans of deleted or renamed sources). It declares a name that another module now owns. probe-lean drops orphan oleans by checking each module for its `.lean` source. It knows only the `srcDir`s declared in `lakefile.toml`. With a `lakefile.lean` and a custom `srcDir`, the orphan can pass both the source check and the co-importability preflight. Run `lake clean && lake build` in the target project, then run `extract` again.
+An orphan `.olean` from the old module is still on disk (Lake does not remove oleans of deleted or renamed sources). It declares a name that another module now owns. probe-lean drops orphan oleans by checking each module for its `.lean` source, but a live module can still import the orphan. Run `lake clean && lake build` in the target project, then run `extract` again.
+
+### Live modules listed as orphans
+
+probe-lean looks for a module's `.lean` source under the project root and under each `srcDir` declared in `lakefile.toml`. It does not read `lakefile.lean`. If a `lakefile.lean` library has a custom `srcDir`, probe-lean does not find the sources of its modules. It lists them under `Ignoring <n> orphan module(s)` and leaves them out of the analysis. If a kept module imports one of them, `extract` stops with `stale module(s) with no .lean source were imported by a live module`. `lake clean` does not fix this. Move the sources to the default root, or declare the library in `lakefile.toml` with its `srcDir`.
 
 ### "Failed to import modules"
 

@@ -240,7 +240,7 @@ def update_toolchain(project_root: Path, version: str) -> str:
 
 
 def update_lakefile(project_root: Path, version: str) -> str:
-    """Update the lean4-cli dependency's rev in lakefile.toml; return original."""
+    """Update the lean4-cli dependency's rev in lakefile.toml and return the original."""
     lakefile_path = project_root / "lakefile.toml"
     original = lakefile_path.read_text()
     # Rewrite the rev of ONLY the lean4-cli dependency — match the lean4-cli git

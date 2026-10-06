@@ -14,13 +14,13 @@
 ```
 
 ## Behavior
-[Describe how the feature should behave, including:]
+[Describe how the feature behaves, including:]
 - Normal operation
 - Edge cases
 - Error handling
 
 ## Non-Goals
-[What this feature explicitly does NOT do - helps prevent scope creep]
+[What this feature does NOT do. This list keeps the scope small.]
 
 ## Acceptance Criteria
-[How do we know this is done? What tests should pass?]
+[How do we know this is done? Which tests must pass?]

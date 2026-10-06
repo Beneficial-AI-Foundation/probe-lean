@@ -76,7 +76,7 @@ def hasRealDirComponents (path : String) : Bool :=
 
 /-- Check if two file paths refer to the same file.
     Uses path-separator boundary to avoid substring false positives
-    (e.g. "NotMain.lean" should not match "Main.lean").
+    (for example, "NotMain.lean" does not match "Main.lean").
     Filename-only fallback is only used when at most one path has
     real directory components, to avoid matching files in different directories. -/
 def pathsMatch (path1 : String) (path2 : String) : Bool :=

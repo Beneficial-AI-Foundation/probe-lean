@@ -35,8 +35,8 @@ def valueOf : ConstantInfo → Option Expr
 def usedConsts (ci : ConstantInfo) : Array Name :=
   ci.type.getUsedConstants ++ (valueOf ci).elim #[] Expr.getUsedConstants
 
-/-- Bucket an internal name by the syntactic family a fix would have to
-recognise. Checked in the order a fix would check them. -/
+/-- Bucket an internal name by the syntactic family that a fix must recognize.
+The checks run in the order that a fix checks them. -/
 def shapeOf (n : Name) : String :=
   let last := match Lean.privateToUserName n with
     | .str _ s => s

@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
 """Invariant gate for the auxiliary-dependency fold (issue #99).
 
-Compares two `probe-lean extract` artifacts — one from before the fold, one from
-after — and asserts the governing invariant:
+Compares two `probe-lean extract` artifacts (one from before the fold, one from
+after) and asserts the governing invariant:
 
     The fold only ever *adds* names to `term-dependencies`. It never adds to
-    `type-dependencies`, never removes an entry from any of the four dependency
+    `type-dependencies`. It never removes an entry from any of the four dependency
     arrays, never adds to the `*-external` arrays, and never changes the atom
     set.
 
 What matters here is the invariants, not the edge counts: recovering the *wrong*
-565 edges would pass any numeric test. Pass `--oracle` (output of
-`tools/audit/Audit6.lean` on the same project, commit and module filter) to
-additionally require that the added edges are exactly the ones an independent
-traversal predicts.
+565 edges passes any numeric test. To also require that the added edges are
+exactly the ones an independent traversal predicts, pass `--oracle`. Its input is
+the output of `tools/audit/Audit6.lean` on the same project, commit and module
+filter.
 
-This is a manual recipe, not a CI gate — it needs a built target project. Two
-limits worth knowing when reading its output:
+This is a manual recipe, not a CI gate, because it needs a built target project.
+Read its output with two limits in mind:
 
-- field values are compared *normalized*: absent, `null` and `[]` are all read as
-  `[]`, so this checks value identity, not field presence;
-- **private-name collisions are outside what it can verify.** The artifact prints
+- Field values are compared *normalized*: absent, `null` and `[]` are all read as
+  `[]`. So this script compares values, not field presence.
+- **Private-name collisions are outside what it can detect.** The artifact prints
   names through `privateToUserName`, so two distinct declarations can serialize
   identically. This script only ever sees the printed form, which costs it two
-  things: a repeated name is reported as a diagnostic rather than checked (see
-  the `collisions` note below), and the added-edge diff below is a set difference
-  over printed strings, whereas `Audit6.lean` subtracts direct dependencies by
-  raw `Name` and renders afterwards. On a colliding pair the two disagree — the
-  oracle can predict an edge this diff cannot see — and `--oracle` then reports a
-  spurious "predicted but not added". Verifying those cases needs identity in the
-  artifact, which it does not carry.
+  things. First, a repeated name is reported as a diagnostic rather than tested
+  (see the `collisions` note below). Second, the added-edge diff below is a set
+  difference over printed strings. `Audit6.lean` instead subtracts direct
+  dependencies by raw `Name` and renders afterwards. On a colliding pair the two
+  disagree: the oracle can predict an edge this diff cannot see, and `--oracle`
+  then reports a spurious "predicted but not added". These cases need identity
+  in the artifact, which it does not carry.
 
 Usage:
 
@@ -38,9 +38,9 @@ Usage:
                                    [--exec-hosts NAME,...]
 
 `--status-policy taint` is the 0.14 -> 0.15 comparison (status from the kernel
-walk). `--exec-hosts` names the `partial def` / `@[implemented_by]` hosts whose
-0.14 `unverified` came from a `sorry` in an executable body the kernel constant does
-not reference; see the option help for which moves that excuses.
+walk). `--exec-hosts` names the `partial def` / `@[implemented_by]` hosts whose 0.14
+`unverified` came from a `sorry` in an executable body. The kernel constant does
+not reference that body. See the option help for which moves that excuses.
 
 Exit status is 0 only if every invariant holds.
 """
@@ -116,7 +116,7 @@ def main():
     notes = []
 
     def fail(check, violations):
-        """Record a failed check. Takes the FULL violation list — truncation is a
+        """Record a failed check. Takes the FULL violation list, because truncation is a
         printing concern. Passing a pre-truncated list made `--report 0` slice
         every list to empty and turned the whole gate into a no-op."""
         violations = list(violations)

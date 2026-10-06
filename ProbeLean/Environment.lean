@@ -61,7 +61,7 @@ def getCacheFiles (projectPath : System.FilePath) : System.FilePath × System.Fi
   (cacheDir / "build_output.txt", cacheDir / "build_config.json")
 
 /-- Recursively check if any .lean file is newer than cache.
-    Skips dot-directories (.lake/, .git/, etc.) to avoid walking dependency
+    Skips dot-directories (such as .lake/ and .git/) to avoid walking dependency
     sources and build artifacts. -/
 partial def checkFilesNewerThan (dir : System.FilePath) (cacheTime : IO.FS.SystemTime) : IO Bool := do
   let entries ← dir.readDir
@@ -89,9 +89,9 @@ partial def hasAnyOlean (dir : System.FilePath) : IO Bool := do
       return true
   return false
 
-/-- Check if cache is valid: cache file exists, build output directory contains
-    at least one `.olean`, config files (lean-toolchain, lakefile) haven't changed,
-    and no .lean source is newer than the cache. -/
+/-- Check if cache is valid. The cache file must exist, and the build output
+    directory must contain at least one `.olean`. No config file (lean-toolchain,
+    lakefile) and no .lean source can be newer than the cache. -/
 def isCacheValid (projectPath : System.FilePath) : IO Bool := do
   let (outputCache, _) := getCacheFiles projectPath
   if !(← outputCache.pathExists) then return false
@@ -134,20 +134,20 @@ def loadCache (projectPath : System.FilePath) : IO (Option String) := do
     return none
 
 /-- Convert an olean's slash-separated relative path (`.olean` suffix already
-    stripped) to its module name, one atomic component per path segment — the
-    same construction Lean core uses (`Lean.moduleNameOfFileName`).
+    stripped) to its module name, one atomic component per path segment. Lean
+    core uses the same construction (`Lean.moduleNameOfFileName`).
     Built with `Name.mkStr` rather than `String.toName` because path segments
-    are not necessarily plain identifiers: a file like
-    `Misc/Real-EReal-ENNReal.lean` is a legal Lake module whose name is
-    written `Misc.«Real-EReal-ENNReal»`, and `String.toName` mangles such
-    segments (non-identifier segments collapse the whole name to `.anonymous`,
-    which `importModules` rejects outright; digit-only segments become numeric
-    components, which are invalid in module names). -/
+    are not necessarily plain identifiers. For example, the file
+    `Misc/Real-EReal-ENNReal.lean` is a legal Lake module, written
+    `Misc.«Real-EReal-ENNReal»`. `String.toName` mangles such segments. A
+    non-identifier segment collapses the whole name to `.anonymous`, which
+    `importModules` rejects outright. A digit-only segment becomes a numeric
+    component, which is invalid in module names. -/
 def pathToModuleName (relPath : String) : Lean.Name :=
   (relPath.splitOn "/").foldl .mkStr .anonymous
 
 /-- Convert a module name back to the slash-separated relative path of its
-    backing source file (extension not included) — the inverse of
+    backing source file (extension not included). It is the inverse of
     `pathToModuleName`. Reads each atomic component's string directly rather
     than going through `Name.toString`, whose guillemet quoting
     (`Misc.«Real-EReal-ENNReal»`) never appears in file names. Module names
@@ -159,9 +159,9 @@ def moduleNameToRelPath : Lean.Name → Option String
   | .str p s => (moduleNameToRelPath p).map (· ++ "/" ++ s)
   | .num _ _ => none
 
-/-- Recursively collect .olean files, returning for each its module name together
-    with its path relative to `basePath`, slash-separated and with the `.olean`
-    suffix stripped (e.g. `"A/B/C"`). The relative path is kept so callers can
+/-- Recursively collect .olean files. For each file, return its module name and
+    its path relative to `basePath`, slash-separated and with the `.olean`
+    suffix stripped (for example `"A/B/C"`). The relative path is kept so callers can
     reconstruct the backing source location under a library's `srcDir`. -/
 partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System.FilePath) : IO (Array (Lean.Name × String)) := do
   let mut result : Array (Lean.Name × String) := #[]
@@ -182,8 +182,9 @@ partial def collectOleanFiles (basePath : System.FilePath) (currentPath : System
 /-- Partition collected olean modules into (source-backed, orphan), where a
     module with relative path `A/B/C` is source-backed iff `<root>/A/B/C.lean`
     exists under some `root` in `sourceRoots`. An empty `sourceRoots` defaults to
-    `#["."]`. Conservative: a module is an orphan only when *no* root has its
-    source, so an unknown `srcDir` cannot silently drop a live module.
+    `#["."]`. A module is an orphan only when *no* root has its source. A live
+    module under a `srcDir` that is missing from `sourceRoots` is therefore
+    dropped as an orphan.
     Kept entries retain their `(name, relPath)` tuple so callers never have to
     re-join names with paths after the fact. -/
 def partitionBySource (projectPath : System.FilePath) (sourceRoots : Array String)
@@ -205,33 +206,34 @@ def partitionBySource (projectPath : System.FilePath) (sourceRoots : Array Strin
       orphans := orphans.push name
   return (kept, orphans)
 
-/-- A project module paired with the `.olean` it was discovered from. The
-    pairing is established once at discovery and preserved through every
-    filter, so a module name can never be matched with the wrong olean
-    (the preflight co-importability check reads the olean by this path). -/
+/-- A project module paired with the `.olean` it was discovered from. Discovery
+    sets the pairing once, and every filter keeps it. So a module name is never
+    matched with the wrong olean. The preflight co-importability check reads the
+    olean by this path. -/
 structure ProjectModule where
   name      : Lean.Name
   oleanPath : System.FilePath
   deriving Inhabited
 
-/-- The project's own modules: the `.olean` files under its build directory
-    (`.lake/build/lib[/lean]`) that still have a backing `.lean` source, each paired
-    with the olean it was discovered from (`ProjectModule`).
+/-- The project's own modules. These are the `.olean` files under its build
+    directory (`.lake/build/lib[/lean]`) that still have a backing `.lean` source.
+    Each is paired with the olean it was discovered from (`ProjectModule`).
 
-    Lake never garbage-collects oleans, so after a file is renamed or deleted the stale
-    "orphan" olean lingers on disk, and importing it alongside the module that replaced
-    it makes `importModules` abort with `environment already contains '...'`. A module
-    `A/B/C` is source-backed when `<root>/A/B/C.lean` exists under some root in
-    `sourceRoots`, which the caller supplies as `"."` plus every library `srcDir`. A
-    module is dropped only when *no* root has its source, so a missing `srcDir` cannot
-    silently drop a live module; dropped orphans are printed. The `lake env` call
-    validates that the Lake environment is usable before scanning.
+    Lake never garbage-collects oleans. After a file is renamed or deleted, the stale
+    "orphan" olean stays on disk. Importing it next to the module that replaced it makes
+    `importModules` abort with `environment already contains '...'`. A module `A/B/C` is
+    source-backed when `<root>/A/B/C.lean` exists under some root in `sourceRoots`. The
+    caller supplies `"."` plus every library `srcDir` declared in `lakefile.toml`. A
+    module is dropped only when *no* root has its source, and dropped orphans are
+    printed. A `lakefile.lean` is not parsed, so a live module under a custom `srcDir`
+    declared there is dropped and printed as an orphan. The `lake env` call checks that
+    the Lake environment is usable before scanning.
 
-    Returns the kept modules and the dropped orphan names, both sorted. Dropping an
-    orphan from the inventory does not stop `importModules` from loading it when a kept
-    module still imports it, and a loaded module outside the inventory would sit outside
-    P and be trusted like a dependency package; the caller checks the orphans against
-    the imported module set after the import (`Atomize.loadedOrphans`) and aborts. -/
+    Returns the kept modules and the dropped orphan names, both sorted. A kept module can
+    still import a dropped orphan, and then `importModules` loads it anyway. A loaded
+    module outside the inventory sits outside P and is trusted like a dependency
+    package. So the caller compares the orphans with the imported module set after the
+    import (`Atomize.loadedOrphans`) and aborts. -/
 def getProjectModules (projectPath : System.FilePath)
     (nixMode : Option NixMode := none) (sourceRoots : Array String := #["."])
     : IO (Except String (Array ProjectModule × Array Lean.Name)) := do

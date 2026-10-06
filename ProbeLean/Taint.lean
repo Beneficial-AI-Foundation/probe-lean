@@ -5,7 +5,7 @@
   Shared by `extract` (`Atomize.runAnalysisViaLakeEnv`) and `check-axioms`
   (`CheckAxioms.runCheckAxiomsInProject`), so the two report the same set by
   construction. The pure core lives in `AxiomCheck` (the walk) and `Trust` (the
-  rules); this module supplies P, computes T, and formats the diagnostics.
+  rules). This module supplies P, computes T, and formats the diagnostics.
 -/
 import Lean
 import ProbeLean.Analysis
@@ -18,9 +18,9 @@ namespace ProbeLean
 open Lean
 
 /-- A name the importer collapsed to one body although several modules declare it
-    (`headerMerges`): either two or more project modules declare it with the same
-    statement — the importer accepts the set and keeps one version — or a project
-    module and a module outside the project both do. `versions` holds every project
+    (`headerMerges`). In one case, two or more project modules declare it with the
+    same statement, and the importer accepts the set and keeps one version. In the
+    other case, a project module and a module outside the project both declare it. `versions` holds every project
     `(owning module, constant info)`, sorted by module: one for a cross-boundary name,
     two or more for a project/project restatement. The bodies are read from
     `Environment.header.moduleData`, which keeps each module's own constants even when
@@ -41,48 +41,48 @@ structure ProjectTaint where
   constants : Std.HashSet Name
   /-- Hand-written names declared by more than one imported project module with the
       same statement (`MergedDecl`): the importer kept one proof, the walk followed
-      the union of all of them. Sorted by name; reported as a warning. -/
+      the union of all of them. Sorted by name and reported as a warning. -/
   merged : Array Name := #[]
-  /-- Every name the importer collapsed — declared by more than one project module,
-      or by a project module and a module outside the project — realisations
-      included, with each **project** module's version (`MergedDecl.versions`).
-      `getProjectDeclsFrom` decides emission and dependency arrays from these rather
-      than from the one version the environment kept, so an atom's edges are the
-      ones the walk followed. A cross-boundary name the environment attributes to a
+  /-- Every name the importer collapsed, with each **project** module's version
+      (`MergedDecl.versions`). Such a name is declared by more than one project module,
+      or by a project module and a module outside the project. Realisations are
+      included. `getProjectDeclsFrom` decides emission and dependency arrays from
+      these versions, not from the one version the environment kept. So an atom's
+      edges are the ones the walk followed. A cross-boundary name the environment attributes to a
       dependency is not among the constants `getProjectDeclsFrom` iterates and stays
       unemitted (`[not emitted]` in `check-axioms`). -/
   mergedVersions : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
   /-- Hand-written names a project module declares that a module outside the project
       declares too: walked from the project's own version(s) like a merged
-      declaration. Sorted by name; reported as a note. -/
+      declaration. Sorted by name and reported as a note. -/
   crossWalked : Array Name := #[]
   /-- The merged and cross-boundary names that are Lean's on-demand realisations
       (`isRealisedTheoremName`: `eq_N`, `congr_simp`, `hcongr_N`, …), which several
-      modules realise independently. Walked like the others; reported as a note
-      rather than a warning, since no human restated anything. Sorted by name. -/
+      modules realise independently. Walked like the others, but reported as a note
+      and not as a warning, because no human restated anything. Sorted by name. -/
   realised : Array Name := #[]
   /-- The `externally_verified` tag set rule 2 was decided from (`TagSet`). -/
   tagSet : TagSet := {}
   /-- Tag audit (`tagAudit`): source-visible constants whose header shows the tag
-      naming them — what the source scan would have trusted — while the tag set does
-      not contain them. Sorted by name; each is reported. -/
+      naming them, but which the tag set does not contain. The old source scan trusted
+      these. Sorted by name, and each one is reported. -/
   scanOnlyTags : Array Name := #[]
   /-- Tag audit: source-visible constants in the tag set whose scanned header does not
-      show the tag — an `attribute [externally_verified] foo` command or a macro attached
-      it. A tagged constant with no declaration range is trusted but never scanned, so it
-      is not listed here. Sorted; reported as a note. -/
+      show the tag, because an `attribute [externally_verified] foo` command or a macro
+      attached it. A tagged constant with no declaration range is trusted but never
+      scanned, so it is not listed here. Sorted and reported as a note. -/
   tagOnly : Array Name := #[]
   /-- Trusted project axioms (rule 1) that are not source-visible declarations: an
       internal name or no declaration range, so not written by a human and never an
-      atom (`generatedTrustedAxioms`). Since Lean 4.31 `native_decide` adds one per
-      proof, `X._native.native_decide.ax_N`, instead of referencing `Lean.ofReduceBool`;
-      that axiom carries the theorem's range and is hidden only by its internal name.
+      atom (`generatedTrustedAxioms`). From Lean 4.31 on, `native_decide` adds one per
+      proof, `X._native.native_decide.ax_N`, instead of referencing `Lean.ofReduceBool`.
+      That axiom carries the theorem's range and is hidden only by its internal name.
       Such a proof rests on compiled code behind a trusted, otherwise invisible
-      constant. Sorted; reported as a note. -/
+      constant. Sorted and reported as a note. -/
   generatedAxioms : Array Name := #[]
   /-- The root components of the imported modules outside P (`Init`, `Lean`, `Mathlib`,
-      a dependency package's root — `dependencyRoots`): the boundary the walk stops at
-      and trusts wholesale. Sorted, deduplicated; reported as a note. -/
+      a dependency package's root, see `dependencyRoots`): the boundary the walk stops
+      at and trusts wholesale. Sorted, deduplicated and reported as a note. -/
   dependencyRoots : Array Name := #[]
   /-- |P|. -/
   pSize : Nat
@@ -91,7 +91,7 @@ structure ProjectTaint where
 
 /-- The out-edges of a merged declaration: the union of `constInfoChildren` over
     every version the imported modules declare. The environment's lookup map holds
-    only one version's body; a caller that was built against the other one still
+    only one version's body. A caller that was built against the other one still
     rests on *that* body's `sorry`, so the walk must follow all of them. -/
 def mergedChildren (m : MergedDecl) : Array Name := Id.run do
   let mut out : Array Name := #[]
@@ -105,19 +105,21 @@ def mergedChildrenMap (merged : Array MergedDecl) : Std.HashMap Name (Array Name
   merged.foldl (init := {}) fun acc m => acc.insert m.declName (mergedChildren m)
 
 /-- One imported module as the environment header holds it: its name, whether it is a
-    project module, and its own `constNames`/`constants` arrays, positionally paired —
-    `ModuleData.constants[k]` is the body the module declared for `constNames[k]`. -/
+    project module, and its own `constNames`/`constants` arrays. The arrays are paired
+    by position: `ModuleData.constants[k]` is the body the module declared for
+    `constNames[k]`. -/
 abbrev HeaderModule := Name × Bool × Array Name × Array ConstantInfo
 
 /-- Pure core of `headerMerges`. For every name a project module declares, collect the
     project versions (one per declaring project module, sorted by module). A name is
-    **cross-boundary** when a non-project module declares it too or the environment
-    attributes it outside the project (`ownedByProject n = false`, including a name
-    the environment has no module index for); otherwise it is **merged** when two or
-    more project modules declare it. Returns `(merged, cross)`, both sorted by name.
+    **cross-boundary** when a non-project module declares it too, or when the
+    environment attributes it outside the project. The second case is
+    `ownedByProject n = false`, and it includes a name the environment has no module
+    index for. Otherwise the name is **merged** when two or more project modules
+    declare it. Returns `(merged, cross)`, both sorted by name.
 
-    Only project modules' `constants` are ever read: the non-project modules — the
-    bulk of a Mathlib-sized environment — contribute one set lookup per `constNames`
+    Only project modules' `constants` are ever read. The non-project modules (the
+    bulk of a Mathlib-sized environment) contribute one set lookup per `constNames`
     entry and nothing else. -/
 def classifyHeaderVersions (mods : Array HeaderModule) (ownedByProject : Name → Bool)
     : Array MergedDecl × Array MergedDecl := Id.run do
@@ -166,7 +168,7 @@ def classifyHeaderVersions (mods : Array HeaderModule) (ownedByProject : Name �
     `constNames`/`constants`, and with the import at `OLeanLevel.private` that is each
     module's private level, module-system files included. So every version of a
     restated declaration is in the environment already and no second read of the
-    oleans is needed. `pFilter` decides which modules are the project's;
+    oleans is needed. `pFilter` decides which modules are the project's.
     `ProjectFilter.contains` is the ownership test. -/
 def headerMerges (env : Environment) (pFilter : ProjectFilter)
     : Array MergedDecl × Array MergedDecl :=
@@ -180,7 +182,7 @@ def headerMerges (env : Environment) (pFilter : ProjectFilter)
 /-- The root components of the imported modules that are not the project's
     (`moduleNames` indexed like `pFilter.moduleIdxs`): Lean's own libraries and every
     dependency package the walk stops at, a second Lake package holding the project's
-    own code included (spec decision 2: every dependency package is trusted wholesale).
+    own code included. Spec decision 2 trusts every dependency package wholesale.
     Deduplicated and sorted, so the note names each package once. -/
 def dependencyRoots (moduleNames : Array Name) (pFilter : ProjectFilter) : Array Name := Id.run do
   let mut seen : Std.HashSet Name := {}
@@ -193,11 +195,11 @@ def dependencyRoots (moduleNames : Array Name) (pFilter : ProjectFilter) : Array
       out := out.push root
   return out.qsort fun a b => a.toString < b.toString
 
-/-- Whether the last component of `n` names one of Lean's on-demand realisations —
+/-- Whether the last component of `n` names one of Lean's on-demand realisations:
     `eq_<N>`, `eq_def`, `eq_unfold` (equation lemmas), `congr_simp`, `congr_<N>`,
     `hcongr_<N>` (congruence theorems), `congr_eq_<N>` (matcher congruence equations,
     under `X.match_N`). Several modules that simplify with or unfold the same
-    definition each realise these into their own olean with the same statement; the
+    definition each realise these into their own olean with the same statement. The
     importer merges them like a restated theorem. They are walked like one, but
     reported as a note: nothing was written twice by hand. -/
 def isRealisedTheoremName (n : Name) : Bool :=
@@ -210,16 +212,16 @@ def isRealisedTheoremName (n : Name) : Bool :=
   | _ => false
 
 /-- Trust for a merged declaration: every version must be trusted on its own by
-    rules 1 and 3 (kind and owning module). Rule 2 never applies — an
+    rules 1 and 3 (kind and owning module). Rule 2 never applies, because an
     `@[externally_verified]` sits in one file and vouches for one body, and the
     environment does not say which body survived. A theorem/axiom pair is therefore
-    not trusted: the theorem version carries a proof the axiom version would excuse.
-    `isProof` is the name's rule-3 input (`propTypedNames`); every version has the same
-    statement, so it is shared. Since the importer only merges theorems and axioms
-    (`subsumesInfo`: theorem/theorem, theorem/axiom, axiom/axiom), a version is never
-    a `def` and the flag cannot change the verdict in practice. Returns `none` as soon
-    as one version is untrusted, otherwise the first version's reason; the reasons are
-    not compared. -/
+    not trusted: trusting the axiom version excuses the proof that the theorem version carries.
+    `isProof` is the name's rule-3 input (`propTypedNames`). Every version has the same
+    statement, so the flag is shared. The importer merges only theorems and axioms
+    (`subsumesInfo`: theorem/theorem, theorem/axiom, axiom/axiom). So a version is
+    never a `def`, and the flag cannot change the verdict in practice. Returns `none`
+    as soon as one version is untrusted, otherwise the first version's reason. The
+    reasons are not compared. -/
 def mergedTrustedReason (env : Environment) (m : MergedDecl) (isProof : Bool := false)
     : Option String := do
   let reasons ← m.versions.mapM fun (owner, ci) =>
@@ -242,19 +244,20 @@ def externallyVerifiedNames (env : Environment) (pFilter : ProjectFilter)
     source-visible declaration. Constants absent from the map have no attributes.
     With no `--module`/`--library` selection this is exactly the emitted atom set, so
     the scan runs once and `declInfoToAtom` reuses the result. `tagged` is the
-    `externally_verified` tag set; membership puts `externally_verified` in the
-    `attributes` array, and so does a header-scan hit, so the entry is the union of
-    the two sources while trust reads the set alone.
+    `externally_verified` tag set. Membership puts `externally_verified` in the
+    `attributes` array, and so does a header-scan hit. So the entry is the union of
+    the two sources, while trust reads the set alone.
 
-    A constant that shares a tagged declaration's range — a generated companion
-    `X.mvcgen_spec`, a `deriving` instance, a projection of a one-line structure —
-    shows the scanned attributes here, as before: the emitted `attributes` array is
-    unchanged and the primary-spec signals (`step`, `progress`, `pspec`) keep reading
-    them, which is how the companion of a `@[step]` axiom stays that axiom's spec
-    proxy. It also shows `externally_verified` when its neighbour's header carries it,
-    but is not trusted by it: trust is membership in the tag set. `tagAudit` reports
-    the range-sharers whose head line names them — the shapes the scan used to trust —
-    companions and projections excepted. -/
+    Some constants share a tagged declaration's range: a generated companion
+    `X.mvcgen_spec`, a `deriving` instance, or a projection of a one-line structure.
+    Such a constant shows the scanned attributes here, as before. The emitted
+    `attributes` array is unchanged, and the primary-spec signals (`step`, `progress`,
+    `pspec`) keep reading them. That is how the companion of a `@[step]` axiom stays
+    that axiom's spec proxy. The constant also shows `externally_verified` when its
+    neighbour's header carries it, but the tag does not make it trusted: trust is
+    membership in the tag set. `tagAudit` reports the range-sharers whose head line
+    names them (the shapes the scan used to trust), except companions and
+    projections. -/
 def computeAttributes (env : Environment) (projectPath : System.FilePath) (fileCache : FileCache)
     (pathCache : ModulePathCache) (consts : Array (Name × ConstantInfo))
     (tagged : Std.HashSet Name := {}) : IO (Std.HashMap Name DeclAttrs) := do
@@ -282,13 +285,13 @@ def externalRule3Candidates (env : Environment) (consts : Array (Name × Constan
       isExternalModule ((moduleNameOf modNames env name).getD .anonymous)
 
 /-- Of `cands`, those whose **type is a proposition** (`Meta.isProp` on the statement,
-    run once per candidate) — rule 3's proof test for `externalRule3Candidates`. A
-    `def admitted : False := by sorry` in an External module is a proof in disguise
-    and must get its normal status, while a `def op : Nat := sorry` is the
-    hand-written model the convention trusts. A candidate whose type cannot be checked
-    — an elaboration error, or a heartbeat/recursion limit, which `Core.tryCatch`
-    would rethrow and which `tryCatchRuntimeEx` catches — is reported and counted as
-    a proof (fail closed). Each candidate gets its own heartbeat budget
+    run once per candidate). This is rule 3's proof test for `externalRule3Candidates`.
+    A `def admitted : False := by sorry` in an External module is a proof in disguise
+    and must get its normal status. A `def op : Nat := sorry` is the hand-written
+    model the convention trusts. Sometimes a candidate's type cannot be checked: an
+    elaboration error, or a heartbeat/recursion limit that `Core.tryCatch` rethrows
+    and `tryCatchRuntimeEx` catches. Such a candidate is reported and counted as a
+    proof (fail closed). Each candidate gets its own heartbeat budget
     (`withCurrHeartbeats`), so one pathological statement cannot starve the rest. -/
 def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
     : IO (Std.HashSet Name) := do
@@ -314,10 +317,10 @@ def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
   return props
 
 /-- T over P: `Trust.trustedReason` applied to every project constant. Rules 1 and 3
-    need the kind, the module and whether the type is a proposition (`propTyped`);
-    rule 2 is membership in `tagged`, the `externally_verified` tag set
-    (`externallyVerifiedNames`). A name in `merged` — a project/project or
-    cross-boundary declaration (`headerMerges`) — is decided by `mergedTrustedReason`
+    need the kind, the module and whether the type is a proposition (`propTyped`).
+    Rule 2 is membership in `tagged`, the `externally_verified` tag set
+    (`externallyVerifiedNames`). A name in `merged` (a project/project or
+    cross-boundary declaration, see `headerMerges`) is decided by `mergedTrustedReason`
     over all of its project versions instead. -/
 def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
     (tagged : Std.HashSet Name)
@@ -339,19 +342,19 @@ def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
 
 /-- The tag audit: where the source scan and the tag set disagree about
     `externally_verified`, over the source-visible constants in `attrs`. Both sides
-    report set membership, not a status: a constant on either side may still be
-    trusted by rule 1 or 3.
+    report set membership, not a status: rule 1 or 3 can still trust a constant on
+    either side.
 
     `scanOnly`: the header shows the tag and names the constant
-    (`DeclAttrs.headerNamesTag`), yet the tag set lacks it — either a shape the scan
-    gets wrong (a generated `instX.field` helper, two commands on one line) or a
-    registration the tag-set reader does not understand; either way rule 2 does not
-    apply. Projections and `.mvcgen_spec` companions are left out by kind, as the
+    (`DeclAttrs.headerNamesTag`), yet the tag set lacks it. One cause is a shape the
+    scan gets wrong: a generated `instX.field` helper, or two commands on one line.
+    The other cause is a registration the tag-set reader does not understand. In both cases rule 2 does
+    not apply. Projections and `.mvcgen_spec` companions are left out by kind, as the
     scan-based rule left them out: a one-line structure's projection is named by its
     field on the head line, which is known and benign.
 
-    `tagOnly`: the set has the constant, the header does not show the tag — an
-    `attribute` command or a macro attached it. Both sorted by name. -/
+    `tagOnly`: the set has the constant, but the header does not show the tag, because
+    an `attribute` command or a macro attached it. Both sorted by name. -/
 def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : Std.HashSet Name)
     : Array Name × Array Name := Id.run do
   let mut scanOnly : Array Name := #[]
@@ -367,18 +370,18 @@ def tagAudit (env : Environment) (attrs : Std.HashMap Name DeclAttrs) (tagged : 
 /-- Of `consts`, the constants `trust` holds as `axiom` that are not source-visible
     declarations (`isSourceVisible`: an internal name such as
     `X._native.native_decide.ax_N`, or no declaration range as with `addDecl` from a
-    macro) — generated axioms. Rule 1 trusts them like a written `axiom`; they are
-    listed so a reviewer of the trust base can see them, since `extract` never emits
-    them. Sorted by name. -/
+    macro). These are generated axioms. Rule 1 trusts them like a written `axiom`.
+    They are listed so that a reviewer of the trust base can see them, because
+    `extract` never emits them. Sorted by name. -/
 def generatedTrustedAxioms (env : Environment) (consts : Array (Name × ConstantInfo))
     (trust : Std.HashMap Name String) : Array Name :=
   let axs := consts.filterMap fun (n, ci) =>
     if trust[n]? == some "axiom" && !isSourceVisible env n ci then some n else none
   axs.qsort fun a b => a.toString < b.toString
 
-/-- The walk over P with T blocked; merged declarations — project/project pairs and
-    the cross-boundary names walked from their project versions — follow every
-    version's dependencies (`mergedChildrenMap`). Every cross-boundary name
+/-- The walk over P with T blocked. Merged declarations follow every version's
+    dependencies (`mergedChildrenMap`). These are project/project pairs and the
+    cross-boundary names walked from their project versions. Every cross-boundary name
     (`crossNames`) counts as a project constant whatever module the environment
     attributes it to, so it is expanded rather than blocked. -/
 def runProjectTaint (env : Environment) (pFilter : ProjectFilter)
@@ -390,9 +393,9 @@ def runProjectTaint (env : Environment) (pFilter : ProjectFilter)
 
 /-- P, T and the walk in one call. Returns the attribute map too, so the atom builder
     does not scan the sources a second time. The merged and cross-boundary declarations
-    come from the environment header (`headerMerges`); a cross-boundary name the
-    environment attributes to a non-project module is added to P so it is walked and
-    reported. The Lean-realised names among them (`isRealisedTheoremName`) are
+    come from the environment header (`headerMerges`). A cross-boundary name that the
+    environment attributes to a non-project module is added to P, so that it is walked
+    and reported. The Lean-realised names among them (`isRealisedTheoremName`) are
     reported separately as `realised`. -/
 def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
     (pFilter : ProjectFilter) (fileCache : FileCache) (pathCache : ModulePathCache)
@@ -428,15 +431,15 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
           attrs)
 
 /-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
-    unknown. Blocking still applies; this is a warning, not a status change. Only a
-    literal occurrence is detected — a statement that reaches `sorry` through another
-    project constant (`axiom a : p` with `def p : Prop := sorry`) is not. -/
+    unknown. Blocking still applies. This is a warning, not a status change. Only a
+    literal occurrence is detected. A statement that reaches `sorry` through another
+    project constant (`axiom a : p` with `def p : Prop := sorry`) is not detected. -/
 def formatTypeTaintWarning (n : Name) : String :=
   s!"Warning: trusted declaration {n} names `sorry` directly in its statement"
 
-/-- Printed when the full project module set could not be co-imported. The modules
-    left out are outside the selection's import closure, so no emitted status rests
-    on them; the `check-axioms` audit does not cover them. -/
+/-- Printed when the import of the full project module set fails. The modules left
+    out are outside the selection's import closure, so no emitted status rests on
+    them. The `check-axioms` audit does not cover them. -/
 def formatFallbackWarning (notImported : Nat) : String :=
   s!"Warning: {notImported} project module(s) not imported (full import failed); they are \
     outside the selection's import closure, so no emitted status depends on them, but \
@@ -444,7 +447,8 @@ def formatFallbackWarning (notImported : Nat) : String :=
 
 /-- Printed for an atom whose Lean name is not in P: the walk never assessed it, so it
     gets no `verification-status`. Every emitted atom is a project constant by
-    construction; this firing is a bug signal, never silently "clean". -/
+    construction. So this message signals a bug, and the atom is never silently
+    "clean". -/
 def formatUnknownAtomWarning (atom : String) : String :=
   s!"Warning: atom {atom} is not a project constant the kernel walk covered; \
     no verification-status assigned"
@@ -464,14 +468,14 @@ def formatTagSetLine (ts : TagSet) : String :=
       {", ".intercalate (ts.extensions.map (·.toString)).toList}"
 
 /-- A `check-axioms` report line. `[direct]`: the constant's own type or value names
-    `sorryAx`. `[not emitted]`: not an atom — a constant `extract` never publishes
-    (no declaration range, internal name, constructor, unselected module), which is
-    precisely the shape that used to be trusted silently. -/
+    `sorryAx`. `[not emitted]`: not an atom. That is a constant `extract` never
+    publishes (no declaration range, internal name, constructor, unselected module).
+    Older versions trusted exactly this shape without a message. -/
 def formatTaintedLine (n : Name) (direct emitted : Bool) : String :=
   s!"  {n}" ++ (if direct then " [direct]" else "") ++ (if emitted then "" else " [not emitted]")
 
-/-- How many names `listNames` prints individually before `… and N more`; shared by the
-    merged warning and the realised, cross-boundary and generated-axiom notes. -/
+/-- How many names `listNames` prints individually before `… and N more`. The merged
+    warning and the realised, cross-boundary and generated-axiom notes share it. -/
 def maxListedMerged : Nat := 10
 
 /-- `a, b, c, … and N more`, capped at `maxListedMerged`. -/
@@ -511,9 +515,9 @@ def formatDependencyRootsNote (roots : Array Name) : String :=
     s!"Note: {roots.size} imported module root(s) outside the project are trusted wholesale \
       (Lean and dependency packages): {", ".intercalate (roots.map (·.toString)).toList}"
 
-/-- Printed per `ProjectTaint.scanOnlyTags` entry. The line states what the audit knows —
-    set membership — not the final status: an `axiom` in this position is still trusted by
-    rule 1. -/
+/-- Printed per `ProjectTaint.scanOnlyTags` entry. The line states what the audit knows
+    (set membership), not the final status: rule 1 still trusts an `axiom` in this
+    position. -/
 def formatScanOnlyTagLine (n : Name) : String :=
   s!"Divergence(tag): {n} header shows @[externally_verified] naming it, but the attribute's \
     tag set does not contain it; the source text does not decide trust"
@@ -525,7 +529,7 @@ def formatTagOnlyLine (n : Name) : String :=
     header does not show the tag; the tag set decides trust"
 
 /-- Printed once for `ProjectTaint.generatedAxioms`, capped like the merged warning
-    (`listNames`); the `check-axioms` T listing names every one of them individually.
+    (`listNames`). The `check-axioms` T listing names every one of them individually.
     Visibility only: the axioms are trusted by rule 1 like any other (#109). Empty when
     there are none. -/
 def formatGeneratedAxiomNote (names : Array Name) : String :=
@@ -538,8 +542,8 @@ def formatTrustHeader (n : Nat) : String :=
   s!"{n} trusted constant(s) (T):"
 
 /-- A `check-axioms` T line: the constant, its `trusted-reason`, the module the
-    environment attributes it to and, for a rule-3 entry (`external`), its statement —
-    the type is what a reviewer of a hand-written model has to judge. -/
+    environment attributes it to and, for a rule-3 entry (`external`), its statement.
+    The type is what a reviewer of a hand-written model has to judge. -/
 def formatTrustedLine (n : Name) (reason : String) (module : Name) (type : Option String) : String :=
   s!"  {n} [{reason}] {module}" ++ (match type with | some t => s!" : {t}" | none => "")
 

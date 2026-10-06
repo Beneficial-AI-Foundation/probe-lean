@@ -18,8 +18,8 @@ initialize primarySpecAttr : TagAttribute ←
   registerTagAttribute `primary_spec
     "Marks a theorem as the primary specification for its subject definition."
 
-/-- `@[externally_verified]` marks a theorem whose proof uses `sorry` but has
-been verified externally (e.g., in Verus or another prover). Consumed by
+/-- `@[externally_verified]` marks a theorem whose proof uses `sorry` but that
+was verified externally (for example, in Verus or another prover). Consumed by
 `probe-lean extract` to populate the `attributes` field on atoms. -/
 initialize externallyVerifiedAttr : TagAttribute ←
   registerTagAttribute `externally_verified
@@ -30,18 +30,18 @@ initialize externallyVerifiedAttr : TagAttribute ←
 --
 -- These four tags are *registered* here so target projects that
 -- `import ProbeLean.Attrs` can annotate declarations with them. probe-lean does
--- not interpret them itself — it emits them verbatim in each atom's generic
+-- not interpret them itself. It emits them verbatim in each atom's generic
 -- `attributes` array for a downstream classifier to read. Kept here (rather than
 -- in a separate shim) so existing target projects need no migration.
 -- ============================================================
 
-/-- `@[scheme_def]` marks a declaration as a cryptographic *scheme* — the
+/-- `@[scheme_def]` marks a declaration as a cryptographic *scheme*: the
 abstract interface (a `structure`/`class` bundling operations). -/
 initialize schemeDefAttr : TagAttribute ←
   registerTagAttribute `scheme_def
     "Marks a declaration as a cryptographic scheme (abstract interface)."
 
-/-- `@[construction_def]` marks a declaration as a concrete *construction* —
+/-- `@[construction_def]` marks a declaration as a concrete *construction*:
 a definition realising a scheme. -/
 initialize constructionDefAttr : TagAttribute ←
   registerTagAttribute `construction_def

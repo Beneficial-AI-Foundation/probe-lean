@@ -43,8 +43,8 @@ structure Ctx where
   env : Environment
   prefixes : Array Name
 
-/-- In the target modules and not filtered out by probe-lean, i.e. a constant
-that is (or would be) emitted as an atom. -/
+/-- A constant that probe-lean emits as an atom: it is in the target modules and
+probe-lean does not filter it out. -/
 def Ctx.inTarget (c : Ctx) (n : Name) : Bool :=
   if isInternalName n then false
   else match c.env.getModuleIdxFor? n with

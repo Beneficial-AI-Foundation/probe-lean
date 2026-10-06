@@ -48,13 +48,13 @@ structure DeclCollision where
 /-- Pure replica of the importer's duplicate-tolerance rule (`subsumesInfo`,
     private in core `Lean.Environment`): a duplicate is tolerated when name,
     type, and levelParams are syntactically equal AND the pair is thm/thm
-    (same `all`), thm/axiom, or axiom/axiom. The importer additionally
-    requires axiom/axiom types to be cheaply-Prop, but that check needs the
-    full imported constant map (the type's head may live in a dependency),
-    which the preflight doesn't have. We are deliberately lenient there:
-    leniency only under-detects, and a missed collision still fails at import
-    time and hits the fallback hint — whereas strictness could falsely abort
-    a project the importer accepts. -/
+    (same `all`), thm/axiom, or axiom/axiom. The importer also requires
+    axiom/axiom types to be cheaply-Prop. That check needs the full imported
+    constant map, because the type's head can live in a dependency, and the
+    preflight does not have that map. So this replica is lenient there.
+    Leniency only under-detects: a missed collision still fails at import time
+    and hits the fallback hint. Strictness instead can falsely abort a project
+    that the importer accepts. -/
 def constSubsumes (a b : ConstantInfo) : Bool :=
   a.name == b.name &&
     a.type == b.type &&
@@ -66,21 +66,21 @@ def constSubsumes (a b : ConstantInfo) : Bool :=
     | _, _ => false
 
 /-- Names skipped in the *displayed* collision list: internal machinery and
-    hygienic names. They are still part of detection (which keys on the raw
-    `Name`, exactly like the importer) — but private/hygienic names are
-    module-qualified by the compiler, so a genuine collision on them always
-    accompanies a user-facing one and displaying them adds only noise. -/
+    hygienic names. They are still part of detection, which keys on the raw
+    `Name` like the importer. But the compiler module-qualifies private and
+    hygienic names. So a genuine collision on them always comes with a
+    user-facing one, and displaying them adds only noise. -/
 def isDisplayableCollisionName (n : Name) : Bool :=
   !n.isInternal && !n.hasMacroScopes
 
-/-- Pure core of the preflight: given each module's own declarations as
-    `(declared name, constant info)` pairs — the positional pairing of
-    `ModuleData.constNames` with `ModuleData.constants`, which is exactly how
-    the importer iterates them — the names owned by more than one module where
-    some owner pair is not mutually subsumable, so the import would fail. A
-    duplicated name whose every owner pair *is* subsumable is tolerated by the
-    importer (one version kept) and is not a collision. Detection keys on the raw
-    declared `Name` from the olean — display filtering happens in
+/-- Pure core of the preflight. The input is each module's own declarations as
+    `(declared name, constant info)` pairs. Each pair zips `ModuleData.constNames`
+    with `ModuleData.constants` by position, the same way the importer iterates
+    them. The result is the names owned by more than one module where some owner
+    pair is not mutually subsumable, so the import will fail. The importer
+    tolerates a duplicated name whose every owner pair *is* subsumable (it keeps
+    one version), so such a name is not a collision. Detection keys on the raw
+    declared `Name` from the olean. Display filtering happens in
     `formatCoimportError`, never here. The result and its module lists are sorted
     for deterministic output (P14). -/
 def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × ConstantInfo))) :
@@ -108,12 +108,12 @@ def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × Constant
 structure CoimportPreflight where
   /-- Names that make the import fail. -/
   collisions : Array DeclCollision := #[]
-  /-- Modules whose olean could not be read; the scan is partial for them. -/
+  /-- Modules whose olean is unreadable. The scan is partial for them. -/
   skipped : Array ProjectModule := #[]
   /-- Module-system modules (`module` header) whose `.olean.server` or
       `.olean.private` part is missing. `importModules` at `OLeanLevel.private`
-      loads the private part only when both exist (`findOLeanParts`) and otherwise
-      fails with "missing data file" for the module; the abort here is the readable
+      loads the private part only when both exist (`findOLeanParts`). Otherwise it
+      fails with "missing data file" for the module. The abort here is the readable
       form of that failure, with the remedy. -/
   proofless : Array ProjectModule := #[]
   deriving Inhabited
@@ -127,13 +127,14 @@ def hasOLeanParts (m : ProjectModule) : IO Bool := do
   return (← server.pathExists) && (← priv.pathExists)
 
 /-- Run the preflight over the (already filtered) project modules: read each
-    module's base olean and classify duplicated names into collisions. A module
-    whose olean cannot be read is skipped with a stderr warning and returned in
-    `skipped`, so callers can surface that the scan was partial — a skip alone must
-    never fail the extraction. A module-system module without its split parts is
-    returned in `proofless`, which fails the import of *these* modules (Lean would
-    stop on the missing part); whether the extraction then aborts or retries a
-    narrower selection is the caller's decision (`importProjectEnvSelecting`). -/
+    module's base olean and classify duplicated names into collisions. If a
+    module's olean is unreadable, the preflight skips it with a stderr warning and
+    returns it in `skipped`. Callers can then report that the scan was partial. A
+    skip alone must never fail the extraction. A module-system module without its
+    split parts goes into `proofless`. It fails the import of *these* modules,
+    because Lean stops on the missing part. The caller decides whether the
+    extraction then aborts or retries a narrower selection
+    (`importProjectEnvSelecting`). -/
 def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPreflight := do
   let mut moduleDecls : Array (Name × Array (Name × ConstantInfo)) := #[]
   let mut skipped : Array ProjectModule := #[]
@@ -167,7 +168,7 @@ def formatProoflessError (proofless : Array ProjectModule) : String :=
 /-- How many duplicated names are listed individually in the diagnostic. -/
 def maxDisplayedCollisions : Nat := 10
 
-/-- One-line note listing modules the preflight could not scan (empty string
+/-- One-line note listing modules the preflight did not scan (empty string
     when none were skipped). Shared by the preflight abort message and the
     post-import fallback hint. -/
 def skippedModulesNote (skipped : Array ProjectModule) : String :=
@@ -178,10 +179,10 @@ def skippedModulesNote (skipped : Array ProjectModule) : String :=
       ", ".intercalate names.toList ++
       "\nThe check may be incomplete."
 
-/-- Pick the module suggested in the `--module` example: `--module` selects
-    the named module *plus its submodules* (prefix semantics), so prefer a
-    collision member that is not a proper prefix of another member — naming a
-    root that also covers its colliding submodule would re-select both. -/
+/-- Pick the module suggested in the `--module` example. `--module` selects
+    the named module *plus its submodules* (prefix semantics). So prefer a
+    collision member that is not a proper prefix of another member. A root that
+    also covers its colliding submodule re-selects both. -/
 def pickExampleModule (c : DeclCollision) : Option Name :=
   let notPrefixOfOther := c.modules.find? fun m =>
     !c.modules.any fun other => other != m && other.toString.startsWith (m.toString ++ ".")

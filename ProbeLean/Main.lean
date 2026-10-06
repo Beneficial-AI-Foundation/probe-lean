@@ -19,7 +19,7 @@ partial def Cli.Cmd.withVersion (cmd : Cli.Cmd) (v : String) : Cli.Cmd :=
     (cmd.subCmds.map (·.withVersion v))
     cmd.extension?
 
-/-- Strip trailing slashes so `FilePath /` doesn't produce `//` in output paths -/
+/-- Strip trailing slashes so `FilePath /` does not produce `//` in output paths -/
 private def normalizePath (s : String) : String :=
   if s.length > 1 && s.endsWith "/" then (s.dropEnd 1).toString else s
 

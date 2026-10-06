@@ -29,10 +29,10 @@ def sorryAxiomName : Name := `sorryAx
 
 /-- Traversal state shared across roots.
 
-    `memo` holds only *finalised* answers. A node on the DFS path or waiting in an
-    unfinished strongly connected component sits in `onStack` with its DFS index and
-    has no memo entry yet — the scheme that memoized a frame's result while a
-    back-edge into it was still suppressed (issue #103) is exactly what this avoids. -/
+    `memo` holds only *finalised* answers. A node can be on the DFS path or wait in
+    an unfinished strongly connected component. Such a node sits in `onStack` with
+    its DFS index and has no memo entry yet. This avoids the old scheme's bug (issue #103), which
+    memoized a frame's result while a back-edge into it was still suppressed. -/
 structure ReachState where
   memo    : Std.HashMap Name Bool := {}
   onStack : Std.HashMap Name Nat := {}
@@ -40,9 +40,9 @@ structure ReachState where
   next    : Nat := 0
 
 /-- Pop the SCC stack down to and including `c`, finalising every popped node with
-    `res`. Everything above `c` was pushed inside `c`'s DFS subtree and reaches a
+    `res`. Everything above `c` was pushed inside `c`'s DFS subtree. It reaches a
     node on the current DFS path at or below `c` (Tarjan's stack invariant), so it
-    shares `c`'s answer: if `c` reaches the target so does everything above it; if
+    shares `c`'s answer. If `c` reaches the target, so does everything above it. If
     `c` is an SCC root that does not, neither does its component. -/
 private def finalizeFrom (c : Name) (res : Bool) : StateM ReachState Unit := do
   -- Take the fields out and release the record before mutating. With the record
@@ -69,25 +69,26 @@ private def finalizeFrom (c : Name) (res : Bool) : StateM ReachState Unit := do
 
 /-- Memoized reachability with Tarjan-style SCC finalisation.
 
-    Returns `(reaches, lowlink)`; `lowlink` is the smallest DFS index of a node still
-    on the stack that this frame's subtree reached through a back-edge (`none` when
-    the frame finalised itself). Test order is load-bearing:
+    Returns `(reaches, lowlink)`. `lowlink` is the smallest DFS index among the
+    nodes still on the stack that this frame's subtree reached through a back-edge.
+    It is `none` when the frame finalised itself. The order of the tests matters for correctness:
 
-    1. finalised memo — decided;
-    2. on the stack — a back-edge: contributes `false` and its index as lowlink;
-    3. `c == target` — reached, **before** the blocked test, so a blocked node that
-       *is* the target still counts (`sorryAx` lives outside every project);
-    4. `blocked c` — a leaf: memoised `false`, never expanded (neither type nor value);
-    5. otherwise expand the children, stopping at the first `true`.
+    1. finalised memo: decided.
+    2. on the stack: a back-edge. It contributes `false` and its index as lowlink.
+    3. `c == target`: reached. This test comes **before** the blocked test, so a
+       blocked node that *is* the target still counts (`sorryAx` lives outside every
+       project).
+    4. `blocked c`: a leaf. Memoised `false`, never expanded (neither type nor value).
+    5. otherwise: expand the children, stopping at the first `true`.
 
     A frame that found the target finalises its whole stack segment as `true`. A
     frame that is its own SCC root (`lowlink == index`) finalises the component as
     `false`. Any other frame stays on the stack for its SCC root to decide, so no
     answer computed across a suppressed back-edge is ever memoised.
 
-    The DFS is recursive: a single dependency chain of ~8k constants overflowed the
-    *interpreter* stack in a `lake env lean --run` harness; the compiled binary has a
-    larger stack and real dependency chains are far shallower. -/
+    The DFS is recursive. A single dependency chain of about 8k constants overflowed
+    the *interpreter* stack in a `lake env lean --run` test script. The compiled
+    binary has a larger stack, and real dependency chains are far shallower. -/
 private partial def visit (children : Name → Array Name) (blocked : Name → Bool)
     (target c : Name) : StateM ReachState (Bool × Option Nat) := do
   if let some b := (← get).memo[c]? then
@@ -121,8 +122,8 @@ private partial def visit (children : Name → Array Name) (blocked : Name → B
   return (false, some low)
 
 /-- Of `roots`, the subset that can reach `target` without expanding a `blocked`
-    node. One shared state across all roots; each root's visit leaves the stack
-    empty, so every root's answer is finalised. -/
+    node. All roots share one state. Each root's visit leaves the stack empty, so
+    every root's answer is finalised. -/
 def reachingNames (children : Name → Array Name) (blocked : Name → Bool) (target : Name)
     (roots : Array Name) : Std.HashSet Name := Id.run do
   let mut st : ReachState := {}
@@ -175,27 +176,28 @@ end UsedConstantsImpl
 
 /-- The constants `e` uses, each once, **`Expr.proj` structure names included**.
     `Expr.getUsedConstants` on Lean ≤ 4.33 visits a projection's operand and drops its
-    structure name (`| .proj _ _ b => visit b acc`); Lean 4.34 counts the structure
+    structure name (`| .proj _ _ b => visit b acc`). Lean 4.34 counts the structure
     (`visitConst typeName`). The kernel needs the structure's constructor to type a
-    projection, so the edge is real, and it is the *only* edge to the structure when
-    the operand is a blocked constant: a trusted `axiom x : S` with `S`'s constructor
-    resting on `sorry` let `theorem t : P := x.1` read clean on the pinned toolchain
-    (`Lean.collectAxioms`, unblocked, recovers `S` through `x`'s type and cannot show
-    the difference). Used by the taint walk only (`constChildren`); the emitted
-    graph — `Analysis.getDependencies` and the auxiliary fold's `constChildrenEmitted`
-    — keeps `getUsedConstants`, so the output arrays do not depend on this. -/
+    projection, so the edge is real. When the operand is a blocked constant, it is
+    the *only* edge to the structure. For example, take a trusted `axiom x : S` whose
+    `S` constructor rests on `sorry`. Without this edge, `theorem t : P := x.1` read
+    clean on the pinned toolchain. (`Lean.collectAxioms`, unblocked, recovers `S`
+    through `x`'s type and cannot show the difference.) Only the taint walk uses this
+    (`constChildren`). The emitted graph (`Analysis.getDependencies` and the auxiliary
+    fold's `constChildrenEmitted`) keeps `getUsedConstants`, so the output arrays do
+    not depend on this. -/
 @[implemented_by UsedConstantsImpl.usedConstantsUnsafe]
 opaque usedConstants (e : Expr) : Array Name
 
 /-- The constants directly used in `c`'s type and value (and constructors, for an
-    inductive) — the out-edges of the transitive closure, with `used` collecting the
-    constants of one expression. The match is exhaustive over `ConstantInfo` on
+    inductive). These are the out-edges of the transitive closure. `used` collects
+    the constants of one expression. The match is exhaustive over `ConstantInfo` on
     purpose: if Lean ever adds a constructor, this fails to compile rather than
     silently under-reporting axioms. Reads the value fields directly, so the Lean
     4.30 `ConstantInfo.value?` default change does not apply. Mirrors
-    `Lean.collectAxioms`. Takes the `ConstantInfo` itself so a version of a constant
-    the environment did *not* keep (a co-import duplicate read from its module's
-    olean) can be walked too. -/
+    `Lean.collectAxioms`. It takes the `ConstantInfo` itself, so the walk can also
+    cover a version of a constant that the environment did *not* keep. An example
+    is a co-import duplicate read from its module's olean. -/
 def constInfoChildrenWith (used : Expr → Array Name) : ConstantInfo → Array Name
   | .axiomInfo v  => used v.type
   | .defnInfo v   => used v.type ++ used v.value
@@ -219,8 +221,8 @@ def constChildren (env : Environment) (c : Name) : Array Name :=
 
 /-- The emitted graph's out-edges: `constInfoChildrenWith Expr.getUsedConstants`, the
     same collector `Analysis.getDependencies` uses for an atom's direct edges. The
-    auxiliary fold traverses with this one (`Analysis.FoldWalk.ofEnv`) so that what it
-    recovers into `term-dependencies` is built from the same edge set as the direct
+    auxiliary fold traverses with this one (`Analysis.FoldWalk.ofEnv`). What it
+    recovers into `term-dependencies` then comes from the same edge set as the direct
     arrays, whatever the toolchain's `getUsedConstants` does with projections. -/
 def constChildrenEmitted (env : Environment) (c : Name) : Array Name :=
   match env.find? c with
@@ -239,7 +241,7 @@ structure TaintResult where
       them without expanding a non-project or trusted constant. Disjoint from the
       trusted set by construction (trusted roots are blocked, hence never reach). -/
   tainted : Std.HashSet Name
-  /-- Project constants whose own type or value names `sorryAx` — trusted ones
+  /-- Project constants whose own type or value names `sorryAx`, trusted ones
       included (a trusted direct carrier is the intended human-vouches case). -/
   direct : Std.HashSet Name
   /-- Trusted constants whose *statement* names `sorryAx`: their meaning is unknown,
@@ -247,14 +249,14 @@ structure TaintResult where
   typeTainted : Array Name
 
 /-- The walk `extract` and `check-axioms` share. `roots` is P, the project's
-    constants; children outside P or in T (`trusted`) are blocked — taken as leaves
-    by the trusted-base decision — while `sorryAx` itself, which lives outside every
-    project, is still recognised because the target test precedes the blocked test.
+    constants. Children outside P or in T (`trusted`) are blocked: the trusted-base
+    decision takes them as leaves. `sorryAx` itself lives outside every project, but
+    the walk still recognises it because the target test precedes the blocked test.
 
-    `childrenOverride` replaces the environment's out-edges for the names it holds:
-    the caller uses it for a name several project modules declare (the importer
-    kept one version), so that the walk follows the union of every version's
-    dependencies and cannot be steered clean by whichever proof survived. -/
+    `childrenOverride` replaces the environment's out-edges for the names it holds.
+    The caller uses it for a name that several project modules declare (the importer
+    kept one version). The walk then follows the union of every version's
+    dependencies, and the proof that survived cannot steer it clean. -/
 def projectTaint (env : Environment) (isProject trusted : Name → Bool)
     (roots : Array Name) (childrenOverride : Std.HashMap Name (Array Name) := {})
     : TaintResult :=

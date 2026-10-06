@@ -210,12 +210,12 @@ structure Atom where
   dependencies : Array String
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
-  /-- Non-project (external) type dependencies — deps referenced by the result
-  type that are not project decls (e.g. Mathlib/core names). Emitted so a
+  /-- Non-project (external) type dependencies: deps referenced by the result
+  type that are not project decls (for example Mathlib or core names). Emitted so a
   downstream classifier can reconstruct the full reachability graph, which the
   project-filtered `typeDependencies` omits. -/
   typeDependenciesExternal : Array String := #[]
-  /-- Non-project (external) term dependencies — the body's external deps. -/
+  /-- Non-project (external) term dependencies: the body's external deps. -/
   termDependenciesExternal : Array String := #[]
   codeModule : String
   codePath : String
@@ -299,7 +299,7 @@ instance : Lean.FromJson Atom where
     let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
     return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec }
 
-/-- Output format for atoms - an object keyed by atom name -/
+/-- Output format for atoms: an object keyed by atom name -/
 structure AtomsOutput where
   atoms : Array Atom
   deriving Repr
@@ -418,12 +418,12 @@ structure UnifiedAtom where
   dependencies : Array String
   typeDependencies : Array String := #[]
   termDependencies : Array String := #[]
-  /-- Non-project (external) type dependencies — deps referenced by the result
-  type that are not project decls (e.g. Mathlib/core names). Emitted so a
+  /-- Non-project (external) type dependencies: deps referenced by the result
+  type that are not project decls (for example Mathlib or core names). Emitted so a
   downstream classifier can reconstruct the full reachability graph, which the
   project-filtered `typeDependencies` omits. -/
   typeDependenciesExternal : Array String := #[]
-  /-- Non-project (external) term dependencies — the body's external deps. -/
+  /-- Non-project (external) term dependencies: the body's external deps. -/
   termDependenciesExternal : Array String := #[]
   codeModule : String
   codePath : String
@@ -439,14 +439,14 @@ structure UnifiedAtom where
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
-  /-- The declaration carries `@[primary_spec]` — see `Atom.isPrimarySpec`. -/
+  /-- The declaration carries `@[primary_spec]` (see `Atom.isPrimarySpec`). -/
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus
   trustedReason : Option String := none
   /-- `kernelTaint` when the status is `verified` because the kernel walk found
-      reachable `sorry` (`Transitive.applyTaintStatus`); the emitted graph may not
-      show the path, so a consumer must not re-derive a stronger status. -/
+      reachable `sorry` (`Transitive.applyTaintStatus`). The emitted graph does not
+      always show the path, so a consumer must not re-derive a stronger status. -/
   statusOrigin : Option StatusOrigin := none
   /-- Head constant of the result type, if any (neutral fact). -/
   codomainHead : Option String := none
@@ -543,7 +543,7 @@ instance : Lean.FromJson UnifiedAtom where
     let codomainLastArgIsBool ← json.getObjValAs? Bool "codomain-last-arg-is-bool" <|> pure false
     return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, statusOrigin, codomainHead, codomainIsProp, codomainLastArgIsBool }
 
-/-- Output format for unified atoms - an object keyed by atom name -/
+/-- Output format for unified atoms: an object keyed by atom name -/
 structure UnifiedAtomsOutput where
   atoms : Array UnifiedAtom
   deriving Repr
@@ -608,7 +608,7 @@ instance : Lean.FromJson StubEntry where
 -- Typed output wrappers (keyed-dict serialization)
 -- ============================================================
 
-/-- Output format for specs - an object keyed by atom name -/
+/-- Output format for specs: an object keyed by atom name -/
 structure SpecsOutput where
   entries : Array (String × SpecEntry)
   deriving Repr
@@ -627,7 +627,7 @@ instance : Lean.FromJson SpecsOutput where
       entries := entries.push (name, entry)
     return { entries }
 
-/-- Output format for molecules (view) - an object keyed by stub key -/
+/-- Output format for molecules (view): an object keyed by stub key -/
 structure MoleculesOutput where
   entries : Array (String × StubEntry)
   deriving Repr

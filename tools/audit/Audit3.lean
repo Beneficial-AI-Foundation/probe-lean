@@ -30,7 +30,7 @@ def valueOf : ConstantInfo → Option Expr
   | _             => none
 
 /-- Whether this declaration's own type or value names an abstracted-proof
-auxiliary — i.e. whether *it* carries an embedded proof, as opposed to merely
+auxiliary. That is, whether *it* carries an embedded proof, as opposed to merely
 lending its name to one.
 
 This is the honest test for the headline metric. Counting distinct
@@ -40,9 +40,9 @@ name, which misses exactly the case this PR is about: a *shared* auxiliary
 one apparent owner and any number of real hosts, so the prefix count undercounts.
 
 Applied only to non-theorem declarations, which is what the reported percentage
-needs. Traversing theorem values too would mean walking every Mathlib proof term
-— the cost that makes `Audit6.lean` take ten minutes on one project — and
-Audit3's job is a cheap prevalence sweep across five corpora. -/
+needs. Traversing theorem values too means walking every Mathlib proof term.
+That cost makes `Audit6.lean` take ten minutes on one project, and Audit3's job
+is a cheap prevalence sweep across five corpora. -/
 def referencesProofAux (ci : ConstantInfo) : Bool :=
   ci.type.getUsedConstants.any isProofAux ||
     match valueOf ci with

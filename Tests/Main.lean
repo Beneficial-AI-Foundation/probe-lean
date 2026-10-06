@@ -5,7 +5,7 @@ import ProbeLean
 
 open ProbeLean
 
-/-- Simple test harness -/
+/-- Pass and fail counts of the test suite. -/
 structure TestResult where
   passed : Nat
   failed : Nat
@@ -1822,10 +1822,10 @@ def mkResolvedAtom (name : String) (kind : DeclKind) (specs : Array String)
     codeModule := "Test", codePath := "Test.lean", codeText := none, kind,
     specs, primarySpec, isPrimarySpec }
 
-/-- Collision fixtures run `computeSpecs` first — analysis atoms carry neither
-`specs` nor `primarySpec`, and the helper gates on `primarySpec` — and are built
-in the name-sorted order production feeds them, so the asserted winner is the
-real tie-break rather than an artefact of the test array. -/
+/-- Collision fixtures run `computeSpecs` first, because analysis atoms carry
+neither `specs` nor `primarySpec` and the helper gates on `primarySpec`. They are
+built in the name-sorted order production feeds them. So the asserted winner is
+the real tie-break rather than an artefact of the test array. -/
 def testPrimarySpecAmbiguityBasic (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3365,8 +3365,8 @@ def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
 /-- Regression guard for the mark-not-drop fix: a theorem T that reaches an
     unverified U *only through* a derived instance I must NOT be reported as
     `transitively-verified`. Dropping I (removing it from the atom set while T still
-    lists it as a dep) is exactly what would falsely upgrade T — so this pins why
-    generated atoms are hidden, not dropped. -/
+    lists it as a dep) falsely upgrades T. This test pins why generated atoms are
+    hidden, not dropped. -/
 def testDropRegression (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3495,7 +3495,7 @@ def testViewFilterOmitsGenerated (result : TestResult) : IO TestResult := do
 `value?` stopped returning theorem proofs by default in Lean 4.30, which silently
 emptied every theorem's `term-dependencies` and erased all proof edges from the
 dependency graph. `valueOf` reads the field directly so the behaviour is fixed
-across toolchains; these tests fail if anything reintroduces the dependency on
+across toolchains. These tests fail if anything reintroduces the dependency on
 `value?`'s default. They operate on hand-built `ConstantInfo`s, so they hold on
 every Lean version regardless of what the release matrix builds against. -/
 def testValueOfAndProofDeps (result : TestResult) : IO TestResult := do
@@ -3543,7 +3543,7 @@ def testValueOfAndProofDeps (result : TestResult) : IO TestResult := do
 
 /-- `computeSpecs` must read `typeDependencies`, not the union: a theorem specifies
 what its statement is about, not every constant its proof happens to invoke. With
-proof edges restored, reading the union would put a spurious spec on most
+proof edges restored, reading the union puts a spurious spec on most
 definitions in a project and defeat primary-spec detection. -/
 def testSpecsIgnoreProofDeps (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -3581,10 +3581,10 @@ def testSpecsIgnoreProofDeps (result : TestResult) : IO TestResult := do
 
 /-- An explicit `@[primary_spec]` tag must still attach even when the specified
 constant appears *only* in the proof term (an abstract statement). `computeSpecs`
-walks `typeDependencies` by default, but a tagged theorem whose statement names no
-specifiable constant falls back to the union — when that leaves exactly one
-candidate — so the user's override is honoured. Several candidates make the tag
-ambiguous (it marks the theorem, not a target), so nothing attaches; an
+walks `typeDependencies` by default. A tagged theorem can name no specifiable
+constant in its statement. It then falls back to the union if that leaves exactly
+one candidate, so the user's override is honoured. Several candidates make the tag
+ambiguous (it marks the theorem, not a target), so nothing attaches. An
 *untagged* abstract theorem attaches to nothing, as before. -/
 def testPrimarySpecProofOnlyFallback (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -3640,11 +3640,11 @@ def testPrimarySpecProofOnlyFallback (result : TestResult) : IO TestResult := do
   return result
 
 /-- Module names are derived from olean paths one atomic component per path
-segment, so segments that are not plain identifiers (and would need guillemets
-in source) must survive — `String.toName` collapsed them to `.anonymous`,
-which `importModules` rejects. `moduleNameToRelPath` must invert the
-construction exactly, since source paths rebuilt via `Name.toString` would
-contain guillemets that never appear in file names. -/
+segment. Segments that are not plain identifiers (and need guillemets in source)
+must survive. `String.toName` collapsed them to `.anonymous`, which
+`importModules` rejects. `moduleNameToRelPath` must invert the construction
+exactly, because source paths rebuilt via `Name.toString` contain guillemets
+that never appear in file names. -/
 def testPathToModuleName (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3682,9 +3682,9 @@ def testPathToModuleName (result : TestResult) : IO TestResult := do
 -- Auxiliary-dependency folding (issue #99)
 -- ============================================================
 
-/-- A fabricated fold graph. `children` comes from `edges`; classification is by
-membership. Anything unlisted is `.ignored` — the class that covers external
-constants, structural members and non-value-bearing constants, so "not
+/-- A fabricated fold graph. `children` comes from `edges`. Classification is by
+membership. Anything unlisted is `.ignored`, the class that covers external
+constants, structural members and non-value-bearing constants. So "not
 traversed, not added" is the default and has to be overridden explicitly. -/
 private def foldGraph (edges : List (Lean.Name × List Lean.Name))
     (emitted : List Lean.Name) (foldable : List Lean.Name)
@@ -3710,7 +3710,7 @@ private def closureOf (g : FoldWalk) (n : Lean.Name) : Array Lean.Name :=
   runFold (foldedDepsFrom g n)
 
 /-- `Aᵢ → [Lᵢ, Aᵢ₊₁]`: a chain with a distinct emitted exit per level. The
-quadratic-materialisation case — `n` expansions cache `n(n+1)/2` names. -/
+quadratic-materialisation case: `n` expansions cache `n(n+1)/2` names. -/
 private def exitChain (n : Nat) : FoldWalk :=
   let a (i : Nat) : Lean.Name := Lean.Name.mkSimple s!"A{i}"
   let l (i : Nat) : Lean.Name := Lean.Name.mkSimple s!"L{i}"
@@ -4099,11 +4099,10 @@ def testFoldClassifierEnv (result : TestResult) : IO TestResult := do
 /-- Bucket routing on fabricated graphs: every recovered edge lands in
 `term-dependencies`, including one found under an auxiliary the *type* named.
 `type-dependencies` is left exactly as `partitionDeps` produced it, so
-*type-driven* spec selection cannot move — `computeSpecs` walks that array to
-decide what a theorem specifies, and a constant reached only through an
-instance's implementation is not something the statement specifies. (The
-`@[primary_spec]` fallback reads the union and *can* move; see
-`testPrimarySpecFoldFallback`.)
+*type-driven* spec selection cannot move. `computeSpecs` walks that array to
+decide what a theorem specifies. A constant reached only through an instance's
+implementation is not something the statement specifies. (The `@[primary_spec]`
+fallback reads the union and *can* move. See `testPrimarySpecFoldFallback`.)
 
 The production entry point `foldAtomDeps` is exercised by the
 environment-backed block above, not here: these graphs cannot reach it. -/
@@ -4142,7 +4141,7 @@ def testFoldBucketRouting (result : TestResult) : IO TestResult := do
     ((runFoldSt (foldedDepsFrom g `aux)).2.nonCacheable == 0) result
   return result
 
-/-- The `@[primary_spec]` fallback walks the union `dependencies`, so a folded
+/-- The `@[primary_spec]` fallback walks the union `dependencies`. So a folded
 *term* edge can add a second candidate and detach a primary spec with no
 type-dependency change at all. This is the regression the fold's `specs` blast
 radius required. -/

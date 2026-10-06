@@ -1,7 +1,7 @@
 import Lean
 open Lean
 
-/-- Where do internal auxiliaries sit — in a declaration's *type* or its *value*?
+/-- Where do internal auxiliaries sit: in a declaration's *type* or its *value*?
 Folding type-position auxiliaries changes `typeDependencies`, which is what
 `computeSpecs` walks, so it has a blast radius on `specs`/`primary-spec`. -/
 
