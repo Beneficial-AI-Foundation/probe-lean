@@ -24,15 +24,15 @@ This project uses spec-driven development. Follow this workflow:
 
 ### Spec file locations:
 
-- `specs/TEMPLATE.md` - Template for new specs
+- `specs/template.md` - Template for new specs
 - `specs/active/` - Specs currently being worked on
 - `specs/done/` - Completed specs (reference only)
 
 ## Documentation
 
 - **README.md must be updated after each change** (new features, commands, options, defaults, etc.)
-- **docs/USAGE.md must be updated** when commands, flags, installation steps, or walkthroughs change
-- **docs/SCHEMA.md must be updated** when output format, fields, or envelope structure changes
+- **docs/usage.md must be updated** when commands, flags, installation steps, or walkthroughs change
+- **docs/schema.md must be updated** when output format, fields, or envelope structure changes
 - Include usage examples and option descriptions
 - Update docs before committing
 

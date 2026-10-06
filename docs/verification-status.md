@@ -1,11 +1,11 @@
 # Verification status: how the kernel walk decides
 
-Companion to [SCHEMA.md](SCHEMA.md#verification-status-and-the-trusted-base), which defines the
+Companion to [schema.md](schema.md#verification-status-and-the-trusted-base), which defines the
 five `verification-status` values and the three `trusted-reason` rules. This document holds what a
 reader needs when auditing one verdict: where a `sorry` is attributed, what the walk follows and
 does not follow, which modules it covers, how duplicated names are treated, and the exact scope of
 each trust rule. The CLI output that accompanies these cases is in
-[USAGE.md](USAGE.md#extract).
+[usage.md](usage.md#extract).
 
 ## The walk
 
@@ -62,7 +62,7 @@ prints a line on stderr and keeps the walk's verdict:
   missing, typically a carrier with no declaration range. If the run does not use
   `--skip-verify`, every atom that reads `verified` because a project `sorry` is reachable from
   it carries `status-origin: "kernel-taint"`, so the gap is visible in the output too (see
-  [SCHEMA.md](SCHEMA.md#re-deriving-statuses)). Direct carriers read `unverified` and carry no
+  [schema.md](schema.md#re-deriving-statuses)). Direct carriers read `unverified` and carry no
   marker;
 - the build log's `sorry` warnings: `Divergence(log): …`, trusted atoms skipped.
 

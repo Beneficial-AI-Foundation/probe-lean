@@ -9,7 +9,7 @@ envelope, the code-name format, the declaration kinds, every atom field, and the
 the two fields that need one (`verification-status` and the dependency arrays). Two companion
 documents hold the audit-level detail: [verification-status.md](verification-status.md) and
 [auxiliary-folding.md](auxiliary-folding.md). CLI flags and stderr output are in
-[USAGE.md](USAGE.md). Historical notes (Schema 1.x changes, the versioning survey, the Verus kind
+[usage.md](usage.md). Historical notes (Schema 1.x changes, the versioning survey, the Verus kind
 comparison) are archived in [archive/schema-3.0-migration-notes.md](archive/schema-3.0-migration-notes.md).
 
 ## Envelope

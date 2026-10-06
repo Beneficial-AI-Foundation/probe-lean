@@ -2,7 +2,7 @@
 
 Analyze Lean 4 projects: extract dependency graphs with verification status and spec relationships.
 
-`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 3.0 envelope format; see [docs/SCHEMA.md](docs/SCHEMA.md) for the full specification.
+`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 3.0 envelope format; see [docs/schema.md](docs/schema.md) for the full specification.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ probe-lean can analyze any Lean 4 project that meets these requirements:
 |-------------|--------|
 | **Lean version** | **≥ v4.28.0-rc1** — the `.olean` binary format is not compatible across Lean versions, and probe-lean cannot be built for older toolchains |
 | **Buildable Lean libraries** | probe-lean only needs the `.olean` files from `lake build <lib>`. If the Lean library targets compile but the final executable linking fails (e.g., missing GPU drivers), extraction can still succeed — use `--library <lib>` to build only the library |
-| **Co-importable modules** | All built modules must load into a **single Lean environment**: no two modules may declare the same fully-qualified name (identical-statement theorem/axiom restatements are the narrow exception Lean itself tolerates — it keeps one proof, so probe-lean walks the union of every version's dependencies for such names and warns). Extraction runs a preflight check and lists any duplicated names with their owning modules. Modules built under the module system (`module` header) are imported from their `.olean.private` part, as Lean requires; a module-system olean missing its split parts aborts extraction (with `--module`/`--library`, an unselected one outside the selection's import closure is instead left out by the fallback import, with a warning — see [docs/USAGE.md](docs/USAGE.md)). A stale `.olean` with no `.lean` source that a live module still imports aborts too (its constants would otherwise sit outside the project and be trusted): run `lake clean` in the target project and rebuild |
+| **Co-importable modules** | All built modules must load into a **single Lean environment**: no two modules may declare the same fully-qualified name (identical-statement theorem/axiom restatements are the narrow exception Lean itself tolerates — it keeps one proof, so probe-lean walks the union of every version's dependencies for such names and warns). Extraction runs a preflight check and lists any duplicated names with their owning modules. Modules built under the module system (`module` header) are imported from their `.olean.private` part, as Lean requires; a module-system olean missing its split parts aborts extraction (with `--module`/`--library`, an unselected one outside the selection's import closure is instead left out by the fallback import, with a warning — see [docs/usage.md](docs/usage.md)). A stale `.olean` with no `.lean` source that a live module still imports aborts too (its constants would otherwise sit outside the project and be trusted): run `lake clean` in the target project and rebuild |
 
 ### Projects with native dependencies
 
@@ -62,7 +62,7 @@ Ensure `~/.local/bin` is in your `PATH`:
 export PATH="$PATH:$HOME/.local/bin"
 ```
 
-For all installer options (`--force`, `--lean-version`, cloned-repo usage, etc.), see **[docs/USAGE.md](docs/USAGE.md#installer-flags)**.
+For all installer options (`--force`, `--lean-version`, cloned-repo usage, etc.), see **[docs/usage.md](docs/usage.md#installer-flags)**.
 
 ### Pre-built binary availability
 
@@ -126,7 +126,7 @@ probe-lean extract ./my-lean-project --library "Extraction,Spqr"
 
 Output lands in `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json` by default.
 
-For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **[docs/USAGE.md](docs/USAGE.md)**.
+For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **[docs/usage.md](docs/usage.md)**.
 
 ## Commands
 
@@ -204,7 +204,7 @@ listed, see [docs/auxiliary-folding.md](docs/auxiliary-folding.md)). The four cl
 projects can annotate declarations; probe-lean emits them verbatim in each atom's `attributes`
 array without interpreting them.
 
-For the full command reference with examples, see **[docs/USAGE.md](docs/USAGE.md)**. For the complete JSON schema specification, see **[docs/SCHEMA.md](docs/SCHEMA.md)**.
+For the full command reference with examples, see **[docs/usage.md](docs/usage.md)**. For the complete JSON schema specification, see **[docs/schema.md](docs/schema.md)**.
 
 ## Example Output
 
@@ -256,9 +256,9 @@ Running `probe-lean extract` produces a JSON envelope. Each entry in `data` desc
 ## How It Works
 
 1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
-2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies, then **folds auxiliary edges**: Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not emit (`X._proof_N`, `X.match_N`, …), and a dependency reached only through one of those used to vanish from the graph entirely. Such edges are now recovered into the referencing declaration's `term-dependencies`. [docs/SCHEMA.md](docs/SCHEMA.md#auxiliary-dependency-folding) states the contract and its limits — the pass is strictly additive, `type-dependencies` is never added to, only project-internal targets are recovered, and structural members are not folded through. Two limits worth repeating here: folding fixes *edges*, not `verification-status` soundness, and a zero in-degree is still not a licence to delete a declaration
+2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies, then **folds auxiliary edges**: Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not emit (`X._proof_N`, `X.match_N`, …), and a dependency reached only through one of those used to vanish from the graph entirely. Such edges are now recovered into the referencing declaration's `term-dependencies`. [docs/schema.md](docs/schema.md#auxiliary-dependency-folding) states the contract and its limits — the pass is strictly additive, `type-dependencies` is never added to, only project-internal targets are recovered, and structural members are not folded through. Two limits worth repeating here: folding fixes *edges*, not `verification-status` soundness, and a zero in-degree is still not a licence to delete a declaration
 3. **Filter** -- applies config-driven flags from `.verilib/probes/config.json` (`is-hidden`, `is-aeneas-generated`, `is-ignored`) and auto-detects generated code, flagged `is-hidden` plus an origin flag so `viewify` omits it: `deriving`-generated instance clusters and structure/class projections are core-Lean output (`is-lean-generated`), while attribute-machinery companion theorems (the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`; companions of tagged *axioms* stay visible as the axiom's spec proxy) are Aeneas-only (`is-aeneas-generated`). Generated theorems (either flag) are also excluded from `specs` lists and the heuristic primary-spec signals; an explicit `@[primary_spec]` still wins and re-admits the theorem into `specs`. Generated atoms are **kept in the dependency graph** (so transitive-verification stays sound), only hidden from the presented view. After enrichment, `is-hidden` is cleared on *contaminated* generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`) in the `extract` output, so consumers that read it directly (e.g. the web UI) can surface them for tracing; `viewify` molecules still omit all generated atoms regardless of `is-hidden`
-4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom from theorems' `type-dependencies` — a theorem specifies what its *statement* is about, not every constant its proof happens to invoke (one exception: a `@[primary_spec]` theorem whose statement names no specifiable constant falls back to its proof, see [docs/SCHEMA.md](docs/SCHEMA.md)) — using a multi-signal precedence chain:
+4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom from theorems' `type-dependencies` — a theorem specifies what its *statement* is about, not every constant its proof happens to invoke (one exception: a `@[primary_spec]` theorem whose statement names no specifiable constant falls back to its proof, see [docs/schema.md](docs/schema.md)) — using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
     2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
     3. `_spec` suffix — a theorem named `<def>_spec` is assigned as primary spec
@@ -326,8 +326,8 @@ are imported into a **single Lean environment** before atomizing.
 
 ## Documentation
 
-- [docs/USAGE.md](docs/USAGE.md) — full command reference and real-project walkthroughs
-- [docs/SCHEMA.md](docs/SCHEMA.md) — envelope schema specification
+- [docs/usage.md](docs/usage.md) — full command reference and real-project walkthroughs
+- [docs/schema.md](docs/schema.md) — envelope schema specification
 - [docs/verification-status.md](docs/verification-status.md) — how the kernel walk decides `verification-status`: attribution, coverage, merged declarations, the trust rules in full
 - [docs/auxiliary-folding.md](docs/auxiliary-folding.md) — what the auxiliary-dependency fold does and does not traverse
 - [docs/lean-verification-landscape.md](docs/lean-verification-landscape.md) — how specs surface across Lean verification frameworks (Aeneas, Loom/Velvet, Std.Do.Triple, VCVio) and how probe-lean discovers them

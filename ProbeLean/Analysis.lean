@@ -903,7 +903,7 @@ def stripLeadingDotSlash (path : String) : String :=
 -- edge underneath them: `host → aux → lemma` left no trace of `lemma`.
 --
 -- The fold is a strictly **additive** second pass. Governing invariant, whose
--- authoritative statement is `docs/SCHEMA.md` ("Auxiliary-dependency folding"),
+-- authoritative statement is `docs/schema.md` ("Auxiliary-dependency folding"),
 -- quoted here:
 --
 --   It only ever *adds* names to `term-dependencies`. It never adds to

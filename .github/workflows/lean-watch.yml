@@ -5,7 +5,7 @@ name: Lean watch
 # to that release. A version probe-lean cannot build (breaking upstream change, or
 # lean4-cli not yet tagged) is reported in a single tracking issue rather than
 # failing the run; the next scheduled run retries it. See
-# specs/done/auto-release-lean-versions.md and issue #38.
+# issue #38.
 
 on:
   schedule:

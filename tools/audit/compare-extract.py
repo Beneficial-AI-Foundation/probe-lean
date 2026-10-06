@@ -167,7 +167,7 @@ def main():
     # artifact prints names through `privateToUserName`, so two private
     # declarations that recover to one user-facing name serialize identically.
     #
-    # Reported, NOT failed. `docs/SCHEMA.md` permits this duplicate, so failing
+    # Reported, NOT failed. `docs/schema.md` permits this duplicate, so failing
     # on it rejected artifacts the fold had not touched at all: a before/after
     # pair that differed in nothing still exited 1 whenever either side carried a
     # collision, making the recipe unusable on such a project. Nor is "fail only
@@ -196,7 +196,7 @@ def main():
         new_sites = dup_after - dup_before
         notes.append(
             f"repeated serialized dependency names (private-name collisions, "
-            f"permitted by docs/SCHEMA.md — not an invariant): "
+            f"permitted by docs/schema.md — not an invariant): "
             f"{len(dup_before)} site(s) before, {len(dup_after)} after"
             + (f", {len(new_sites)} newly repeated — CHECK THESE" if new_sites else ""))
         for (atom, field, value), n in sorted(new_sites.items())[:args.report]:

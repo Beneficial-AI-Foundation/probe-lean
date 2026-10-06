@@ -85,7 +85,7 @@ The preflight tolerates exactly what Lean's importer tolerates: two modules rest
 module, not by the build log or the emitted dependency graph. The walk stops at the project
 boundary (Lean and every dependency package are trusted wholesale) and at the **trusted base**
 (axioms, the `externally_verified` tag set, non-proofs in `*External` modules); a `sorry` inside
-or below a trusted declaration does not taint its callers. [SCHEMA.md](SCHEMA.md#verification-status-and-the-trusted-base)
+or below a trusted declaration does not taint its callers. [schema.md](schema.md#verification-status-and-the-trusted-base)
 defines the status values and [verification-status.md](verification-status.md) the edge cases.
 An atom that reads `"verified"` because a project `sorry` is reachable from it also carries
 `"status-origin": "kernel-taint"`, under `--skip-enrich` too. A tool that recomputes statuses
@@ -154,7 +154,7 @@ Lean abstracts non-atomic embedded proofs and match arms into constants probe-le
 emit as atoms (`X._proof_N`, `X.match_N`, …); before this, a dependency reached only through
 one of them disappeared from the graph, so a `sorry`-carrying lemma used inside a tactic
 block left its caller looking clean. The pass is strictly additive, and adds only to
-`term-dependencies` — [SCHEMA.md](SCHEMA.md#auxiliary-dependency-folding) states the
+`term-dependencies` — [schema.md](schema.md#auxiliary-dependency-folding) states the
 contract and [auxiliary-folding.md](auxiliary-folding.md) what is and is not folded. Two limits
 worth repeating: folding fixes edges, not `verification-status` soundness, and a zero in-degree
 is still not a licence to delete a declaration.
@@ -173,7 +173,7 @@ If a dependency name cannot be resolved in the imported environment, `extract` l
 stderr rather than dropping it silently: edges underneath such a name are not recovered.
 
 Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
-facts about its result type (see [SCHEMA.md](SCHEMA.md)). These are domain-agnostic primitives;
+facts about its result type (see [schema.md](schema.md)). These are domain-agnostic primitives;
 probe-lean does not classify declarations itself, but a downstream tool can reconstruct a
 declaration's codomain shape from them plus its own catalogue.
 
@@ -266,7 +266,7 @@ probe-lean viewify <PROJECT_PATH> [OPTIONS]
 
 An atom becomes a molecule when it is not hidden, not lean- or aeneas-generated, relevant, and
 its `code-path` ends with `Funs.lean`. The molecule fields are listed in
-[SCHEMA.md](SCHEMA.md#molecules-probe-leanviewify).
+[schema.md](schema.md#molecules-probe-leanviewify).
 
 ---
 
@@ -447,7 +447,7 @@ probe-lean extract ./my-project -m MyProject.Core
 
 ## Output Format
 
-For the complete JSON schema specification, see [SCHEMA.md](SCHEMA.md).
+For the complete JSON schema specification, see [schema.md](schema.md).
 
 The `extract` command produces a JSON file wrapped in a Schema 3.0 metadata envelope:
 
@@ -494,7 +494,7 @@ The `extract` command produces a JSON file wrapped in a Schema 3.0 metadata enve
 }
 ```
 
-For the full atom field reference and verification-status mapping, see [SCHEMA.md](SCHEMA.md).
+For the full atom field reference and verification-status mapping, see [schema.md](schema.md).
 
 ---
 

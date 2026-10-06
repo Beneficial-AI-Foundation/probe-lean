@@ -18,7 +18,7 @@ namespace ProbeLean.GenFixture
 open ProbeLean
 
 /-- Canonical output path, following the `lean_<Package>_<version>.json`
-    filename convention documented in `docs/SCHEMA.md`. -/
+    filename convention documented in `docs/schema.md`. -/
 def defaultPath : System.FilePath :=
   "examples" / "lean_ExampleProject_0.1.0.json"
 

@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   transitively-verified` for the tag's `initialize` and a `.mvcgen_spec` companion; SPQR
   31 `transitively-verified → verified`), plus three SPQR `primary-spec` drops where
   `main`'s scan had read `@[step]` out of a docstring that says "Not `@[step]` anymore".
-- `docs/SCHEMA.md` described the `*-dependencies-external` arrays as non-project names; they
+- `docs/schema.md` described the `*-dependencies-external` arrays as non-project names; they
   are names outside the module filter, which under `--module`/`--library` includes the
   project's own unselected modules.
 - When the import fallback's selection import fails too, the error now carries the full
@@ -87,13 +87,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- `docs/SCHEMA.md` is a field reference again (about 260 lines, from 625). The three
+- `docs/schema.md` is a field reference again (about 260 lines, from 625). The three
   overlapping atom-field tables are merged into one with a Source column, the envelope
   example shows one definition and one trusted axiom, and the audit-level detail moved to
   two companion documents: `docs/verification-status.md` (sorry attribution per toolchain,
   cross-checks, executable bodies and `native_decide`, coverage of P, merged declarations,
   the trust rules in full) and `docs/auxiliary-folding.md` (what the fold traverses, folded
-  targets, the `specs` fallback, the external asymmetry). `docs/USAGE.md` now points at
+  targets, the `specs` fallback, the external asymmetry). `docs/usage.md` now points at
   those documents instead of restating the policy. The Schema 1.x change list, the package
   version survey and the Verus kind comparison are archived in
   `docs/archive/schema-3.0-migration-notes.md`. No output format change.
@@ -105,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   header scan; the `*-external` arrays extend the graph by direct edges only; `--skip-verify`
   withholds statuses but the kernel walk still runs; the walk costs about a second on dalek,
   not milliseconds; the `check-axioms` fixture totals are 119/20/26; `viewify` is listed as a
-  command in `README.md` and `docs/USAGE.md`; the README binary-availability section states
+  command in `README.md` and `docs/usage.md`; the README binary-availability section states
   the per-minor `lean4-cli` resolution that the workflows implement.
 
 ## [0.15.0] - 2026-09-16
@@ -145,7 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `transitively-verified`, not `trusted` (it still *shows* the parent's scanned
   attributes; those no longer make it trusted). The join to atoms is by Lean `Name`,
   before names are published as `probe:…`, so private-name collisions cannot swap
-  statuses (partially addresses #88). `docs/SCHEMA.md` states the contract.
+  statuses (partially addresses #88). `docs/schema.md` states the contract.
 
   The old graph-BFS still runs, as a **cross-check**: every atom on which it disagrees
   with the walk is printed as `Divergence(graph): <atom> graph says clean, oracle says
@@ -283,7 +283,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   while `loopy._unsafe_rec` is a direct carrier listed `[direct] [not emitted]`, and the
   build-log cross-check prints `Note(log): <atom> build log says sorry; it sits in the
   compiled body <X._unsafe_rec> of a \`partial def\` …` instead of a divergence.
-  Documented in `docs/SCHEMA.md`; whether such hosts should count as carriers is a spec
+  Documented in `docs/schema.md`; whether such hosts should count as carriers is a spec
   decision, not made here.
 
   A project theorem restating a **dependency's** theorem was still fail-open:
@@ -383,7 +383,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   The `Verified: n/m declarations` line is gone: it counted every non-direct atom —
   tainted and trusted ones included — under a word that is also a status; the enrich step's
   `Transitively verified | Locally verified | Not verified` line has the exclusive counts.
-- `docs/SCHEMA.md`: the `verification-status` and `trusted-reason` table cells are one
+- `docs/schema.md`: the `verification-status` and `trusted-reason` table cells are one
   paragraph each; the definitions, cross-checks, coverage, merged-declaration and
   trusted-base detail moved to a "Verification status and the trusted base" section.
 - `tools/audit/compare-extract.py --status-policy taint` accepts the status moves of this
@@ -493,7 +493,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   set. Edges to emitted project axioms, inductives, structures and classes, and direct
   external anchors, are therefore untouched by construction. `dependencies` is now derived as
   the union of the two arrays, which is what keeps its documented contract true.
-  `docs/SCHEMA.md#auxiliary-dependency-folding` is the single statement of the contract.
+  `docs/schema.md#auxiliary-dependency-folding` is the single statement of the contract.
 
   Every recovered edge lands in **`term-dependencies`**, including one found under an
   auxiliary named in the declaration's *type*. `type-dependencies` is left exactly as it
@@ -506,7 +506,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whose statement names nothing specifiable walks the union `dependencies`, so a folded term
   edge can still detach such a tag — covered by a unit regression. Since `dependencies` is
   the union of the two buckets, verification-status propagation sees every recovered edge.
-  The trade-off, stated in `docs/SCHEMA.md`: a folded entry in `term-dependencies` is
+  The trade-off, stated in `docs/schema.md`: a folded entry in `term-dependencies` is
   *indirect* — the array holds what the declaration reaches through eligible auxiliaries in
   either the type or the body, not only what the body names.
 
@@ -521,7 +521,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   dependency the graph is missing for any other reason is still treated as trusted. And it
   is compiled-environment reachability only — a zero in-degree remains no licence to delete
   a declaration, since notation, macros and elaboration-time instances leave no surviving
-  constant reference. See `docs/SCHEMA.md#auxiliary-dependency-folding`.
+  constant reference. See `docs/schema.md#auxiliary-dependency-folding`.
 
   **Output impact**, measured on curve25519-dalek-lean-verify (2354 atoms, Lean 4.31.0)
   against the immediately preceding build:
