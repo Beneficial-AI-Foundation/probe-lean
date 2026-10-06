@@ -5,6 +5,8 @@ Run from this directory, after
 
     probe-lean extract . 2>extract.stderr
     probe-lean check-axioms . >check-axioms.out
+    probe-lean extract . --module Merge.Good -o .verilib/module-Good.json
+    probe-lean extract . --module Merge.Bad -o .verilib/module-Bad.json
     python3 check.py
 
 `Merge.Bad` and `Merge.Good` both declare `theorem shared : True`; one proof is a
@@ -14,6 +16,10 @@ identifies one project proof. `Merge.Use.caller` was built against the sorried o
 The walk must not be steered clean by whichever body survived: it follows the union
 of both versions' dependencies, so `shared` reads `unverified` and both callers read
 `verified`, and a warning names the merged declaration.
+
+The atom's edges are that same union, and a `--module` run selecting either
+declaring module emits `shared`, located in the selected module's file: the
+importer's choice of body and owner must not decide the output either.
 """
 
 import glob
@@ -33,6 +39,11 @@ def status(data, atom):
     return data.get(atom, {}).get("verification-status")
 
 
+def both_bodies(atom):
+    ext = atom.get("term-dependencies-external", [])
+    return "probe:sorryAx" in ext and "probe:True.intro" in ext
+
+
 def main():
     paths = glob.glob(".verilib/probes/lean_*.json")
     if len(paths) != 1:
@@ -40,6 +51,10 @@ def main():
         return 2
     with open(paths[0]) as fh:
         data = json.load(fh)["data"]
+    selected = {}
+    for m in ("Good", "Bad"):
+        with open(f".verilib/module-{m}.json") as fh:
+            selected[m] = json.load(fh)["data"]
     with open("extract.stderr") as fh:
         stderr = fh.read().splitlines()
     with open("check-axioms.out") as fh:
@@ -53,6 +68,19 @@ def main():
           status(data, "probe:caller") == "verified")
     check("callerGood (built against the proved version) is verified too: fail closed",
           status(data, "probe:callerGood") == "verified")
+    check("shared's edges are both versions' (sorryAx and True.intro)",
+          both_bodies(data.get("probe:shared", {})))
+
+    print("--module runs: either declaring module emits the merged theorem")
+    for m in ("Good", "Bad"):
+        shared = selected[m].get("probe:shared", {})
+        check(f"--module Merge.{m}: shared is emitted, unverified",
+              shared.get("verification-status") == "unverified")
+        check(f"--module Merge.{m}: shared is located in Merge/{m}.lean",
+              shared.get("code-module") == f"Merge.{m}"
+              and shared.get("code-path") == f"Merge/{m}.lean")
+        check(f"--module Merge.{m}: shared's edges are both versions'", both_bodies(shared))
+        check(f"--module Merge.{m}: no caller is emitted", list(selected[m]) == ["probe:shared"])
 
     print("Extract stderr")
     check("the merged declaration is reported",

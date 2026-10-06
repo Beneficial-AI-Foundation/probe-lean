@@ -43,6 +43,15 @@ structure ProjectTaint where
       same statement (`MergedDecl`): the importer kept one proof, the walk followed
       the union of all of them. Sorted by name; reported as a warning. -/
   merged : Array Name := #[]
+  /-- Every name the importer collapsed — declared by more than one project module,
+      or by a project module and a module outside the project — realisations
+      included, with each **project** module's version (`MergedDecl.versions`).
+      `getProjectDeclsFrom` decides emission and dependency arrays from these rather
+      than from the one version the environment kept, so an atom's edges are the
+      ones the walk followed. A cross-boundary name the environment attributes to a
+      dependency is not among the constants `getProjectDeclsFrom` iterates and stays
+      unemitted (`[not emitted]` in `check-axioms`). -/
+  mergedVersions : Std.HashMap Name (Array (Name × ConstantInfo)) := {}
   /-- Hand-written names a project module declares that a module outside the project
       declares too: walked from the project's own version(s) like a merged
       declaration. Sorted by name; reported as a note. -/
@@ -411,7 +420,9 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
   let (crossHand, crossRealised) := crossNames.partition (!isRealisedTheoremName ·)
   let realised := (mergedRealised ++ crossRealised).qsort fun a b => a.toString < b.toString
   let roots := dependencyRoots env.header.moduleNames pFilter
-  return ({ trust, taint, constants, merged := mergedHand, crossWalked := crossHand, realised,
+  let mergedVersions := mergedAll.foldl (init := {}) fun acc m => acc.insert m.declName m.versions
+  return ({ trust, taint, constants, merged := mergedHand, mergedVersions,
+            crossWalked := crossHand, realised,
             tagSet, scanOnlyTags, tagOnly, generatedAxioms, dependencyRoots := roots,
             pSize := consts.size, moduleCount },
           attrs)

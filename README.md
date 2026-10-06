@@ -195,7 +195,7 @@ boundary and at the trusted base, so it costs about a second on a 230-module Mat
 
 Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
 facts about its result type, plus `type-dependencies-external` / `term-dependencies-external`
-(the non-project deps that the project-filtered `type-`/`term-dependencies` omit). These are
+(the deps outside the module filter that the filtered `type-`/`term-dependencies` omit). These are
 domain-agnostic primitives: probe-lean does not classify declarations itself, but a downstream
 tool can reconstruct a declaration's codomain shape from them and extend the dependency graph
 past the project boundary by direct edges (externals reached only through an auxiliary are not

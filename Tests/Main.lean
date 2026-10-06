@@ -4803,6 +4803,20 @@ run_cmd do
   -- Merged declarations (co-import kept one of several same-statement versions).
   let thmSorried := env.find? `TaintEnv.sorried |>.get!
   let thmClean := env.find? `TaintEnv.clean |>.get!
+  -- Emission of a merged name, on a real constant owned by `ProbeLean.Analysis` given
+  -- fabricated versions in that module and in `ProbeLean.Attrs`.
+  let sdn := ``ProbeLean.sortDedupNames
+  let sdnInfo := env.find? sdn |>.get!
+  let sdnVersions := #[(`ProbeLean.Analysis, thmClean), (`ProbeLean.Attrs, thmSorried)]
+  let modNames := env.allImportedModuleNames
+  let mergedVia (sel : Name) :=
+    mergedDeclInfo env modNames (mkProjectFilter env #[sel]) sdn sdnInfo sdnVersions
+  let viaOther := mergedVia `ProbeLean.Attrs
+  let viaOwner := mergedVia `ProbeLean.Analysis
+  let attrsFilter' := mkProjectFilter env #[`ProbeLean.Attrs]
+  let emittedPlain := getProjectDeclsFrom env #[(sdn, sdnInfo)] attrsFilter'
+  let emittedMerged := getProjectDeclsFrom env #[(sdn, sdnInfo)] attrsFilter'
+    (Std.HashMap.ofList [(sdn, sdnVersions)])
   let axTrust := env.find? `TaintEnv.trustAx |>.get!
   let mkMerged (n : Name) (vs : Array (Name × ConstantInfo)) : MergedDecl := { declName := n, versions := vs }
   let thmThm := mkMerged `TaintEnv.evSorried #[(`M1, thmSorried), (`M2, thmClean)]
@@ -4896,6 +4910,25 @@ run_cmd do
       propTyped.contains `A.FunsExternal.p && !propTyped.contains `A.FunsExternal.n),
     ("headerMerges: a project module with no duplicated names yields neither merged nor cross names",
       noDup.1.isEmpty && noDup.2.isEmpty),
+    ("getProjectDeclsFrom: a merged name is emitted when a non-owner declaring module is selected",
+      emittedPlain.isEmpty && emittedMerged.map (·.name) == #[sdn]),
+    ("mergedDeclInfo: no declaring module selected, not emitted",
+      (mergedVia `ProbeLean.Trust).isNone),
+    ("mergedDeclInfo: owner unselected, located in the selected version's module",
+      viaOther.map (·.moduleName) == some `ProbeLean.Attrs &&
+      viaOther.map (·.sourceInfo) == some (declSourceLocIn env `ProbeLean.Attrs sdn)),
+    ("mergedDeclInfo: owner selected, located where the environment attributes it",
+      viaOwner.map (·.moduleName) == some `ProbeLean.Analysis &&
+      viaOwner.map (·.sourceInfo) == some (getDeclSourceLoc env sdn)),
+    ("mergedDeclInfo: the dependency arrays are the union over every version",
+      viaOther.any fun d =>
+        d.termDependencies.contains ``sorryAx &&
+        (getDependencies thmClean).termDeps.all d.termDependencies.contains &&
+        d.dependencies == sortDedupNames (d.typeDependencies ++ d.termDependencies)),
+    ("declSourceLocIn: the owner module's range is getDeclSourceLoc's, another module has none",
+      (getDeclSourceLoc env sdn).isSome &&
+      declSourceLocIn env `ProbeLean.Analysis sdn == getDeclSourceLoc env sdn &&
+      (declSourceLocIn env `ProbeLean.Attrs sdn).isNone),
     ("projectConstants-style membership: non-project roots are blocked",
       !(projectTaint env (fun _ => false) (fun _ => false) roots).tainted.contains `TaintEnv.sorried)]
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))

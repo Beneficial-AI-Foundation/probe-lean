@@ -194,6 +194,12 @@ def getDependencies (info : ConstantInfo) : DependencyInfo :=
   let sortByName (arr : Array Name) := arr.qsort fun a b => a.toString < b.toString
   { typeDeps := sortByName typeConsts, termDeps := sortByName valueConsts, all := sortByName all }
 
+/-- Deduplicate and sort names by their string form, the project's determinism
+convention (P14). -/
+def sortDedupNames (arr : Array Name) : Array Name :=
+  let s : Std.HashSet Name := arr.foldl (init := {}) fun s n => s.insert n
+  s.toArray.qsort fun a b => a.toString < b.toString
+
 /-- Get source file path for a module (relative to project root).
     Converts component-wise via `moduleNameToRelPath`: rendering the name with
     `Name.toString` would wrap non-identifier components in guillemets
@@ -217,6 +223,15 @@ def getDeclSourceLoc (env : Environment) (name : Name) : Option CodeTextInfo :=
       linesEnd := ranges.range.endPos.line
     }
   | none => none
+
+/-- `name`'s declaration range as module `modName` registered it. `getDeclSourceLoc`
+    reads the module the environment attributes `name` to, which for a name several
+    modules declare is only one of them. -/
+def declSourceLocIn (env : Environment) (modName name : Name) : Option CodeTextInfo := do
+  let idx ← env.getModuleIdx? modName
+  let (_, ranges) ← (declRangeExt.getModuleEntries env idx).binSearch (name, default)
+    fun a b => Name.quickLt a.1 b.1
+  return { linesStart := ranges.range.pos.line, linesEnd := ranges.range.endPos.line }
 
 /-- Extract the source file path from Aeneas docstring `Source: 'path'` pattern -/
 def extractSourceFromDocstring (doc : String) : Option String :=
@@ -496,18 +511,48 @@ def isSourceVisible (env : Environment) (name : Name) (info : ConstantInfo) : Bo
   (match info with | .ctorInfo _ => false | .recInfo _ => false | _ => true) &&
   (declRangeExt.find? env name).isSome
 
+/-- The `DeclInfo` of a name several project modules declare, from every module's own
+    version (`versions`: `(module, constant info)`, sorted by module). `none` when no
+    declaring module is selected. The environment keeps one body and attributes the
+    name to one module, both chosen by the importer, so neither may decide the output:
+    the dependency arrays are the union over all versions, the edges the taint walk
+    follows (`Taint.mergedChildren`), and when the attributed module is unselected the
+    location is the first selected version's. -/
+def mergedDeclInfo (env : Environment) (modNames : Array Name) (selFilter : ProjectFilter)
+    (name : Name) (info : ConstantInfo) (versions : Array (Name × ConstantInfo))
+    : Option DeclInfo := do
+  let isSelected (m : Name) := match env.getModuleIdx? m with
+    | some idx => selFilter.moduleIdxs.contains idx.toNat
+    | none => false
+  let (firstSel, _) ← versions.find? (isSelected ·.1)
+  let base := analyzeDecl env modNames name info
+  let (moduleName, sourceInfo) :=
+    if selFilter.contains env name then (base.moduleName, base.sourceInfo)
+    else (firstSel, declSourceLocIn env firstSel name)
+  let deps := versions.map (getDependencies ·.2)
+  let typeDependencies := sortDedupNames (deps.flatMap (·.typeDeps))
+  let termDependencies := sortDedupNames (deps.flatMap (·.termDeps))
+  return { base with moduleName, sourceInfo, typeDependencies, termDependencies,
+                     dependencies := sortDedupNames (typeDependencies ++ termDependencies) }
+
 /-- The emitted declarations among `consts` (a slice of P): source-visible
-    constants whose module is selected by `selFilter`. Sorted by name (P14). -/
+    constants whose module is selected by `selFilter`. A name in `merged` (declared
+    by several project modules, with each module's version) is emitted when any
+    declaring module is selected, see `mergedDeclInfo`. Sorted by name (P14). -/
 def getProjectDeclsFrom (env : Environment) (consts : Array (Name × ConstantInfo))
-    (selFilter : ProjectFilter) : Array DeclInfo := Id.run do
+    (selFilter : ProjectFilter)
+    (merged : Std.HashMap Name (Array (Name × ConstantInfo)) := {}) : Array DeclInfo := Id.run do
   let modNames := env.allImportedModuleNames
   let mut decls : Array DeclInfo := #[]
   for (name, info) in consts do
-    if !selFilter.contains env name then
-      continue
-    if !isSourceVisible env name info then
-      continue
-    decls := decls.push (analyzeDecl env modNames name info)
+    match merged[name]? with
+    | some versions =>
+      if !isSourceVisible env name info then continue
+      if let some d := mergedDeclInfo env modNames selFilter name info versions then
+        decls := decls.push d
+    | none =>
+      if selFilter.contains env name && isSourceVisible env name info then
+        decls := decls.push (analyzeDecl env modNames name info)
   decls.qsort fun a b => a.name.toString < b.name.toString
 
 /-- The lexical state `stripLine` carries from one source line to the next: outside
@@ -986,12 +1031,6 @@ def FoldWalk.ofEnv (env : Environment) (isProjectMember : Name → Bool) : FoldW
   { children := constChildren env
     classify := classifyFoldCandidate env isProjectMember }
 
-/-- Deduplicate and sort names by their string form, the project's determinism
-convention (P14). -/
-def sortDedupNames (arr : Array Name) : Array Name :=
-  let s : Std.HashSet Name := arr.foldl (init := {}) fun s n => s.insert n
-  s.toArray.qsort fun a b => a.toString < b.toString
-
 /-- Project-emitted constants reachable from `n` through foldable nodes only.
 
 Returns `(targets, cacheable)`. `cacheable := false` when the result was
@@ -1232,11 +1271,12 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
     | some _ => moduleSourcePathCached pathCache env projectPath info.moduleName
     | none => pure ""
 
-  -- External (non-project) deps: referenced but outside the project (Mathlib,
-  -- core). Emitted alongside the project-filtered deps so a downstream
-  -- classifier gets the direct edges to external anchors that
-  -- `projTypeDeps`/`projTermDeps` drop (direct only: the fold never adds here,
-  -- see `docs/auxiliary-folding.md`).
+  -- External deps: names outside `projFilter` (the extraction's module filter)
+  -- that survive the internal-name filter: Mathlib, core, other packages, and
+  -- under `--module`/`--library` the project's own unselected modules. Emitted
+  -- alongside the filtered deps so a downstream classifier gets the direct edges
+  -- to external anchors that `projTypeDeps`/`projTermDeps` drop (direct only: the
+  -- fold never adds here, see `docs/auxiliary-folding.md`).
   --
   -- Partitioned in one pass per list rather than filtered once per output array:
   -- `isInternalName` scans the name and the module lookup hashes it, and with

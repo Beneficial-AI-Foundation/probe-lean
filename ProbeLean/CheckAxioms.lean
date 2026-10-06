@@ -78,7 +78,7 @@ def runCheckAxiomsInProject (projectPath : System.FilePath)
   let (pt, _) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
     (moduleCount := imported.size)
   reportTaintWarnings pt
-  let emitted := (getProjectDeclsFrom env consts selFilter).foldl
+  let emitted := (getProjectDeclsFrom env consts selFilter pt.mergedVersions).foldl
     (init := ({} : Std.HashSet Name)) fun s d => s.insert d.name
   printTaintReport env pt emitted
   return 0

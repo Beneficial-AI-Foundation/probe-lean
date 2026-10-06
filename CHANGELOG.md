@@ -17,6 +17,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   now read the declaring module's extension entries, the mechanism `getStructureInfo?`
   already uses. Remaining limit: an `attribute [instance]` issued from a different module
   than the declaration is not seen. Fixture: `tests/fixtures/aux-fold/Demo/Kinds.lean`.
+- **Merged declarations no longer take their atom from the body Lean's importer kept.**
+  Since every built module is imported, the importer chose which version of a restated
+  theorem survived and which module owned it, and the unselected modules decided both. So
+  `--module Merge.Good` emitted nothing (its `shared` was attributed to `Merge.Bad`), and
+  in every run `shared` read `unverified` while its edges showed only the proved body. A
+  merged name's dependency arrays are now the union of every version's edges (what the
+  walk follows), it is emitted when any declaring module is selected, and it is located in
+  a selected module. The same holds for a name shared with a dependency that the project
+  owns in the environment: its arrays are the project version's, not the dependency's
+  proof the importer kept (`cross-merge`'s `shared4` showed `True.intro` under an
+  `unverified` status); a name the dependency owns is still not an atom. Fixtures:
+  `tests/fixtures/merge/check.py`, `tests/fixtures/cross-merge/check.py`. Re-measured
+  against `main` with the final tree at the targets' current revisions (dalek `26d49052`,
+  SPQR `7fe71f6`, Lean 4.31): atom sets and all four dependency arrays identical on both,
+  `compare-extract.py --status-policy taint` and `check-status-consistency.py` pass; the
+  status moves are the ones recorded under 0.15.0 (dalek `trusted →
+  transitively-verified` for the tag's `initialize` and a `.mvcgen_spec` companion; SPQR
+  31 `transitively-verified → verified`), plus three SPQR `primary-spec` drops where
+  `main`'s scan had read `@[step]` out of a docstring that says "Not `@[step]` anymore".
+- `docs/SCHEMA.md` described the `*-dependencies-external` arrays as non-project names; they
+  are names outside the module filter, which under `--module`/`--library` includes the
+  project's own unselected modules.
 
 ### Changed
 

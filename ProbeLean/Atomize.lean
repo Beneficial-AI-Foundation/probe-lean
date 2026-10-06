@@ -474,13 +474,12 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
 
   IO.println "Extracting declarations..."
   let consts := projectConstants env pFilter
-  let decls := getProjectDeclsFrom env consts selFilter
-  IO.println s!"Found {decls.size} declarations"
-
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
     (moduleCount := imported.size)
+  let decls := getProjectDeclsFrom env consts selFilter pt.mergedVersions
+  IO.println s!"Found {decls.size} declarations"
   IO.println (formatTaintSummary pt)
   IO.println (formatTagSetLine pt.tagSet)
   reportTaintWarnings pt

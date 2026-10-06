@@ -109,6 +109,13 @@ one project proof. The walk fails closed for such a name:
   statement, and Lean kept one proof: …` is printed. Give each variant its own namespace if the
   proved version's callers should read clean.
 
+The atom follows the same versions rather than the one body the importer kept. Its four split
+dependency arrays are the union of every version's edges, so the `sorryAx` edge behind its
+`"unverified"` status is always listed. Under `--module`/`--library` it is emitted when *any*
+declaring module is selected; when the module the importer attributes it to is not selected,
+`code-module`, `code-path` and `code-text` are the first selected declaring module's (by module
+name). `attributes` and `rust-source` still come from the attributed module's declaration.
+
 The versions come from the imported environment itself. Lean's importer collapses only the constant
 lookup map, while the environment header keeps every module's own constants (module-system modules
 included, since the import is at the private level), so the walk follows every project version
@@ -118,8 +125,11 @@ A restatement of a **dependency's** theorem, meaning a name a project module dec
 non-project module declares too, or that the environment attributes outside the project, is walked
 the same way from the **project's own version(s)**: a `sorry` in any of them gives `"unverified"`
 if emitted, else `[not emitted]` in `check-axioms`, and every caller `"verified"`, whichever body
-the environment kept. A proved restatement of a proved dependency theorem stays clean, the other
-body being a dependency's and already trusted. Only rules 1 and 3 apply to such a name. Announced
+the environment kept. When it is emitted (the environment attributes the name to a project module)
+its dependency arrays are the project version's edges as well, never the dependency's body; a name
+the dependency owns is not an atom. A proved restatement of a proved dependency theorem stays
+clean, the other body being a dependency's and already trusted. Only rules 1 and 3 apply to such a
+name. Announced
 with `Note: <n> declaration name(s) are declared by a project module and by a module outside the
 project …`.
 

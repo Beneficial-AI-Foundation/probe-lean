@@ -113,6 +113,10 @@ jobs:
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          for m in Good Bad; do
+            "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . --module "Merge.$m" \
+              -o ".verilib/module-$m.json" >/dev/null
+          done
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
@@ -312,6 +316,10 @@ jobs:
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          for m in Good Bad; do
+            "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . --module "Merge.$m" \
+              -o ".verilib/module-$m.json" >/dev/null
+          done
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 

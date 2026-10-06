@@ -76,6 +76,11 @@ def main():
     print("Project wins the name, project body sorried, environment holds the dependency's proof (shared4)")
     check("shared4 is unverified (the header's copy of the project body is walked)",
           status(data, "probe:shared4") == "unverified")
+    # The atom's edges are the project version's too, not the dependency's proof the
+    # environment kept: the sorryAx edge behind the status is listed.
+    check("shared4's edges are the project body's (sorryAx), not the dependency's proof",
+          "probe:sorryAx" in data.get("probe:shared4", {}).get("term-dependencies-external", [])
+          and "probe:True.intro" not in data.get("probe:shared4", {}).get("term-dependencies-external", []))
     check("callerBad is verified", status(data, "probe:callerBad") == "verified")
 
     check("every atom has a status", all("verification-status" in a for a in data.values()))
