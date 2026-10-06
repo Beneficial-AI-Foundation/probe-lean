@@ -59,9 +59,11 @@ prints a line on stderr and keeps the walk's verdict:
 
 - the reverse-BFS over the emitted graph: `Divergence(graph): <atom> graph says clean, oracle says
   tainted` (or the reverse). A graph divergence localises a node or edge the emitted graph is
-  missing, typically a carrier with no declaration range. Every atom the walk finds tainted
-  carries `status-origin: "kernel-taint"`, so the gap is visible in the output too (see
-  [SCHEMA.md](SCHEMA.md#re-deriving-statuses));
+  missing, typically a carrier with no declaration range. If the run does not use
+  `--skip-verify`, every atom that reads `verified` because a project `sorry` is reachable from
+  it carries `status-origin: "kernel-taint"`, so the gap is visible in the output too (see
+  [SCHEMA.md](SCHEMA.md#re-deriving-statuses)). Direct carriers read `unverified` and carry no
+  marker;
 - the build log's `sorry` warnings: `Divergence(log): …`, trusted atoms skipped.
 
 ## Kernel dependencies, not executable bodies

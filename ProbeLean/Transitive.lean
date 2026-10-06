@@ -31,10 +31,6 @@ def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVe
       else if pt.taint.tainted.contains n then (none, .verified)
       else (none, .transitivelyVerified)
 
-/-- The `status-origin` value of an atom whose `verified` comes from the walk's
-    tainted branch (hub ADR-006). -/
-def kernelTaintOrigin : String := "kernel-taint"
-
 /-- Stamp `verification-status`/`trusted-reason`/`status-origin` on every atom from
     the taint pass, joined on `leanName`. `applyTaint := false` (`--skip-verify`)
     stamps only the trusted atoms and leaves the rest without a status;
@@ -60,7 +56,7 @@ def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
       if !applyTaint then
         out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none }
       else
-        let origin := if status == .verified then some kernelTaintOrigin else none
+        let origin := if status == .verified then some .kernelTaint else none
         let status := if status == .transitivelyVerified && !upgrade then .verified else status
         out := out.push { a with verificationStatus := some status, trustedReason := none,
                                  statusOrigin := origin }

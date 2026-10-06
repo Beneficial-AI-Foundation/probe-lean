@@ -53,6 +53,7 @@ private def configRef : String := addProbePrefix "ExampleProject.Config"
 private def helperRef : String := addProbePrefix "ExampleProject.helper"
 private def boundsRef : String := addProbePrefix "ExampleProject.helper_bounds"
 private def correctRef : String := addProbePrefix "ExampleProject.helper_correct"
+private def unprovedRef : String := addProbePrefix "ExampleProject.unproved"
 
 /-- The fixture atoms. Deliberately covers every shape the integration tests
     assert on: a `def`, a `theorem`, a `projection`, a `structure`, and an
@@ -60,16 +61,20 @@ private def correctRef : String := addProbePrefix "ExampleProject.helper_correct
     present only on trusted atoms; and `specs` / `primary-spec` / `attributes`
     populated on a target.
 
+    Statuses are those of a default-mode extract (no `--skip-enrich`): clean atoms
+    read `transitively-verified`, and `unproved_corollary`, which depends on the
+    direct carrier `unproved`, reads `verified` with `status-origin: "kernel-taint"`.
+
     `helper_bounds` and `helper_correct` are both `@[primary_spec]`-tagged and
     both target `helper`, so the fixture also exercises the ambiguous-primary-spec
     tie-break. Dependency, `specs`, and `attributes` arrays are pre-sorted (P14). -/
 private def fixtureAtoms : Array UnifiedAtom := #[
-  { mkAtom "Config" .structure .verified 5 with
+  { mkAtom "Config" .structure .transitivelyVerified 5 with
     codomainHead := some "Type" },
   -- Distinct source range from `Config`: a real projection shares its parent
   -- structure's lines, but `probe-extract-check` warns on overlapping locations
   -- and a warning-free fixture lets that check run without `--allow-warnings`.
-  { mkAtom "Config.limit" .projection .verified 9 with
+  { mkAtom "Config.limit" .projection .transitivelyVerified 9 with
     dependencies := #[configRef]
     typeDependencies := #[configRef]
     codomainHead := some "Nat" },
@@ -81,20 +86,20 @@ private def fixtureAtoms : Array UnifiedAtom := #[
     codePath := "ExampleProject/CoreExternal.lean"
     trustedReason := some "external"
     codomainHead := some "Nat" },
-  { mkAtom "helper" .def .verified 18 with
+  { mkAtom "helper" .def .transitivelyVerified 18 with
     dependencies := #[configRef]
     typeDependencies := #[configRef]
     specs := #[boundsRef, correctRef]
     primarySpec := some correctRef
     codomainHead := some "Nat" },
-  { mkAtom "helper_bounds" .theorem .verified 24 with
+  { mkAtom "helper_bounds" .theorem .transitivelyVerified 24 with
     dependencies := #[helperRef]
     typeDependencies := #[helperRef]
     attributes := #["primary_spec"]
     isPrimarySpec := true
     codomainHead := some "LE.le"
     codomainIsProp := true },
-  { mkAtom "helper_correct" .theorem .verified 30 with
+  { mkAtom "helper_correct" .theorem .transitivelyVerified 30 with
     dependencies := #[helperRef]
     typeDependencies := #[helperRef]
     attributes := #["primary_spec"]
@@ -104,6 +109,12 @@ private def fixtureAtoms : Array UnifiedAtom := #[
   { mkAtom "unproved" .theorem .unverified 36 with
     dependencies := #[helperRef]
     typeDependencies := #[helperRef]
+    codomainHead := some "Eq"
+    codomainIsProp := true },
+  { mkAtom "unproved_corollary" .theorem .verified 42 with
+    dependencies := #[unprovedRef]
+    termDependencies := #[unprovedRef]
+    statusOrigin := some .kernelTaint
     codomainHead := some "Eq"
     codomainIsProp := true }
 ]

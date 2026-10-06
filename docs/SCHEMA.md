@@ -229,8 +229,8 @@ range, or a `def`'s abstracted `f._proof_1`, is not an atom. A consumer that rec
 `"transitively-verified"` from the dependency arrays (hub probe's enrichment) would then promote
 the atom or its callers. So every atom from the walk's tainted branch carries
 `"status-origin": "kernel-taint"`. A consumer must never promote a marked atom, and must not
-promote an atom that reaches a marked atom through non-trusted dependencies. An unmarked
-`"verified"` atom is clean modulo T. It reads `"verified"` only under `--skip-enrich`, and a
+promote an atom that reaches a marked atom through non-trusted dependencies. In an extract from
+probe-lean 0.16.0 or later, an unmarked `"verified"` atom is clean modulo T. It reads `"verified"` only under `--skip-enrich`, and a
 consumer can promote it. The marker exists from probe-lean 0.16.0. Extracts made by older
 versions have no marker and must be re-extracted, not re-enriched.
 

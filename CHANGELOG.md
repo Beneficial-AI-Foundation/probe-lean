@@ -18,7 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   that separates a tainted `verified` from a capped clean one. Hub probe accepts probe-lean
   extracts for re-enrichment from this version. Extracts made by older versions must be
   re-extracted. `tools/audit/check-status-consistency.py` checks the marker against the
-  `check-axioms` report.
+  `check-axioms` report. The `UnifiedAtom` reader rejects a `status-origin` value other than
+  `"kernel-taint"` instead of reading it as absent. The example fixture now has a marked atom,
+  and its clean atoms read `transitively-verified` as in a default-mode extract.
+
+### Changed
+
+- **`tools/audit/check-status-consistency.py` fails on an empty or cut report.** The
+  `check-axioms` report must contain the tainted header, and the number of listed lines must
+  match the count in that header.
 
 ### Fixed
 

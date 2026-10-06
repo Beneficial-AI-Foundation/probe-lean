@@ -31,6 +31,9 @@ there is no residual class of "unresolvable" names, and treating one as such let
 the gate pass while an emitted private atom was missing from the artifact. The
 message says when a prefix was stripped so the raw name can be found in the report.
 
+The report must contain the tainted header, followed by exactly as many lines as
+its count says; otherwise the gate fails.
+
 Exit status is 0 only if every equivalence holds.
 """
 
@@ -47,7 +50,7 @@ def user_name(raw):
     return PRIVATE.sub("", raw)
 
 
-TAINTED_HEADER = re.compile(r"^\d+ constant\(s\) rest on an unexcused project sorry:$")
+TAINTED_HEADER = re.compile(r"^(?P<count>\d+) constant\(s\) rest on an unexcused project sorry:$")
 
 # A listed line is the raw name followed by the optional flags, in the order
 # `formatTaintedLine` prints them. The flags are matched from the end rather than
@@ -57,29 +60,41 @@ TAINTED_LINE = re.compile(r"^(?P<raw>.*?)(?P<direct> \[direct\])?(?P<not_emitted
 
 
 def parse_report(path):
-    """{name: (direct, emitted, raw)} for every listed tainted constant, keyed by the
-    user-facing name; `raw` is the name as the report printed it, which differs from
-    the key only for a private declaration.
+    """({name: (direct, emitted, raw)}, problems). The map has every listed tainted
+    constant, keyed by the user-facing name; `raw` is the name as the report printed
+    it, which differs from the key only for a private declaration.
 
     Only the indented lines under the tainted header are read: the report goes on to
-    list the trusted base (`N trusted constant(s) (T):`) with the same indentation."""
+    list the trusted base (`N trusted constant(s) (T):`) with the same indentation.
+    `problems` is non-empty if the header is missing or the number of lines under it
+    differs from its count: an empty or cut report must not pass as "nothing tainted"."""
     listed = {}
     in_tainted = False
+    expected = None
+    seen = 0
     with open(path) as fh:
         for line in fh:
-            if TAINTED_HEADER.match(line.rstrip("\n")):
+            header = TAINTED_HEADER.match(line.rstrip("\n"))
+            if header:
                 in_tainted = True
+                expected = int(header.group("count"))
                 continue
             if not line.startswith("  "):
                 in_tainted = False
                 continue
             if not in_tainted:
                 continue
+            seen += 1
             m = TAINTED_LINE.match(line.strip())
             raw = m.group("raw")
             listed[user_name(raw)] = (m.group("direct") is not None,
                                       m.group("not_emitted") is None, raw)
-    return listed
+    problems = []
+    if expected is None:
+        problems.append("report: no tainted header (`N constant(s) rest on an unexcused project sorry:`)")
+    elif seen != expected:
+        problems.append(f"report: tainted header says {expected} constant(s), {seen} line(s) listed")
+    return listed, problems
 
 
 def main():
@@ -95,7 +110,7 @@ def main():
 
     with open(args.artifact) as fh:
         data = json.load(fh)["data"]
-    listed = parse_report(args.report)
+    listed, report_problems = parse_report(args.report)
 
     atoms = {}
     origins = {}
@@ -104,7 +119,7 @@ def main():
         atoms[name] = atom.get("verification-status")
         origins[name] = atom.get("status-origin")
 
-    bad = []
+    bad = list(report_problems)
     counts = {"unverified": 0, "verified": 0, "clean": 0, "trusted": 0, "missing": 0}
     for name, status in sorted(atoms.items()):
         if status is None:
