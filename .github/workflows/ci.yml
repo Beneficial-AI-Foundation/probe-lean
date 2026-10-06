@@ -77,6 +77,10 @@ jobs:
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           lake build probe-lean
           cd tests/fixtures/aux-fold
+          # The artifact name carries the probe-lean commit, so a re-run of these
+          # steps in a working tree accumulates one per commit and the fixtures'
+          # "exactly one artifact" guard trips. A no-op on a fresh checkout.
+          rm -f .verilib/probes/lean_*.json
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
@@ -93,6 +97,7 @@ jobs:
           diff lean-toolchain tests/fixtures/collision/lean-toolchain \
             || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/collision
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -108,6 +113,7 @@ jobs:
           diff lean-toolchain tests/fixtures/merge/lean-toolchain \
             || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/merge
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -130,6 +136,7 @@ jobs:
           diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
             || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/cross-merge
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -147,6 +154,7 @@ jobs:
           diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
             || { echo "::error::tests/fixtures/module-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/module-merge
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -164,6 +172,7 @@ jobs:
           diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
             || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/module-collision
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m ModColl.Main 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -180,6 +189,7 @@ jobs:
           diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
             || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/orphan
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -283,6 +293,10 @@ jobs:
           diff lean-toolchain tests/fixtures/aux-fold/lean-toolchain \
             || { echo "::error::tests/fixtures/aux-fold/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/aux-fold
+          # The artifact name carries the probe-lean commit, so a re-run of these
+          # steps in a working tree accumulates one per commit and the fixtures'
+          # "exactly one artifact" guard trips. A no-op on a fresh checkout.
+          rm -f .verilib/probes/lean_*.json
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
@@ -296,6 +310,7 @@ jobs:
           diff lean-toolchain tests/fixtures/collision/lean-toolchain \
             || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/collision
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m Coll.Main 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -311,6 +326,7 @@ jobs:
           diff lean-toolchain tests/fixtures/merge/lean-toolchain \
             || { echo "::error::tests/fixtures/merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/merge
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -333,6 +349,7 @@ jobs:
           diff lean-toolchain tests/fixtures/cross-merge/lean-toolchain \
             || { echo "::error::tests/fixtures/cross-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/cross-merge
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -350,6 +367,7 @@ jobs:
           diff lean-toolchain tests/fixtures/module-merge/lean-toolchain \
             || { echo "::error::tests/fixtures/module-merge/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/module-merge
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -367,6 +385,7 @@ jobs:
           diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
             || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/module-collision
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -m ModColl.Main 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
@@ -383,6 +402,7 @@ jobs:
           diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
             || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
           cd tests/fixtures/orphan
+          rm -f .verilib/probes/lean_*.json
           lake build
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
