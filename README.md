@@ -47,15 +47,6 @@ The installer puts the binary in `~/.local/bin`. Add that directory to your `PAT
 
 The installer searches the GitHub releases from newest to oldest. It downloads the first release that has a binary for your Lean version and platform (`linux-x86_64` or `darwin-arm64`). For a Lean version that the current release does not cover, such as a superseded release candidate, this is an old probe-lean release. For example, `--lean-version v4.28.0-rc1` installs probe-lean 0.9.4. If no release has a matching binary or the download fails, the installer builds from source. For the installer flags and the list of built Lean versions, see [docs/usage.md](docs/usage.md), sections "Installer flags" and "Pre-built binary availability".
 
-### Docker
-
-```bash
-docker build --build-arg LEAN_VERSION=v4.29.0 -t probe-lean .
-docker run --rm -v /path/to/project:/project probe-lean extract /project
-```
-
-The image runs the installer during the build. The default `LEAN_VERSION` in the `Dockerfile` is v4.28.0-rc1, which installs the old 0.9.4 release.
-
 ### GitHub Actions
 
 ```yaml
