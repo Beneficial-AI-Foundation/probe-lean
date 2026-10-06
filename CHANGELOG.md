@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The walk counts the structure behind a projection node as an edge.** On Lean ≤ 4.33
+  `Expr.getUsedConstants` visits a projection's operand and drops its structure name (4.34
+  counts it). Normally harmless, since the operand's type names the structure, but when
+  the operand is a *trusted* constant it is blocked and never expanded, so a
+  `theorem t : P := x.1` with `axiom x : S` and `S`'s constructor resting on `sorry` read
+  `transitively-verified` on the pinned toolchain. `AxiomCheck.usedConstants` is Lean
+  4.34's fold, used by `constInfoChildren` on every toolchain; the emitted dependency
+  arrays still use `getUsedConstants`. The `Lean.collectAxioms` cross-check could not
+  show the difference (unblocked, it reaches `S` through `x`'s type), so the new test
+  builds the raw projection with `mkProj` against a trusted operand. Neither target's
+  tainted set changes (dalek 112, SPQR 146).
 - **`kind` reports classes and instances from Lean's registries** (#111). `class` was
   decided by `Lean.isClass`, which reads an extension *state* that is empty under the
   `loadExts := false` import probe-lean uses, so every class was emitted as `structure`.

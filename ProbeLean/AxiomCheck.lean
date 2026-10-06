@@ -137,22 +137,72 @@ def reachingNames (children : Name → Array Name) (blocked : Name → Bool) (ta
 def reaches (children : Name → Array Name) (blocked : Name → Bool) (target root : Name) : Bool :=
   ((visit children blocked target root).run' {}).1
 
+namespace UsedConstantsImpl
+
+unsafe structure State where
+  visited       : PtrSet Expr := mkPtrSet
+  visitedConsts : NameHashSet := {}
+
+/-- `Expr.FoldConstsImpl.fold` as Lean 4.34 writes it: the `.proj` case records the
+    structure name as well as visiting the operand. The DAG traversal (pointer-keyed
+    `visited`, one callback per constant) is the same, so the cost is that of
+    `getUsedConstants`. -/
+unsafe def fold (f : Name → α → α) (e : Expr) (acc : α) : StateM State α :=
+  let visitConst (c : Name) (acc : α) : StateM State α := do
+    if (← get).visitedConsts.contains c then
+      return acc
+    modify fun s => { s with visitedConsts := s.visitedConsts.insert c }
+    return f c acc
+  let rec visit (e : Expr) (acc : α) : StateM State α := do
+    if (← get).visited.contains e then
+      return acc
+    modify fun s => { s with visited := s.visited.insert e }
+    match e with
+    | .forallE _ d b _   => visit b (← visit d acc)
+    | .lam _ d b _       => visit b (← visit d acc)
+    | .mdata _ b         => visit b acc
+    | .letE _ t v b _    => visit b (← visit v (← visit t acc))
+    | .app f a           => visit a (← visit f acc)
+    | .proj typeName _ b => visit b (← visitConst typeName acc)
+    | .const c _         => visitConst c acc
+    | _ => return acc
+  visit e acc
+
+@[inline] unsafe def usedConstantsUnsafe (e : Expr) : Array Name :=
+  (fold (fun c cs => cs.push c) e #[]).run' {}
+
+end UsedConstantsImpl
+
+/-- The constants `e` uses, each once, **`Expr.proj` structure names included**.
+    `Expr.getUsedConstants` on Lean ≤ 4.33 visits a projection's operand and drops its
+    structure name (`| .proj _ _ b => visit b acc`); Lean 4.34 counts the structure
+    (`visitConst typeName`). The kernel needs the structure's constructor to type a
+    projection, so the edge is real, and it is the *only* edge to the structure when
+    the operand is a blocked constant: a trusted `axiom x : S` with `S`'s constructor
+    resting on `sorry` let `theorem t : P := x.1` read clean on the pinned toolchain
+    (`Lean.collectAxioms`, unblocked, recovers `S` through `x`'s type and cannot show
+    the difference). Used by the walk only; the emitted dependency arrays
+    (`Analysis.getDependencies`) keep `getUsedConstants`. -/
+@[implemented_by UsedConstantsImpl.usedConstantsUnsafe]
+opaque usedConstants (e : Expr) : Array Name
+
 /-- The constants directly used in `c`'s type and value (and constructors, for an
     inductive) — the out-edges of the transitive closure. The match is exhaustive
     over `ConstantInfo` on purpose: if Lean ever adds a constructor, this fails to
     compile rather than silently under-reporting axioms. Reads the value fields
     directly, so the Lean 4.30 `ConstantInfo.value?` default change does not apply.
-    Mirrors `Lean.collectAxioms`. Takes the `ConstantInfo` itself so a version of
-    a constant the environment did *not* keep (a co-import duplicate read from its
-    module's olean) can be walked too. -/
+    Mirrors `Lean.collectAxioms`, with `usedConstants` in place of `getUsedConstants`
+    so projection structure names are edges on every supported toolchain. Takes the
+    `ConstantInfo` itself so a version of a constant the environment did *not* keep
+    (a co-import duplicate read from its module's olean) can be walked too. -/
 def constInfoChildren : ConstantInfo → Array Name
-  | .axiomInfo v  => v.type.getUsedConstants
-  | .defnInfo v   => v.type.getUsedConstants ++ v.value.getUsedConstants
-  | .thmInfo v    => v.type.getUsedConstants ++ v.value.getUsedConstants
-  | .opaqueInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
-  | .ctorInfo v   => v.type.getUsedConstants
-  | .recInfo v    => v.type.getUsedConstants
-  | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
+  | .axiomInfo v  => usedConstants v.type
+  | .defnInfo v   => usedConstants v.type ++ usedConstants v.value
+  | .thmInfo v    => usedConstants v.type ++ usedConstants v.value
+  | .opaqueInfo v => usedConstants v.type ++ usedConstants v.value
+  | .ctorInfo v   => usedConstants v.type
+  | .recInfo v    => usedConstants v.type
+  | .inductInfo v => usedConstants v.type ++ v.ctors.toArray
   | .quotInfo _   => #[]
 
 /-- `constInfoChildren` of the constant the environment holds under `c`. -/

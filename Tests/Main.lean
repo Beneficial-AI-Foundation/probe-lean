@@ -4935,6 +4935,79 @@ run_cmd do
   elabCommand (← `(def $(mkIdent `taintEnvChecks) : Array (String × Bool) :=
     #[$items,*]))
 
+-- ============================================================
+-- Projection edges through a trusted operand
+--
+-- `Expr.getUsedConstants` drops the structure name of an `Expr.proj` on Lean ≤ 4.33.
+-- When the operand is blocked (trusted), that name is the only edge to the
+-- structure, so a theorem `t : P := x.1` with `axiom x : S` and `S.mk` resting on
+-- `sorry` read clean. `collectAxioms` (unblocked) reaches `S` through `x`'s type and
+-- agrees with the walk either way, so this needs its own check with T non-empty.
+-- The raw `.proj` is built with `mkProj`: the elaborator writes `S.proof x`.
+-- ============================================================
+
+namespace ProjEnv
+
+def fieldTy (_ : Nat) : Prop := True
+
+set_option warn.sorry false in
+structure S where
+  proof : fieldTy (sorry : Nat)
+
+axiom trustedS : S
+theorem viaProjFn : True := trustedS.proof
+
+end ProjEnv
+
+open Lean Elab Command in
+run_cmd do
+  liftCoreM <| addDecl <| .thmDecl
+    { name := `ProjEnv.viaRawProj, levelParams := [], type := mkConst ``True,
+      value := mkProj ``ProjEnv.S 0 (mkConst ``ProjEnv.trustedS) }
+  let env ← getEnv
+  let roots : Array Name := #[`ProjEnv.fieldTy, `ProjEnv.S, `ProjEnv.S.mk, `ProjEnv.S.proof,
+    `ProjEnv.trustedS, `ProjEnv.viaProjFn, `ProjEnv.viaRawProj]
+  let isProject : Name → Bool := (`ProjEnv).isPrefixOf
+  let tr := projectTaint env isProject (· == `ProjEnv.trustedS) roots
+  let rawValue := (env.find? `ProjEnv.viaRawProj).bind fun ci => match ci with
+    | .thmInfo v => some v.value | _ => none
+  let checks : Array (String × Bool) := #[
+    ("the fabricated proof is a raw projection", rawValue.any (·.isProj)),
+    ("constInfoChildren of a raw projection names the structure",
+      (constChildren env `ProjEnv.viaRawProj).contains `ProjEnv.S),
+    ("the structure's constructor is a direct carrier", tr.direct.contains `ProjEnv.S.mk),
+    ("a raw projection out of a trusted constant is tainted through the structure",
+      tr.tainted.contains `ProjEnv.viaRawProj),
+    ("the projection-function form is tainted the same way", tr.tainted.contains `ProjEnv.viaProjFn),
+    ("the trusted operand itself is blocked, not tainted", !tr.tainted.contains `ProjEnv.trustedS)]
+  let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
+  elabCommand (← `(def $(mkIdent `projEnvChecks) : Array (String × Bool) :=
+    #[$items,*]))
+
+/-- `usedConstants` on hand-built expressions, next to `getUsedConstants`. -/
+def testUsedConstants (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing usedConstants (projection structure names as edges)..."
+  let x := Lean.mkConst `x
+  let proj := Lean.mkProj `S 0 x
+  result ← test "a projection contributes its structure and its operand"
+    (usedConstants proj == #[`S, `x]) result
+  result ← test "each constant once, structure names included"
+    (usedConstants (Lean.mkApp (Lean.mkProj `S 1 x) (Lean.mkProj `S 0 (Lean.mkConst `S))) == #[`S, `x]) result
+  result ← test "no projection: same constants as getUsedConstants, same order"
+    (let e := Lean.mkAppN (Lean.mkConst `f) #[x, Lean.mkConst `y, x]
+     usedConstants e == e.getUsedConstants && usedConstants e == #[`f, `x, `y]) result
+  result ← test "binders, let and mdata are traversed"
+    (let e := Lean.mkLambda `a .default (Lean.mkConst `A)
+       (Lean.mkLet `b (Lean.mkConst `B) (Lean.mkProj `T 0 (Lean.mkBVar 0))
+         (Lean.mkMData {} (Lean.mkForall `c .default (Lean.mkConst `C) (Lean.mkBVar 0))))
+     usedConstants e == #[`A, `B, `T, `C]) result
+  result ← test "environment-backed projection checks were generated" (projEnvChecks.size == 6) result
+  for (name, ok) in projEnvChecks do
+    result ← test name ok result
+  return result
+
 def testMergedDecls (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -5138,6 +5211,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testMergedDecls result
   result ← testHeaderMerges result
   result ← testProjectTaintEnv result
+  result ← testUsedConstants result
   return result
 
 def main : IO UInt32 := do

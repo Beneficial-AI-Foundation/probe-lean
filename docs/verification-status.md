@@ -25,6 +25,12 @@ a human vouched for it. One whose *statement* names `sorryAx` directly is still 
 `Warning: trusted declaration <n> names \`sorry\` directly in its statement`; a statement that
 reaches `sorry` only through another constant is not detected.
 
+The edges are every constant a declaration's type and value name, the structure behind a
+projection node (`x.1`) included. Lean's own `Expr.getUsedConstants` counts that structure only
+from 4.34; on the older supported toolchains it is the only edge to the structure when the operand
+is a trusted constant, so the walk collects it itself on every toolchain. The emitted dependency
+arrays are unaffected.
+
 Generated companions (`X.mvcgen_spec`) receive their own status. A companion of a trusted theorem
 is `"transitively-verified"`, not `"trusted"`.
 
