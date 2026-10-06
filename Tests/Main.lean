@@ -4022,7 +4022,7 @@ run_cmd do
     -- `.ctorInfo`/`.recInfo`, which the classifier does not mirror, so a named
     -- project constructor is a target while never being emitted as an atom.
     -- Pinned here so the leak is a recorded decision (see `DepClass.emitted`
-    -- and docs/auxiliary-folding.md), not something that silently flips.
+    -- and docs/schema.md, "Auxiliary-dependency folding"), not something that silently flips.
     ("named project constructor is a target, though never an atom",
       cls `AuxFoldEnv.Color.red == .emitted),
     ("external constant is ignored", cls `Nat.succ_pos == .ignored),

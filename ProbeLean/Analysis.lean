@@ -928,7 +928,7 @@ inductive DepClass where
       an atom of its own. Benign, and identical to how a *direct* edge to such a
       constructor already behaves: `partitionMissingDeps` treats a constructor
       whose parent type is extracted as benign. But "targets are exactly the
-      atoms" is false, and `docs/auxiliary-folding.md` says so too. -/
+      atoms" is false, and `docs/schema.md` ("Auxiliary-dependency folding") says so too. -/
   | emitted
   /-- Not emitted as an atom, value-bearing, not a structural member: traversed
       through, contributing whatever it reaches. -/
@@ -1301,7 +1301,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
   -- under `--module`/`--library` the project's own unselected modules. Emitted
   -- alongside the filtered deps so a downstream classifier gets the direct edges
   -- to external anchors that `projTypeDeps`/`projTermDeps` drop (direct only: the
-  -- fold never adds here, see `docs/auxiliary-folding.md`).
+  -- fold never adds here, see `docs/schema.md`, "Auxiliary-dependency folding").
   --
   -- Partitioned in one pass per list rather than filtered once per output array:
   -- `isInternalName` scans the name and the module lookup hashes it, and with

@@ -1,6 +1,6 @@
 /-
   Atomize: core logic for extracting dependency graph atoms from a Lean environment.
-  Not a CLI command - used by Verify.lean.
+  Not a CLI command - used by Extract.lean.
 -/
 import Lean
 import ProbeLean.Types

@@ -24,6 +24,3 @@
 
 ## Acceptance Criteria
 [How do we know this is done? What tests should pass?]
-
----
-Status: draft | ready | in-progress | done

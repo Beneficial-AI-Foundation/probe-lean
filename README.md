@@ -2,106 +2,61 @@
 
 Analyze Lean 4 projects: extract dependency graphs with verification status and spec relationships.
 
-`probe-lean` walks the Lean environment of a built project and produces structured JSON describing every declaration, its dependencies (type and term), source locations, sorry-based verification status, and spec relationships. Output follows the Schema 3.0 envelope format; see [docs/schema.md](docs/schema.md) for the full specification.
+`probe-lean` walks the Lean environment of a built project. It writes JSON that lists every declaration with its type and term dependencies, source location, verification status and spec relationships. The output uses the Schema 3.0 envelope format, which [docs/schema.md](docs/schema.md) specifies.
 
 ## Prerequisites
 
-- **Lean 4 toolchain** (`elan`, `lake`) -- install via [elan](https://github.com/leanprover/elan#installation)
-- The target project must build with `lake build`
-- **Toolchain match**: probe-lean must be installed for the same Lean version as the target project (`.olean` files are version-specific). Check with `cat <target-project>/lean-toolchain`.
-- For large projects using Mathlib, run `lake exe cache get` in the target project first to download pre-built `.olean` files
+- The Lean 4 toolchain (`elan`, `lake`). Install it with [elan](https://github.com/leanprover/elan#installation).
+- A target project that builds with `lake build`.
+- A probe-lean build for the same Lean version as the target project, because `.olean` files are version-specific. The target version is in `<target-project>/lean-toolchain`.
 
 ## Supported Projects
 
-probe-lean can analyze any Lean 4 project that meets these requirements:
+probe-lean can analyze a Lean 4 project that meets these conditions:
 
-| Requirement | Detail |
-|-------------|--------|
-| **Lean version** | **≥ v4.28.0-rc1** — the `.olean` binary format is not compatible across Lean versions, and probe-lean cannot be built for older toolchains |
-| **Buildable Lean libraries** | probe-lean only needs the `.olean` files from `lake build <lib>`. If the Lean library targets compile but the final executable linking fails (e.g., missing GPU drivers), extraction can still succeed — use `--library <lib>` to build only the library |
-| **Co-importable modules** | All built modules must load into a **single Lean environment**: no two modules may declare the same fully-qualified name (identical-statement theorem/axiom restatements are the narrow exception Lean itself tolerates — it keeps one proof, so probe-lean walks the union of every version's dependencies for such names and warns). Extraction runs a preflight check and lists any duplicated names with their owning modules. Modules built under the module system (`module` header) are imported from their `.olean.private` part, as Lean requires; a module-system olean missing its split parts aborts extraction (with `--module`/`--library`, an unselected one outside the selection's import closure is instead left out by the fallback import, with a warning — see [docs/usage.md](docs/usage.md)). A stale `.olean` with no `.lean` source that a live module still imports aborts too (its constants would otherwise sit outside the project and be trusted): run `lake clean` in the target project and rebuild |
+- The project uses Lean v4.28.0-rc1 or later.
+- The Lean library targets build. probe-lean needs only the `.olean` files. If an executable fails to link, use `--library <lib>` to build only the library.
+- All built modules load into one Lean environment. A preflight check stops extraction and lists the names that two modules declare. See [docs/usage.md](docs/usage.md), section "Troubleshooting".
 
-### Projects with native dependencies
+If the target project ships a `flake.nix` or `shell.nix`, probe-lean runs `lake` inside that Nix shell. This requires `nix` or `nix-shell` on your system. Without Nix, you must install the system libraries of the project yourself.
 
-Some Lean projects depend on system-level C/C++ libraries (Vulkan, CUDA, OpenSSL, etc.) via FFI. probe-lean does not manage these dependencies — **the project's own build must succeed before probe-lean can analyze it.**
+### What will not work
 
-- **Check the project's docs first.** Look for a `shell.nix`, `flake.nix`, `Dockerfile`, or README section listing required system packages. These are the authoritative source for what needs to be installed.
-- **Nix environments are auto-detected.** If the target project ships a `shell.nix` or `flake.nix`, probe-lean wraps `lake` commands inside the Nix shell so that system dependencies are available automatically. This requires `nix-shell` or `nix` to be installed on your system.
-- **Without Nix, install deps manually.** You'll need to install the project's system dependencies yourself (e.g., `apt install libvulkan-dev`). If `lake build` fails with missing headers or libraries, those errors come from the project's build system, not from probe-lean.
-- **Pre-build the project separately.** For complex projects, run `lake build` (or `lake build <lib>`) inside the target project directory first. Once the Lean modules are compiled, `probe-lean extract` will detect the up-to-date build cache and skip the build step.
-
-### What won't work
-
-- **Projects on Lean < v4.28.0-rc1** — probe-lean uses stdlib APIs introduced in v4.28; there are no pre-built binaries for older versions, and source builds will fail
-- **Projects whose Lean libraries don't compile** — if `lake build <lib>` can't produce `.olean` files, extraction cannot proceed. Note: linking failures for executables don't matter if the library targets succeed
-- **Toolchain mismatches** — even a patch-level difference (e.g., v4.28.0-rc1 vs v4.29.0) requires a matching probe-lean build. Use the installer's `--from-project` flag to auto-install the right version
-- **Projects with duplicate declarations across modules** — two built modules declaring the same fully-qualified name, often unnamespaced root declarations like `F`, `main`, or `digit`. A concrete example is [zeta-h123](https://github.com/AxiomMath/zeta-h123), which ships parallel `problem.lean`/`solution.lean` files restating the same definitions without namespaces. `lake build` succeeds because Lake compiles modules independently, but the modules cannot coexist in one Lean environment; extraction aborts with a preflight report of the duplicated names (failure signature without the preflight: `environment already contains '<Name>' from <Module>`). Lakefile-level grouping (`defaultTargets`, `[[lean_lib]]` splits) does **not** avoid it — every built `.olean` on disk is analyzed. Fix the project structure (per-family namespaces, or `import` the shared module instead of restating it), or for manual runs extract a non-conflicting subset with `--module <module-name>` (selects the named module plus its submodules)
+- Projects on Lean versions below v4.28.0-rc1.
+- Projects whose Lean libraries do not compile.
+- A probe-lean build for a different Lean version than the target. A minor-level difference (v4.28.0-rc1 and v4.29.0) also needs a matching build. Use the installer flag `--from-project` to select the correct version.
+- Projects in which two modules declare the same fully-qualified name. `--module <prefix>` can extract a subset with no conflict. See [docs/usage.md](docs/usage.md), section "Troubleshooting".
 
 ## Installation
 
-No git clone required — the installer downloads a pre-built binary directly from GitHub releases.
-
-### Quick install (recommended)
-
-Auto-detect the Lean version from a target project:
+Install for the Lean version of a target project:
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
   | bash -s -- --from-project ./my-lean-project
 ```
 
-Or specify a Lean version explicitly:
+Install for a specified Lean version:
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \
-  | bash -s -- --lean-version v4.28.0-rc1
+  | bash -s -- --lean-version v4.29.0
 ```
 
-Ensure `~/.local/bin` is in your `PATH`:
-```bash
-export PATH="$PATH:$HOME/.local/bin"
-```
+The installer puts the binary in `~/.local/bin`. Add that directory to your `PATH`.
 
-For all installer options (`--force`, `--lean-version`, cloned-repo usage, etc.), see **[docs/usage.md](docs/usage.md#installer-flags)**.
-
-### Pre-built binary availability
-
-probe-lean publishes a pre-built binary per `(Lean version, platform)` on its GitHub
-releases, for `linux-x86_64` and `darwin-arm64`. The set of Lean versions tracked is:
-
-- every **stable** Lean release at or above `v4.28.0-rc1`, plus
-- the **latest release candidate** of any version line that has not yet shipped a stable, plus
-- every version **pinned** in [`tools/lean-version-extras.txt`](tools/lean-version-extras.txt) —
-  typically a superseded RC that tracked target projects still use (Mathlib cuts its releases
-  against RC toolchains, so Mathlib-pinned projects commonly sit on one),
-
-restricted to versions for which [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli)
-has a compatible tag. `lean4-cli` tags `major.minor` lines and RCs but not every patch, so
-probe-lean resolves it to the highest tag in the Lean version's `major.minor` line (Lean
-`v4.32.2` builds against `lean4-cli v4.32.0`); patch releases are supported. A version is skipped
-only when `lean4-cli` has no tag in its `major.minor` line yet, typically a brand-new minor.
-
-These are generated automatically: a scheduled workflow watches `leanprover/lean4` and
-builds probe-lean for any newly released Lean version within about a day, appending the
-artifact to the latest release (no probe-lean release is needed). If probe-lean cannot yet
-build against a brand-new Lean version (e.g. a breaking change, or `lean4-cli` has not
-tagged the matching version), it is tracked in an issue and retried automatically.
-
-If no pre-built binary exists for your toolchain — an unsupported, superseded, or very new
-Lean version — the installer transparently falls back to building from source.
+The installer searches the GitHub releases from newest to oldest. It downloads the first release that has a binary for your Lean version and platform (`linux-x86_64` or `darwin-arm64`). For a Lean version that the current release does not cover, such as a superseded release candidate, this is an old probe-lean release. For example, `--lean-version v4.28.0-rc1` installs probe-lean 0.9.4. If no release has a matching binary or the download fails, the installer builds from source. For the installer flags and the list of built Lean versions, see [docs/usage.md](docs/usage.md), sections "Installer flags" and "Pre-built binary availability".
 
 ### Docker
 
 ```bash
-docker build --build-arg LEAN_VERSION=v4.28.0-rc1 -t probe-lean .
+docker build --build-arg LEAN_VERSION=v4.29.0 -t probe-lean .
 docker run --rm -v /path/to/project:/project probe-lean extract /project
 ```
 
-The Docker image downloads the pre-built binary during build — no repository clone needed.
+The image runs the installer during the build. The default `LEAN_VERSION` in the `Dockerfile` is v4.28.0-rc1, which installs the old 0.9.4 release.
 
 ### GitHub Actions
-
-For CI integration in downstream repos:
 
 ```yaml
 - uses: Beneficial-AI-Foundation/probe-lean/action@main
@@ -109,254 +64,49 @@ For CI integration in downstream repos:
     project-path: .
 ```
 
-The action auto-detects the Lean version, builds probe-lean, and runs extraction. See [action/action.yml](action/action.yml) for all options.
+The action reads the Lean version from the project, installs probe-lean with the installer and runs `extract`. For all inputs, see [action/action.yml](action/action.yml).
 
-## Quick Start
+## Quick start
 
 ```bash
-# Analyze a Lean project (builds with lake, extracts atoms, detects sorries)
+# Build, extract atoms and decide verification status
 probe-lean extract ./my-lean-project
 
-# Withhold verification-status (the kernel walk still runs; trusted atoms keep "trusted")
-probe-lean extract ./my-lean-project --skip-verify
-
-# Multi-library project: build only specific libraries
+# Build and analyze only some libraries
 probe-lean extract ./my-lean-project --library "Extraction,Spqr"
 ```
 
-Output lands in `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json` by default.
-
-For Mathlib cache setup, Nix/FFI projects, and real-project walkthroughs, see **[docs/usage.md](docs/usage.md)**.
+The default output file is `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json`. For a sample, see [examples/lean_ExampleProject_0.1.0.json](examples/lean_ExampleProject_0.1.0.json). For the field definitions, see [docs/schema.md](docs/schema.md).
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `extract` | Analyze a Lean 4 project: extract atoms, detect sorries, compute specs |
-| `check-axioms` | Audit a project: list every project constant that rests on an unexcused project `sorry` (same kernel walk as `extract`) |
-| `viewify` | Filter `extract` output into molecules for the web UI (`.verilib/views/molecules_all.json`) |
+| `extract` | Build a project, extract atoms with dependencies, specs and `verification-status`. |
+| `viewify` | Filter `extract` output into molecules for the web UI (`.verilib/views/molecules_all.json`). |
+| `check-axioms` | List every project constant that rests on an unexcused project `sorry`, with the same kernel walk as `extract`. |
 
-### `extract`
+For all flags and examples, see [docs/usage.md](docs/usage.md), section "Commands".
 
-```bash
-probe-lean extract <PROJECT_PATH> [OPTIONS]
-```
+## How extract works
 
-| Option | Description |
-|--------|-------------|
-| `-o, --output <PATH>` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`) |
-| `-m, --module <PREFIX>` | Filter to specific module prefix |
-| `-l, --library <LIBS>` | Comma-separated library names to build **and** restrict analysis to (by module-name prefix). Omit to build auto-detected targets (`defaultTargets`, falling back to all `[[lean_lib]]` entries) and analyze all built modules |
-| `--skip-verify` | Skip status stamping: no `verification-status` except `"trusted"` |
-| `--from-file <FILE>` | Use existing build output for the build-log cross-check |
-| `--skip-enrich` | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`); the graph-BFS cross-check is not run |
-
-### `check-axioms`
-
-```bash
-probe-lean check-axioms <PROJECT_PATH> [-m <PREFIX>] [-l <LIBS>]
-```
-
-Builds and imports the project and runs the same kernel walk that decides
-`verification-status` in `extract`, then lists every project constant that rests
-on an unexcused project `sorry` — atoms and non-atoms alike:
-
-On `tests/fixtures/aux-fold` (abridged):
-
-```
-Project constants: 119 in 8 module(s) | trusted: 9 | direct sorry carriers: 20 | tainted: 26
-externally_verified tag set: 7 name(s) from externallyVerifiedAttr
-26 constant(s) rest on an unexcused project sorry:
-  admittedFact [direct]
-  instInhabitedBox
-  loopy._unsafe_rec [direct] [not emitted]
-  noRangeMid [direct] [not emitted]
-  viaNoRange
-  ...
-9 trusted constant(s) (T):
-  Box [externally_verified] Demo.Trust
-  externalOp [external] Demo.FunsExternal : Nat
-  externalPred [external] Demo.FunsExternal : Prop
-  vouched [externally_verified] Demo.Trust
-  ...
-```
-
-`[direct]`: the constant's own type or value names `sorryAx`. `[not emitted]`: not
-an atom — a constant `extract` never publishes (no declaration range, internal
-name, constructor, unselected module). Because the walk is shared, the listed
-atoms are exactly those `extract` marks `"verified"` or `"unverified"`; a listed
-`[not emitted]` constant is the kind of node the old graph-based status silently
-trusted. The trusted base T follows: every trusted constant with its
-`trusted-reason`, its module and, for a `*External` model, its statement — the
-constants the "clean modulo T" claim rests on. The walk stops at the project
-boundary and at the trusted base, so it costs about a second on a 230-module Mathlib-backed project.
-
-### Codomain facts & downstream classification
-
-Every atom carries neutral `codomain-head` / `codomain-is-prop` / `codomain-last-arg-is-bool`
-facts about its result type, plus `type-dependencies-external` / `term-dependencies-external`
-(the deps outside the module filter that the filtered `type-`/`term-dependencies` omit). These are
-domain-agnostic primitives: probe-lean does not classify declarations itself, but a downstream
-tool can reconstruct a declaration's codomain shape from them and extend the dependency graph
-past the project boundary by direct edges (externals reached only through an auxiliary are not
-listed, see [docs/auxiliary-folding.md](docs/auxiliary-folding.md)). The four classification tag hooks (`@[scheme_def]`, `@[construction_def]`,
-`@[correctness_spec]`, `@[security_spec]`) are registered in `ProbeLean.Attrs` so target
-projects can annotate declarations; probe-lean emits them verbatim in each atom's `attributes`
-array without interpreting them.
-
-For the full command reference with examples, see **[docs/usage.md](docs/usage.md)**. For the complete JSON schema specification, see **[docs/schema.md](docs/schema.md)**.
-
-## Example Output
-
-Running `probe-lean extract` produces a JSON envelope. Each entry in `data` describes a declaration and its dependencies:
-
-```json
-{
-  "schema": "probe-lean/extract",
-  "schema-version": "3.0",
-  "tool": { "name": "probe-lean", "version": "0.8.0", "command": "extract" },
-  "source": {
-    "repo": "https://github.com/org/project",
-    "commit": "abc123d",
-    "language": "lean",
-    "package": "MyProject",
-    "package-version": "0.1.0"
-  },
-  "timestamp": "2026-03-17T12:00:00Z",
-  "data": {
-    "probe:MyModule.helper": {
-      "display-name": "helper",
-      "kind": "def",
-      "language": "lean",
-      "dependencies": ["probe:MyModule.MyType"],
-      "type-dependencies": ["probe:MyModule.MyType"],
-      "term-dependencies": [],
-      "code-module": "MyModule",
-      "code-path": "MyModule.lean",
-      "code-text": { "lines-start": 5, "lines-end": 8 },
-      "is-in-package": true,
-      "is-relevant": true,
-      "is-hidden": false,
-      "is-lean-generated": false,
-      "is-aeneas-generated": false,
-      "is-ignored": false,
-      "is-primary-spec": false,
-      "rust-source": null,
-      "specs": ["probe:MyModule.helper_spec"],
-      "primary-spec": "probe:MyModule.helper_spec",
-      "verification-status": "transitively-verified",
-      "codomain-head": "MyModule.MyType",
-      "codomain-is-prop": false,
-      "codomain-last-arg-is-bool": false
-    }
-  }
-}
-```
-
-## How It Works
-
-1. **Build** -- reads `defaultTargets` from `lakefile.toml` (falling back to all `[[lean_lib]]` entries) and runs `lake build <lib1> ...` to produce `.olean` files (automatically skipped when build cache is up-to-date; overridable via `--library`)
-2. **Atomize** -- walks the Lean environment, extracts declarations with type and term dependencies, then **folds auxiliary edges**: Lean abstracts non-atomic embedded proofs and match arms into constants probe-lean does not emit (`X._proof_N`, `X.match_N`, …), and a dependency reached only through one of those used to vanish from the graph entirely. Such edges are now recovered into the referencing declaration's `term-dependencies`. [docs/schema.md](docs/schema.md#auxiliary-dependency-folding) states the contract and its limits — the pass is strictly additive, `type-dependencies` is never added to, only project-internal targets are recovered, and structural members are not folded through. Two limits worth repeating here: folding fixes *edges*, not `verification-status` soundness, and a zero in-degree is still not a licence to delete a declaration
-3. **Filter** -- applies config-driven flags from `.verilib/probes/config.json` (`is-hidden`, `is-aeneas-generated`, `is-ignored`) and auto-detects generated code, flagged `is-hidden` plus an origin flag so `viewify` omits it: `deriving`-generated instance clusters and structure/class projections are core-Lean output (`is-lean-generated`), while attribute-machinery companion theorems (the `X.mvcgen_spec` that Aeneas's `@[step]` adds next to a tagged `theorem X`; companions of tagged *axioms* stay visible as the axiom's spec proxy) are Aeneas-only (`is-aeneas-generated`). Generated theorems (either flag) are also excluded from `specs` lists and the heuristic primary-spec signals; an explicit `@[primary_spec]` still wins and re-admits the theorem into `specs`. Generated atoms are **kept in the dependency graph** (so transitive-verification stays sound), only hidden from the presented view. After enrichment, `is-hidden` is cleared on *contaminated* generated atoms (locally verified but not `transitively-verified`, or `unverified`/`failed`) in the `extract` output, so consumers that read it directly (e.g. the web UI) can surface them for tracing; `viewify` molecules still omit all generated atoms regardless of `is-hidden`
-4. **Specs** -- computes reverse theorem edges (`specs`, `primary-spec`) for each atom from theorems' `type-dependencies` — a theorem specifies what its *statement* is about, not every constant its proof happens to invoke (one exception: a `@[primary_spec]` theorem whose statement names no specifiable constant falls back to its proof, see [docs/schema.md](docs/schema.md)) — using a multi-signal precedence chain:
-    1. `@[primary_spec]` attribute (always wins; requires `import ProbeLean.Attrs` in the target project)
-    2. Known verification-framework attributes (`@[progress]`, `@[pspec]`, `@[step]`) — if exactly one spec theorem carries one of these, it becomes primary spec; ambiguous when multiple match
-    3. `_spec` suffix — a theorem named `<def>_spec` is assigned as primary spec
-    4. Sole spec — if a definition has exactly one spec theorem, it is used as primary spec
-
-    Signal 1 can itself be ambiguous: when two or more `@[primary_spec]` theorems resolve to the same target, whichever is inserted last wins — deterministic, but an arbitrary tie-break. `extract` prints one stderr warning per affected target naming the chosen theorem and the rejected candidates. Every atom also carries `is-primary-spec`, which records whether the declaration was *tagged* rather than whether it *won*, so a consumer can recover the candidate set from the artifact as a target's `specs` intersected with that flag.
-5. **Verify** -- decides `verification-status` from the kernel, not the build log: `sorry` elaborates to the `sorryAx` axiom, and a memoized walk over *every* constant of *every* built project module — including the ones probe-lean never emits (auxiliaries, range-less `addDecl`/`impl_def` constants) — finds which rest on it. The walk stops at the project boundary (Lean and all dependency packages are the trusted base, named once per run on stderr: `Note: <n> imported module root(s) outside the project are trusted wholesale …`) and at trusted project declarations: axioms, declarations in the `externally_verified` tag set (read from the environment, however the tag was attached), and non-proofs in `*External` modules, marked `"trusted"` with a `trusted-reason` (`"axiom"`, `"externally_verified"`, `"external"`); a `sorry` inside or below a trusted declaration does not taint its callers. Direct carriers read `"unverified"`; everything else `"verified"`, with `"status-origin": "kernel-taint"` (also under `--skip-enrich`) so that a tool which recomputes statuses from the emitted graph does not promote it. The status is about kernel dependencies, not executable bodies: a `sorry` in a `partial def` body (`X._unsafe_rec`) or an `@[implemented_by]` target does not taint the host (see SCHEMA). The build log's `sorry` warnings are still parsed and compared with the walk (`Divergence(log):` / `Note(log):` lines on stderr). Skippable via `--skip-verify` (statuses omitted, `"trusted"` kept)
-6. **Enrich** -- upgrades every atom from which no unexcused project `sorry` is reachable to `"transitively-verified"`; the reverse-BFS over the emitted graph (matching `probe-verus`/`probe-aeneas`) still runs, and every atom on which it disagrees with the walk is printed as `Divergence(graph): <atom> graph says clean, oracle says tainted` (or the reverse) — a bug signal for the emitted graph, never reconciled (skippable via `--skip-enrich`)
-7. **Schema 3.0 output** -- wraps atoms in a metadata envelope with git commit, package info, and timestamps
-
-## How probe-lean decides what to analyze
-
-probe-lean never reads your `.lean` source files to decide what to extract — it
-works entirely from the **lakefile and the compiled `.olean` build artifacts**.
-Knowing this is the difference between a correct run and a silently incomplete
-one.
-
-**What gets built vs. what gets analyzed** (these are now decoupled):
-
-- **Build targets** (passed to `lake build`) come from, in priority order:
-  1. `--library <L1,L2,...>` if you pass it.
-  2. otherwise `defaultTargets` from `lakefile.toml`.
-  3. otherwise all `[[lean_lib]]` entries in `lakefile.toml`.
-- **Modules analyzed:** probe-lean collects every `.olean` under
-  `.lake/build/lib/lean` (which holds only the project's own modules — deps
-  live under `.lake/packages/`), then **keeps only modules that still have a
-  backing `.lean` source** — resolving each against `"."` plus every `srcDir`
-  declared in `lakefile.toml`. This drops *orphan* oleans left behind by renamed
-  or deleted modules (which Lake never garbage-collects); dropped modules are
-  reported.
-  - **By default (no `--library`)** it analyzes **all** of them. Auto-detected
-    build targets are *not* used as an analysis filter, because `defaultTargets`
-    may name a `lean_exe` and a `lean_lib` may declare custom `roots` that differ
-    from its name — using either as a module filter would silently drop every
-    module.
-  - **With `--library A,B`** it keeps only modules belonging to those library
-    roots (a module `A.B` belongs to library `A`).
-
-Then `--module <prefix>` optionally narrows further, and all surviving modules
-are imported into a **single Lean environment** before atomizing.
-
-**Assumptions this bakes in — and how they bite:**
-
-- **`--library` matches by module-name prefix.** It can only select a library
-  whose module root equals its name. A `lean_lib` whose `roots` differ from its
-  name cannot be selected by `--library`; use `--module <root>` for those (or omit
-  `--library` to analyze everything). probe-lean warns about any `--library`
-  entry that matched no built module, and errors out if filters remove *every*
-  module rather than writing an empty result.
-- **All analyzed modules must be mutually importable.** Two modules may not
-  declare the same fully-qualified name, or the import aborts with
-  `environment already contains '<name>' from <module>`. The usual cause —
-  orphan oleans from a rename — is now filtered out automatically (see above);
-  if it still fires (e.g. a `lakefile.lean` with a custom `srcDir` probe-lean
-  can't parse), the error includes a `lake clean` hint.
-- **Custom `srcDir` in a `lakefile.lean` is not parsed.** Source-backing is
-  resolved against `srcDir`s declared in `lakefile.toml` only. A library whose
-  custom `srcDir` lives in a Lean-DSL `lakefile.lean` may have its modules
-  reported as orphans; run `lake clean` and rebuild, or move the project to
-  `lakefile.toml`.
-
-> Resolving libraries to their actual Lake module roots (so `--library` works for
-> libraries with custom `roots`) is tracked in
-> [#40](https://github.com/Beneficial-AI-Foundation/probe-lean/issues/40).
+1. Build: run `lake build` on `--library`, else `defaultTargets`, else all `[[lean_lib]]` entries. If the build cache is up to date, `extract` skips this step. If the project uses Mathlib and has no Mathlib `.olean` files, `extract` first runs `lake exe cache get`.
+2. Select modules: keep every built module that has a `.lean` source, then apply `--library` and `--module`. See [docs/usage.md](docs/usage.md), section "Commands".
+3. Atomize: import the modules into one environment and convert each declaration to an atom with type and term dependencies. Edges through auxiliary constants such as `X._proof_N` are folded into the caller. See [docs/schema.md](docs/schema.md), section "Auxiliary-dependency folding".
+4. Filter: apply the flags from `.verilib/probes/config.json` and mark generated code as hidden. See [docs/schema.md](docs/schema.md).
+5. Specs: compute `specs` and `primary-spec` for each atom from the `type-dependencies` of theorems. See [docs/schema.md](docs/schema.md).
+6. Status: a kernel walk decides `verification-status`. Direct `sorry` carriers read `"unverified"`. An atom that rests on an unexcused `sorry` below it reads `"verified"` with `"status-origin": "kernel-taint"`. Clean atoms read `"transitively-verified"`, or `"verified"` with no marker under `--skip-enrich`. Axioms and externally verified declarations read `"trusted"`. See [docs/verification-status.md](docs/verification-status.md).
+7. Write: wrap the atoms in the Schema 3.0 envelope with the git commit, package information and a timestamp.
 
 ## Documentation
 
-- [docs/usage.md](docs/usage.md) — full command reference and real-project walkthroughs
-- [docs/schema.md](docs/schema.md) — envelope schema specification
-- [docs/verification-status.md](docs/verification-status.md) — how the kernel walk decides `verification-status`: attribution, coverage, merged declarations, the trust rules in full
-- [docs/auxiliary-folding.md](docs/auxiliary-folding.md) — what the auxiliary-dependency fold does and does not traverse
-- [docs/lean-verification-landscape.md](docs/lean-verification-landscape.md) — how specs surface across Lean verification frameworks (Aeneas, Loom/Velvet, Std.Do.Triple, VCVio) and how probe-lean discovers them
-
-## Testing
-
-```bash
-lake build tests
-.lake/build/bin/tests
-```
-
-## Versioning
-
-The version is defined once in `lakefile.toml` and propagated everywhere via `ProbeLean/Version.lean`:
-
-```
-lakefile.toml  →  tools/gen-version.sh  →  ProbeLean/Version.lean
-                                              ↓
-                                         Constants.toolVersion  (JSON output)
-                                         CLI --version          (Main.lean)
-```
-
-After bumping the version in `lakefile.toml`, run:
-
-```bash
-./tools/gen-version.sh
-```
-
-CI verifies the generated file stays in sync.
+- [docs/usage.md](docs/usage.md): command reference, installation, Mathlib cache, configuration and troubleshooting.
+- [docs/schema.md](docs/schema.md): output format and field rules.
+- [docs/verification-status.md](docs/verification-status.md): how the kernel walk decides `verification-status`, and the stderr lines it prints.
+- [tools/audit/README.md](tools/audit/README.md): audit scripts.
+- [CHANGELOG.md](CHANGELOG.md): release history.
+- [CLAUDE.md](CLAUDE.md): contributor guide, with testing and versioning.
+- [specs/template.md](specs/template.md): template for feature specs.
 
 ## License
 
