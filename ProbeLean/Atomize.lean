@@ -356,18 +356,31 @@ def formatLoadedOrphansError (names : Array Name) : String :=
     {", ".intercalate (names.map (·.toString)).toList}. Their constants would sit outside \
     the project boundary and be trusted. Run `lake clean` in the target project and rebuild."
 
+/-- The error when the fallback import of the selection fails too: the selection's
+    own error first, then the full import's. The readable diagnosis — the preflight's
+    collision list, or `formatProoflessError` for a module missing its split parts —
+    is in the full import's message; the selection's may be Lean's raw form of the
+    same fault (`missing data file` for a part-less module inside the selection's
+    import closure), which alone would not say what to rebuild. -/
+def formatFallbackFailure (fullMsg selectedMsg : String) : String :=
+  s!"{selectedMsg}\n\nThe import of all project modules had already failed:\n{fullMsg}"
+
 /-- Import the project for the taint walk: **all** built project modules (P must
     cover the whole project, whatever `--module`/`--library` selected for output),
-    falling back to the selected modules when the full set cannot be co-imported.
+    falling back to the selected modules when the full set cannot be imported.
     Returns the environment and the project modules it holds (`loadedProjectModules`).
 
     The full import is attempted only when the cheap olean-header preflight passes,
     so a project that relies on the selection to dodge a collision pays one
-    preflight, not a failed import. The fallback also catches an import-time
-    duplicate the preflight cannot see, and stale oleans of an unselected library.
-    Under the fallback the modules left out are exactly those outside the selection's
-    import closure: no emitted status can depend on them, only the `check-axioms`
-    audit loses them (`formatFallbackWarning`).
+    preflight, not a failed import. The fallback is taken whatever the full import
+    failed on — a preflight collision, an import-time duplicate the preflight cannot
+    see, or an unselected library's stale or part-less oleans (`formatProoflessError`:
+    `--library` builds only the selected libraries, so an unselected one may have
+    stale artifacts) — because the argument that makes it sound does not depend on the
+    fault: the modules left out are exactly those outside the selection's import
+    closure, so no emitted status can depend on them and only the `check-axioms` audit
+    loses them (`formatFallbackWarning`). A fault *inside* the closure fails the
+    selection's import too (`formatFallbackFailure`).
 
     This is the import without the orphan check; `importProjectEnvWithFallback` adds it. -/
 private def importProjectEnvSelecting (projectPath : System.FilePath)
@@ -379,7 +392,7 @@ private def importProjectEnvSelecting (projectPath : System.FilePath)
   | .ok env => return .ok (env, all)
   | .error msg =>
     match ← importProjectEnv projectPath selected nixMode with
-    | .error e => return .error e
+    | .error e => return .error (formatFallbackFailure msg e)
     | .ok env =>
       let imported := loadedProjectModules all env.allImportedModuleNames
       if imported.size < all.size then

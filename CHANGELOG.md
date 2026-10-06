@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `docs/SCHEMA.md` described the `*-dependencies-external` arrays as non-project names; they
   are names outside the module filter, which under `--module`/`--library` includes the
   project's own unselected modules.
+- When the import fallback's selection import fails too, the error now carries the full
+  import's diagnosis (collision list or part-less module) after the selection's own, which
+  for a part-less module inside the selection's closure is only Lean's `missing data file`.
+  Documented that under `--module`/`--library` a part-less or stale module of an unselected
+  library outside the selection's import closure is absorbed by the fallback rather than
+  aborting (the README's unconditional "aborts extraction" was the whole-project case).
+- `check-status-consistency.py` parsed a report line by splitting on spaces, so an escaped
+  name containing one (`«bad name»`) was read as `«bad` and the gate failed; the `[direct]`
+  and `[not emitted]` flags are now matched from the end of the line.
 
 ### Changed
 

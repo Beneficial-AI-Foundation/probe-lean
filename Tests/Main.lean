@@ -4652,6 +4652,10 @@ def testLoadedProjectModules (result : TestResult) : IO TestResult := do
   result ← test "everything loaded → all of the inventory"
     ((loadedProjectModules all (names all)).size == all.size) result
   result ← test "nothing loaded → empty" (loadedProjectModules all #[`Init]).isEmpty result
+  result ← test "fallback failure keeps the full import's diagnosis after the selection's"
+    (formatFallbackFailure "1 module-system module(s) have no part: App.B." "missing data file" ==
+      "missing data file\n\nThe import of all project modules had already failed:\n\
+       1 module-system module(s) have no part: App.B.") result
   return result
 
 def testLoadedOrphans (result : TestResult) : IO TestResult := do

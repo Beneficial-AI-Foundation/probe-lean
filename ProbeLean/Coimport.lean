@@ -131,8 +131,9 @@ def hasOLeanParts (m : ProjectModule) : IO Bool := do
     whose olean cannot be read is skipped with a stderr warning and returned in
     `skipped`, so callers can surface that the scan was partial — a skip alone must
     never fail the extraction. A module-system module without its split parts is
-    returned in `proofless`, which callers must treat as fatal (the import would
-    fail on it). -/
+    returned in `proofless`, which fails the import of *these* modules (Lean would
+    stop on the missing part); whether the extraction then aborts or retries a
+    narrower selection is the caller's decision (`importProjectEnvSelecting`). -/
 def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPreflight := do
   let mut moduleDecls : Array (Name × Array (Name × ConstantInfo)) := #[]
   let mut skipped : Array ProjectModule := #[]

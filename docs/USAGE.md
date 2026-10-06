@@ -130,7 +130,12 @@ set membership, the status is in `trusted-reason`).
 A module built under the module system (`module` header) is imported from its `.olean.private`
 part, as Lean requires, so its `public theorem`s are seen with their proofs; a module-system
 olean without its split parts aborts the extraction before the import, which would fail on it
-(`missing data file`). A stale `.olean` with no backing `.lean` source is dropped from the
+(`missing data file`). With `--module`/`--library` this applies to the import being attempted:
+a part-less module of an unselected library (`--library` builds only the selected libraries,
+so an unselected one may hold stale artifacts) is one of the faults the fallback import above
+absorbs when the module is outside the selection's import closure, where no emitted status
+can depend on it; inside the closure the selection's import fails on it as well, and the
+error then reports both failures. A stale `.olean` with no backing `.lean` source is dropped from the
 inventory (`Ignoring <n> orphan module(s) …`); if a live module still imports it, the
 extraction aborts with `<n> stale module(s) with no .lean source were imported by a live
 module: …`, because its constants would otherwise sit outside the project boundary and be

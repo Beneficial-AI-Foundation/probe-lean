@@ -46,6 +46,12 @@ def user_name(raw):
 
 TAINTED_HEADER = re.compile(r"^\d+ constant\(s\) rest on an unexcused project sorry:$")
 
+# A listed line is the raw name followed by the optional flags, in the order
+# `formatTaintedLine` prints them. The flags are matched from the end rather than
+# the line split on spaces: an escaped Lean identifier (`«bad name»`) may contain
+# spaces, and splitting truncated it to `«bad` — a false inconsistency.
+TAINTED_LINE = re.compile(r"^(?P<raw>.*?)(?P<direct> \[direct\])?(?P<not_emitted> \[not emitted\])?$")
+
 
 def parse_report(path):
     """{name: (direct, emitted, raw)} for every listed tainted constant, keyed by the
@@ -66,10 +72,10 @@ def parse_report(path):
                 continue
             if not in_tainted:
                 continue
-            parts = line.strip().split(" ")
-            name = user_name(parts[0])
-            flags = " ".join(parts[1:])
-            listed[name] = ("[direct]" in flags, "[not emitted]" not in flags, parts[0])
+            m = TAINTED_LINE.match(line.strip())
+            raw = m.group("raw")
+            listed[user_name(raw)] = (m.group("direct") is not None,
+                                      m.group("not_emitted") is None, raw)
     return listed
 
 
