@@ -4227,6 +4227,48 @@ def testApplyTaintStatus (result : TestResult) : IO TestResult := do
     ((uj.getObjVal? "lean-name").toOption.isNone && (uj.getObjVal? "leanName").toOption.isNone) result
   return result
 
+def testStatusOrigin (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing status-origin: kernel-taint (hub ADR-006)..."
+  let mkU (name : String) (ln : Lean.Name) : UnifiedAtom :=
+    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := none, kind := .theorem, verificationStatus := none }
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`T.ax, "axiom")]
+    taint := { tainted := Std.HashSet.ofArray #[`T.direct, `T.via],
+               direct := Std.HashSet.ofArray #[`T.direct], typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`T.ax, `T.direct, `T.via, `T.clean]
+    pSize := 4, moduleCount := 1 }
+  -- A stale marker on the input must not survive: every branch sets the field.
+  let atoms := #[mkU "probe:ax" `T.ax, mkU "probe:direct" `T.direct, mkU "probe:via" `T.via,
+    mkU "probe:clean" `T.clean, mkU "probe:unknown" `T.unknown].map
+    fun a => { a with statusOrigin := some "stale" }
+  let origins (applyTaint upgrade : Bool) : Array (Option String) :=
+    (applyTaintStatus atoms pt applyTaint upgrade).1.map (·.statusOrigin)
+  let kt := some kernelTaintOrigin
+  result ← test "kernelTaintOrigin is \"kernel-taint\"" (kernelTaintOrigin == "kernel-taint") result
+  result ← test "default: only the tainted, non-direct atom is marked"
+    (origins true true == #[none, none, kt, none, none]) result
+  result ← test "--skip-enrich: the tainted atom is still marked, the capped clean one is not"
+    (origins true false == #[none, none, kt, none, none]) result
+  let (noUp, _) := applyTaintStatus atoms pt true false
+  result ← test "--skip-enrich: marked and capped atoms both read verified"
+    (noUp[2]!.verificationStatus == some .verified && noUp[3]!.verificationStatus == some .verified) result
+  result ← test "--skip-verify: no atom is marked"
+    (origins false true == #[none, none, none, none, none]) result
+  let marked := (applyTaintStatus atoms pt true true).1[2]!
+  let j := Lean.toJson marked
+  result ← test "status-origin present in JSON when set"
+    (match j.getObjValAs? String "status-origin" with | .ok "kernel-taint" => true | _ => false) result
+  result ← test "status-origin round-trips through JSON"
+    (match Lean.FromJson.fromJson? j (α := UnifiedAtom) with
+     | .ok a => a.statusOrigin == kt | .error _ => false) result
+  let clean := (applyTaintStatus atoms pt true true).1[3]!
+  result ← test "status-origin absent from JSON when none"
+    ((Lean.toJson clean).getObjVal? "status-origin").toOption.isNone result
+  return result
+
 def testDivergenceLines (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -5230,6 +5272,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testReachabilityScaling result
   result ← testTrustListingFormat result
   result ← testApplyTaintStatus result
+  result ← testStatusOrigin result
   result ← testDivergenceLines result
   result ← testTaintFormatting result
   result ← testAttributeScan result

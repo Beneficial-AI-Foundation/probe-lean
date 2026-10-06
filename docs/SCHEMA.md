@@ -30,7 +30,7 @@ output with one definition and one trusted axiom; a theorem atom has the same fi
 {
   "schema": "probe-lean/extract",
   "schema-version": "3.0",
-  "tool": { "name": "probe-lean", "version": "0.15.0", "command": "extract" },
+  "tool": { "name": "probe-lean", "version": "0.16.0", "command": "extract" },
   "source": {
     "repo": "https://github.com/Verified-zkEVM/ArkLib",
     "commit": "f6e5d4c",
@@ -171,6 +171,7 @@ or **attribute** (a Lean attribute on the declaration).
 | `primary-spec` | string or absent | auto | The primary specification theorem, by precedence: (1) `@[primary_spec]`, (2) a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`), (3) `_spec` suffix match, (4) sole spec. Several `@[primary_spec]` theorems on one target: arbitrary tie-break, stderr warning, losers stay in `specs` with `is-primary-spec: true`. Signals 2–4 pick a theorem without tagging it, so the winner's own `is-primary-spec` may be `false`. |
 | `verification-status` | string or absent | auto | One of the five values in [Verification status](#verification-status-and-the-trusted-base). Absent under `--skip-verify`, except trusted atoms keep `"trusted"`. |
 | `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`, see below. |
+| `status-origin` | string or absent | auto | `"kernel-taint"` on every atom that reads `"verified"` because the walk found a reachable project `sorry`, also under `--skip-enrich`. Absent otherwise, and absent under `--skip-verify`. See [Re-deriving statuses](#re-deriving-statuses). |
 | `codomain-head` | string or absent | auto | Head constant of the result type after stripping `∀`/`→` binders, if it is a constant. |
 | `codomain-is-prop` | bool | auto | The result type is `Sort 0`. |
 | `codomain-last-arg-is-bool` | bool | auto | The final application argument of the result type is `Bool`. |
@@ -220,6 +221,18 @@ consequences a consumer must know:
 - **Kernel dependencies, not executable bodies.** A `sorry` in a `partial def` body or in an
   `@[implemented_by]` target does not taint the host, and a `native_decide` proof rests on a
   trusted generated axiom.
+
+### Re-deriving statuses
+
+The emitted graph does not always show why an atom is tainted: a carrier with no declaration
+range, or a `def`'s abstracted `f._proof_1`, is not an atom. A consumer that recomputes
+`"transitively-verified"` from the dependency arrays (hub probe's enrichment) would then promote
+the atom or its callers. So every atom from the walk's tainted branch carries
+`"status-origin": "kernel-taint"`. A consumer must never promote a marked atom, and must not
+promote an atom that reaches a marked atom through non-trusted dependencies. An unmarked
+`"verified"` atom is clean modulo T. It reads `"verified"` only under `--skip-enrich`, and a
+consumer can promote it. The marker exists from probe-lean 0.16.0. Extracts made by older
+versions have no marker and must be re-extracted, not re-enriched.
 
 Everything else (cross-checks, module coverage, merged declarations, the exact scope of each rule
 and its limits) is in [verification-status.md](verification-status.md).

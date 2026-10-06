@@ -43,7 +43,8 @@ definitions.
 On Lean ≤ 4.28 a `def`'s sorried proof obligation (`def f : Fin 5 := ⟨3, by sorry⟩`) is
 abstracted into `f._proof_1`. That auxiliary is the direct carrier (`[direct] [not emitted]` in
 `check-axioms`), `f` itself reads `"verified"`, and since the emitted graph has no node for the
-auxiliary, the graph cross-check prints a `Divergence(graph)` line for `f`. From Lean 4.29 the
+auxiliary, the graph cross-check prints a `Divergence(graph)` line for `f`, and `f` carries
+`status-origin: "kernel-taint"` so that a consumer does not promote it from the graph. From Lean 4.29 the
 `sorry` stays inline and `f` reads `"unverified"`. On every toolchain `f` is tainted and never
 `"transitively-verified"`.
 
@@ -58,7 +59,9 @@ prints a line on stderr and keeps the walk's verdict:
 
 - the reverse-BFS over the emitted graph: `Divergence(graph): <atom> graph says clean, oracle says
   tainted` (or the reverse). A graph divergence localises a node or edge the emitted graph is
-  missing, typically a carrier with no declaration range;
+  missing, typically a carrier with no declaration range. Every atom the walk finds tainted
+  carries `status-origin: "kernel-taint"`, so the gap is visible in the output too (see
+  [SCHEMA.md](SCHEMA.md#re-deriving-statuses));
 - the build log's `sorry` warnings: `Divergence(log): …`, trusted atoms skipped.
 
 ## Kernel dependencies, not executable bodies

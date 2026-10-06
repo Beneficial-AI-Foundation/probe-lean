@@ -426,6 +426,10 @@ structure UnifiedAtom where
   primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus
   trustedReason : Option String := none
+  /-- `"kernel-taint"` when the status is `verified` because the kernel walk found
+      reachable `sorry` (`Transitive.applyTaintStatus`); the emitted graph may not
+      show the path, so a consumer must not re-derive a stronger status. -/
+  statusOrigin : Option String := none
   /-- Head constant of the result type, if any (neutral fact). -/
   codomainHead : Option String := none
   /-- Result type is `Sort 0` (a `Prop`). -/
@@ -472,9 +476,12 @@ instance : Lean.ToJson UnifiedAtom where
     let withTrustedReason := match atom.trustedReason with
       | some reason => withVerification ++ [("trusted-reason", Lean.toJson reason)]
       | none => withVerification
-    let withCodomainHead := match atom.codomainHead with
-      | some h => withTrustedReason ++ [("codomain-head", Lean.toJson h)]
+    let withStatusOrigin := match atom.statusOrigin with
+      | some origin => withTrustedReason ++ [("status-origin", Lean.toJson origin)]
       | none => withTrustedReason
+    let withCodomainHead := match atom.codomainHead with
+      | some h => withStatusOrigin ++ [("codomain-head", Lean.toJson h)]
+      | none => withStatusOrigin
     let withCodomain := withCodomainHead ++ [
       ("codomain-is-prop", Lean.toJson atom.codomainIsProp),
       ("codomain-last-arg-is-bool", Lean.toJson atom.codomainLastArgIsBool)
@@ -508,10 +515,11 @@ instance : Lean.FromJson UnifiedAtom where
     let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
     let verificationStatus ← json.getObjValAs? (Option WebVerificationStatus) "verification-status" <|> pure none
     let trustedReason ← json.getObjValAs? (Option String) "trusted-reason" <|> pure none
+    let statusOrigin ← json.getObjValAs? (Option String) "status-origin" <|> pure none
     let codomainHead ← json.getObjValAs? (Option String) "codomain-head" <|> pure none
     let codomainIsProp ← json.getObjValAs? Bool "codomain-is-prop" <|> pure false
     let codomainLastArgIsBool ← json.getObjValAs? Bool "codomain-last-arg-is-bool" <|> pure false
-    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, codomainHead, codomainIsProp, codomainLastArgIsBool }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, statusOrigin, codomainHead, codomainIsProp, codomainLastArgIsBool }
 
 /-- Output format for unified atoms - an object keyed by atom name -/
 structure UnifiedAtomsOutput where

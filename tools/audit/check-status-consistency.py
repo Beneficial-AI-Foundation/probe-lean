@@ -9,11 +9,14 @@ directions:
     emitted, listed `[direct]`          <=>  verification-status == "unverified"
     emitted, listed, not `[direct]`     <=>  verification-status == "verified"
     emitted, not listed                 <=>  "transitively-verified" or "trusted"
+    emitted, listed, not `[direct]`     <=>  status-origin == "kernel-taint"
     listed without `[not emitted]`      <=>  is an atom of the artifact
 
 An atom without a `verification-status` fails unless `--allow-missing` is given
 (`--skip-verify` runs). `--skip-enrich` artifacts read `verified` where the report
-predicts `transitively-verified`; pass `--no-upgrade` for those.
+predicts `transitively-verified`; pass `--no-upgrade` for those. The
+`status-origin` equivalence holds in both modes: the marker distinguishes a tainted
+`verified` from a capped clean one.
 
 Usage:
 
@@ -95,9 +98,11 @@ def main():
     listed = parse_report(args.report)
 
     atoms = {}
+    origins = {}
     for key, atom in data.items():
         name = key[len(PREFIX):] if key.startswith(PREFIX) else key
         atoms[name] = atom.get("verification-status")
+        origins[name] = atom.get("status-origin")
 
     bad = []
     counts = {"unverified": 0, "verified": 0, "clean": 0, "trusted": 0, "missing": 0}
@@ -106,8 +111,16 @@ def main():
             counts["missing"] += 1
             if not args.allow_missing:
                 bad.append(f"{name}: no verification-status")
+            if origins[name] is not None:
+                bad.append(f"{name}: status-origin {origins[name]!r} without a verification-status")
             continue
         entry = listed.get(name)
+        tainted = entry is not None and not entry[0]
+        origin = origins[name]
+        if tainted and origin != "kernel-taint":
+            bad.append(f"{name}: listed, not [direct], but status-origin is {origin!r}")
+        elif not tainted and origin is not None:
+            bad.append(f"{name}: status-origin {origin!r} but not a tainted non-direct constant")
         if status == "trusted":
             counts["trusted"] += 1
             if entry is not None:

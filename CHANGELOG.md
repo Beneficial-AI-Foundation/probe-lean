@@ -5,7 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.16.0] - 2026-10-06
+
+### Added
+
+- **`status-origin: "kernel-taint"` on tainted atoms** (#117, hub ADR-006). An atom reads
+  `"verified"` when the kernel walk finds an unexcused project `sorry` reachable from it, and
+  the emitted graph can lack the path (a range-less carrier, a `def`'s abstracted
+  `f._proof_1`). A consumer that re-derives statuses from the graph then promoted the atom or
+  its callers. Every atom from the walk's tainted branch now carries
+  `"status-origin": "kernel-taint"`, also under `--skip-enrich`, where it is the only field
+  that separates a tainted `verified` from a capped clean one. Hub probe accepts probe-lean
+  extracts for re-enrichment from this version. Extracts made by older versions must be
+  re-extracted. `tools/audit/check-status-consistency.py` checks the marker against the
+  `check-axioms` report.
 
 ### Fixed
 
