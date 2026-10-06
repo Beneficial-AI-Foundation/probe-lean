@@ -81,6 +81,12 @@ membership per *module* up front turns each test into a hash lookup, and made
 allocation-free too, so building a filter costs milliseconds. -/
 structure ProjectFilter where
   moduleIdxs : Std.HashSet Nat
+  /-- Constants that count as selected whatever module the environment attributes
+      them to: a merged declaration emitted from a selected declaring module while
+      the importer attributed the name to an unselected one (`mergedDeclInfo`). Its
+      callers' edges to it must then be project edges, not `*-external` ones, so the
+      emitted graph connects to the atom (`ProjectFilter.withNames`). -/
+  names : Std.HashSet Name := {}
 
 /-- Precompute the project's module indices. -/
 def mkProjectFilter (env : Environment) (projectModules : Array Name) : ProjectFilter :=
@@ -93,11 +99,17 @@ def mkProjectFilter (env : Environment) (projectModules : Array Name) : ProjectF
           idxs := idxs.insert i
     return { moduleIdxs := idxs }
 
-/-- Whether `name` is declared in one of the project's modules. -/
+/-- Whether `name` is declared in one of the project's modules, or is one of
+    `pf.names`. -/
 def ProjectFilter.contains (pf : ProjectFilter) (env : Environment) (name : Name) : Bool :=
-  match env.getModuleIdxFor? name with
-  | some idx => pf.moduleIdxs.contains idx.toNat
-  | none => false
+  (match env.getModuleIdxFor? name with
+    | some idx => pf.moduleIdxs.contains idx.toNat
+    | none => false) ||
+  pf.names.contains name
+
+/-- `pf` with `extra` counted as selected (`ProjectFilter.names`). -/
+def ProjectFilter.withNames (pf : ProjectFilter) (extra : Array Name) : ProjectFilter :=
+  { pf with names := extra.foldl (init := pf.names) fun s n => s.insert n }
 
 /-- Whether `name` is registered in Lean's instance table: the `instance` keyword,
     `scoped instance`, or an `attribute [instance] name` command, however the
@@ -500,6 +512,14 @@ def projectConstants (env : Environment) (pf : ProjectFilter) : Array (Name × C
   -- (`getProjectDeclsFrom` re-sorts the emitted subset the P14 way).
   return consts.qsort fun a b => Name.lt a.1 b.1
 
+/-- `isSourceVisible` minus the range test: not an internal name, not a constructor or
+    recursor. For a name several modules declare the range is per declaring module
+    (`mergedDeclInfo` looks it up where the atom is located), so this is the part that
+    can be decided from the one constant the environment kept. -/
+def isEmittableShape (name : Name) (info : ConstantInfo) : Bool :=
+  !isInternalName name &&
+  (match info with | .ctorInfo _ => false | .recInfo _ => false | _ => true)
+
 /-- Whether a project constant is a *source-visible declaration*: it has a
     declaration range of its own and is neither an internal auxiliary
     (`X._proof_N`, `match_N`, …) nor a constructor/recursor. These are exactly the
@@ -507,28 +527,34 @@ def projectConstants (env : Environment) (pf : ProjectFilter) : Array (Name × C
     companions, see `Trust.isCompanionName` — the only ones a human can put an
     `@[…]` attribute on. -/
 def isSourceVisible (env : Environment) (name : Name) (info : ConstantInfo) : Bool :=
-  !isInternalName name &&
-  (match info with | .ctorInfo _ => false | .recInfo _ => false | _ => true) &&
-  (declRangeExt.find? env name).isSome
+  isEmittableShape name info && (declRangeExt.find? env name).isSome
 
 /-- The `DeclInfo` of a name several project modules declare, from every module's own
-    version (`versions`: `(module, constant info)`, sorted by module). `none` when no
-    declaring module is selected. The environment keeps one body and attributes the
-    name to one module, both chosen by the importer, so neither may decide the output:
-    the dependency arrays are the union over all versions, the edges the taint walk
-    follows (`Taint.mergedChildren`), and when the attributed module is unselected the
-    location is the first selected version's. -/
+    version (`versions`: `(module, constant info)`, sorted by module). The environment
+    keeps one body and attributes the name to one module, both chosen by the importer,
+    so neither may decide the output: the dependency arrays are the union over all
+    versions, the edges the taint walk follows (`Taint.mergedChildren`), and the atom
+    is located in the attributed module when that is selected and registers a range
+    for the name, else in the first selected declaring module that does. `none` when
+    no selected declaring module has a range — not emitted, like any range-less
+    constant; the attributed module's range alone decides nothing (a range-less
+    `addDecl` version may own the name while a written restatement is the one
+    selected). `rangeIn m` is the range module `m` registered for the name
+    (`declSourceLocIn`); a parameter so the per-module table can be fabricated in
+    tests. -/
 def mergedDeclInfo (env : Environment) (modNames : Array Name) (selFilter : ProjectFilter)
     (name : Name) (info : ConstantInfo) (versions : Array (Name × ConstantInfo))
+    (rangeIn : Name → Option CodeTextInfo := fun m => declSourceLocIn env m name)
     : Option DeclInfo := do
   let isSelected (m : Name) := match env.getModuleIdx? m with
     | some idx => selFilter.moduleIdxs.contains idx.toNat
     | none => false
-  let (firstSel, _) ← versions.find? (isSelected ·.1)
   let base := analyzeDecl env modNames name info
-  let (moduleName, sourceInfo) :=
-    if selFilter.contains env name then (base.moduleName, base.sourceInfo)
-    else (firstSel, declSourceLocIn env firstSel name)
+  let (moduleName, sourceInfo) ←
+    if selFilter.contains env name && (rangeIn base.moduleName).isSome then
+      some (base.moduleName, rangeIn base.moduleName)
+    else versions.findSome? fun (m, _) =>
+      if isSelected m then (rangeIn m).map fun r => (m, some r) else none
   let deps := versions.map (getDependencies ·.2)
   let typeDependencies := sortDedupNames (deps.flatMap (·.typeDeps))
   let termDependencies := sortDedupNames (deps.flatMap (·.termDeps))
@@ -537,8 +563,9 @@ def mergedDeclInfo (env : Environment) (modNames : Array Name) (selFilter : Proj
 
 /-- The emitted declarations among `consts` (a slice of P): source-visible
     constants whose module is selected by `selFilter`. A name in `merged` (declared
-    by several project modules, with each module's version) is emitted when any
-    declaring module is selected, see `mergedDeclInfo`. Sorted by name (P14). -/
+    by several project modules, with each module's version) is emitted when a
+    selected declaring module registers a range for it, see `mergedDeclInfo`. Sorted
+    by name (P14). -/
 def getProjectDeclsFrom (env : Environment) (consts : Array (Name × ConstantInfo))
     (selFilter : ProjectFilter)
     (merged : Std.HashMap Name (Array (Name × ConstantInfo)) := {}) : Array DeclInfo := Id.run do
@@ -547,7 +574,7 @@ def getProjectDeclsFrom (env : Environment) (consts : Array (Name × ConstantInf
   for (name, info) in consts do
     match merged[name]? with
     | some versions =>
-      if !isSourceVisible env name info then continue
+      if !isEmittableShape name info then continue
       if let some d := mergedDeclInfo env modNames selFilter name info versions then
         decls := decls.push d
     | none =>
@@ -1025,10 +1052,11 @@ structure FoldWalk where
   children : Name → Array Name
   classify : Name → DepClass
 
-/-- The production traversal policy: full reachability (`constChildren`, i.e. a
-node's type *and* value constants) under the project filter. -/
+/-- The production traversal policy: full reachability (`constChildrenEmitted`, i.e. a
+node's type *and* value constants as `getUsedConstants` collects them — the emitted
+graph's edge set, not the taint walk's) under the project filter. -/
 def FoldWalk.ofEnv (env : Environment) (isProjectMember : Name → Bool) : FoldWalk :=
-  { children := constChildren env
+  { children := constChildrenEmitted env
     classify := classifyFoldCandidate env isProjectMember }
 
 /-- Project-emitted constants reachable from `n` through foldable nodes only.

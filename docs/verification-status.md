@@ -29,7 +29,8 @@ The edges are every constant a declaration's type and value name, the structure 
 projection node (`x.1`) included. Lean's own `Expr.getUsedConstants` counts that structure only
 from 4.34; on the older supported toolchains it is the only edge to the structure when the operand
 is a trusted constant, so the walk collects it itself on every toolchain. The emitted dependency
-arrays are unaffected.
+arrays, and the auxiliary fold that recovers edges hidden under `_proof_N`-style auxiliaries for
+them, keep using `getUsedConstants`: they are unaffected.
 
 Generated companions (`X.mvcgen_spec`) receive their own status. A companion of a trusted theorem
 is `"transitively-verified"`, not `"trusted"`.
@@ -118,9 +119,13 @@ one project proof. The walk fails closed for such a name:
 The atom follows the same versions rather than the one body the importer kept. Its four split
 dependency arrays are the union of every version's edges, so the `sorryAx` edge behind its
 `"unverified"` status is always listed. Under `--module`/`--library` it is emitted when *any*
-declaring module is selected; when the module the importer attributes it to is not selected,
-`code-module`, `code-path` and `code-text` are the first selected declaring module's (by module
-name). `attributes` and `rust-source` still come from the attributed module's declaration.
+declaring module that registers a declaration range for it is selected; when the module the
+importer attributes it to is not selected (or registers no range), `code-module`, `code-path` and
+`code-text` are the first selected declaring module's that does (by module name). `attributes` and
+`rust-source` still come from the attributed module's declaration. The emitted atom counts as a
+project atom for its callers' dependency partition too: a selected caller lists it in
+`term-dependencies`/`type-dependencies`, not in the `*-external` arrays, whichever module the
+importer attributes the name to.
 
 The versions come from the imported environment itself. Lean's importer collapses only the constant
 lookup map, while the environment header keeps every module's own constants (module-system modules

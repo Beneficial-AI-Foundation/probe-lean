@@ -4811,12 +4811,31 @@ run_cmd do
   let modNames := env.allImportedModuleNames
   let mergedVia (sel : Name) :=
     mergedDeclInfo env modNames (mkProjectFilter env #[sel]) sdn sdnInfo sdnVersions
-  let viaOther := mergedVia `ProbeLean.Attrs
   let viaOwner := mergedVia `ProbeLean.Analysis
   let attrsFilter' := mkProjectFilter env #[`ProbeLean.Attrs]
+  let analysisFilter := mkProjectFilter env #[`ProbeLean.Analysis]
+  let sdnMerged : Std.HashMap Name (Array (Name × ConstantInfo)) :=
+    Std.HashMap.ofList [(sdn, sdnVersions)]
   let emittedPlain := getProjectDeclsFrom env #[(sdn, sdnInfo)] attrsFilter'
-  let emittedMerged := getProjectDeclsFrom env #[(sdn, sdnInfo)] attrsFilter'
-    (Std.HashMap.ofList [(sdn, sdnVersions)])
+  -- The real range table only knows the owner's range, so the fabricated version in
+  -- `ProbeLean.Attrs` cannot be located: selecting it emits nothing. Selecting the
+  -- owner takes the merged branch (the deps are the union).
+  let emittedOther := getProjectDeclsFrom env #[(sdn, sdnInfo)] attrsFilter' sdnMerged
+  let emittedOwner := getProjectDeclsFrom env #[(sdn, sdnInfo)] analysisFilter sdnMerged
+  -- Fabricated range tables: both declaring modules register one; only the
+  -- non-owner does; none does.
+  let fakeRange : CodeTextInfo := { linesStart := 7, linesEnd := 9 }
+  let bothRanged (m : Name) : Option CodeTextInfo :=
+    if m == `ProbeLean.Attrs then some fakeRange else declSourceLocIn env m sdn
+  let ownerRangeless (m : Name) : Option CodeTextInfo :=
+    if m == `ProbeLean.Attrs then some fakeRange else none
+  let mergedViaWith (sel : Name) (rangeIn : Name → Option CodeTextInfo) :=
+    mergedDeclInfo env modNames (mkProjectFilter env #[sel]) sdn sdnInfo sdnVersions rangeIn
+  let viaOther := mergedViaWith `ProbeLean.Attrs bothRanged
+  let ownerSelNoRange := mergedViaWith `ProbeLean.Analysis ownerRangeless
+  let otherSelNoOwnerRange := mergedViaWith `ProbeLean.Attrs ownerRangeless
+  let noRangeAnywhere := mergedViaWith `ProbeLean.Attrs fun _ => none
+  let namesFilter := attrsFilter'.withNames #[sdn]
   let axTrust := env.find? `TaintEnv.trustAx |>.get!
   let mkMerged (n : Name) (vs : Array (Name × ConstantInfo)) : MergedDecl := { declName := n, versions := vs }
   let thmThm := mkMerged `TaintEnv.evSorried #[(`M1, thmSorried), (`M2, thmClean)]
@@ -4910,13 +4929,17 @@ run_cmd do
       propTyped.contains `A.FunsExternal.p && !propTyped.contains `A.FunsExternal.n),
     ("headerMerges: a project module with no duplicated names yields neither merged nor cross names",
       noDup.1.isEmpty && noDup.2.isEmpty),
-    ("getProjectDeclsFrom: a merged name is emitted when a non-owner declaring module is selected",
-      emittedPlain.isEmpty && emittedMerged.map (·.name) == #[sdn]),
+    ("getProjectDeclsFrom: the merged branch emits the owner's version with the union of edges",
+      emittedPlain.map (·.name) == #[] &&
+      emittedOwner.map (·.name) == #[sdn] &&
+      emittedOwner.any (·.termDependencies.contains ``sorryAx)),
+    ("getProjectDeclsFrom: a selected declaring module without a registered range emits nothing",
+      emittedOther.isEmpty),
     ("mergedDeclInfo: no declaring module selected, not emitted",
       (mergedVia `ProbeLean.Trust).isNone),
     ("mergedDeclInfo: owner unselected, located in the selected version's module",
       viaOther.map (·.moduleName) == some `ProbeLean.Attrs &&
-      viaOther.map (·.sourceInfo) == some (declSourceLocIn env `ProbeLean.Attrs sdn)),
+      viaOther.map (·.sourceInfo) == some (some fakeRange)),
     ("mergedDeclInfo: owner selected, located where the environment attributes it",
       viaOwner.map (·.moduleName) == some `ProbeLean.Analysis &&
       viaOwner.map (·.sourceInfo) == some (getDeclSourceLoc env sdn)),
@@ -4929,6 +4952,15 @@ run_cmd do
       (getDeclSourceLoc env sdn).isSome &&
       declSourceLocIn env `ProbeLean.Analysis sdn == getDeclSourceLoc env sdn &&
       (declSourceLocIn env `ProbeLean.Attrs sdn).isNone),
+    ("mergedDeclInfo: a range-less owner does not block emission from a ranged selected version",
+      otherSelNoOwnerRange.map (·.moduleName) == some `ProbeLean.Attrs &&
+      otherSelNoOwnerRange.map (·.sourceInfo) == some (some fakeRange)),
+    ("mergedDeclInfo: owner selected but range-less, no other selected version: not emitted",
+      ownerSelNoRange.isNone),
+    ("mergedDeclInfo: no selected version has a range: not emitted", noRangeAnywhere.isNone),
+    ("ProjectFilter.withNames: the name counts as selected whatever module owns it",
+      !attrsFilter'.contains env sdn && namesFilter.contains env sdn &&
+      !namesFilter.contains env ``ProbeLean.probeRef),
     ("projectConstants-style membership: non-project roots are blocked",
       !(projectTaint env (fun _ => false) (fun _ => false) roots).tainted.contains `TaintEnv.sorried)]
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
@@ -4975,6 +5007,10 @@ run_cmd do
     ("the fabricated proof is a raw projection", rawValue.any (·.isProj)),
     ("constInfoChildren of a raw projection names the structure",
       (constChildren env `ProjEnv.viaRawProj).contains `ProjEnv.S),
+    ("constChildrenEmitted (the fold's edges) follows getUsedConstants, whatever the toolchain does",
+      (constChildrenEmitted env `ProjEnv.viaRawProj).contains `ProjEnv.S ==
+        rawValue.any (·.getUsedConstants.contains `ProjEnv.S) &&
+      (constChildrenEmitted env `ProjEnv.viaRawProj).contains `ProjEnv.trustedS),
     ("the structure's constructor is a direct carrier", tr.direct.contains `ProjEnv.S.mk),
     ("a raw projection out of a trusted constant is tainted through the structure",
       tr.tainted.contains `ProjEnv.viaRawProj),
@@ -5003,7 +5039,7 @@ def testUsedConstants (result : TestResult) : IO TestResult := do
        (Lean.mkLet `b (Lean.mkConst `B) (Lean.mkProj `T 0 (Lean.mkBVar 0))
          (Lean.mkMData {} (Lean.mkForall `c .default (Lean.mkConst `C) (Lean.mkBVar 0))))
      usedConstants e == #[`A, `B, `T, `C]) result
-  result ← test "environment-backed projection checks were generated" (projEnvChecks.size == 6) result
+  result ← test "environment-backed projection checks were generated" (projEnvChecks.size == 7) result
   for (name, ok) in projEnvChecks do
     result ← test name ok result
   return result

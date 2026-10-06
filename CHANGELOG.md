@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `theorem t : P := x.1` with `axiom x : S` and `S`'s constructor resting on `sorry` read
   `transitively-verified` on the pinned toolchain. `AxiomCheck.usedConstants` is Lean
   4.34's fold, used by `constInfoChildren` on every toolchain; the emitted dependency
-  arrays still use `getUsedConstants`. The `Lean.collectAxioms` cross-check could not
+  arrays and the auxiliary fold that feeds them still use `getUsedConstants`
+  (`constChildrenEmitted`). The `Lean.collectAxioms` cross-check could not
   show the difference (unblocked, it reaches `S` through `x`'s type), so the new test
   builds the raw projection with `mkProj` against a trusted operand. Neither target's
   tainted set changes (dalek 112, SPQR 146).
@@ -34,8 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `--module Merge.Good` emitted nothing (its `shared` was attributed to `Merge.Bad`), and
   in every run `shared` read `unverified` while its edges showed only the proved body. A
   merged name's dependency arrays are now the union of every version's edges (what the
-  walk follows), it is emitted when any declaring module is selected, and it is located in
-  a selected module. The same holds for a name shared with a dependency that the project
+  walk follows), it is emitted when any declaring module that registers a declaration
+  range for it is selected (the owner's range no longer gates emission), it is located in
+  the first such module, and a selected caller's edge to it is a project edge
+  (`term-dependencies`, not `term-dependencies-external`) even when the importer attributes
+  the name to an unselected module. The same holds for a name shared with a dependency that the project
   owns in the environment: its arrays are the project version's, not the dependency's
   proof the importer kept (`cross-merge`'s `shared4` showed `True.intro` under an
   `unverified` status); a name the dependency owns is still not an atom. Fixtures:

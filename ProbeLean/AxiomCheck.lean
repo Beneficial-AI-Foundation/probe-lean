@@ -181,34 +181,50 @@ end UsedConstantsImpl
     the operand is a blocked constant: a trusted `axiom x : S` with `S`'s constructor
     resting on `sorry` let `theorem t : P := x.1` read clean on the pinned toolchain
     (`Lean.collectAxioms`, unblocked, recovers `S` through `x`'s type and cannot show
-    the difference). Used by the walk only; the emitted dependency arrays
-    (`Analysis.getDependencies`) keep `getUsedConstants`. -/
+    the difference). Used by the taint walk only (`constChildren`); the emitted
+    graph — `Analysis.getDependencies` and the auxiliary fold's `constChildrenEmitted`
+    — keeps `getUsedConstants`, so the output arrays do not depend on this. -/
 @[implemented_by UsedConstantsImpl.usedConstantsUnsafe]
 opaque usedConstants (e : Expr) : Array Name
 
 /-- The constants directly used in `c`'s type and value (and constructors, for an
-    inductive) — the out-edges of the transitive closure. The match is exhaustive
-    over `ConstantInfo` on purpose: if Lean ever adds a constructor, this fails to
-    compile rather than silently under-reporting axioms. Reads the value fields
-    directly, so the Lean 4.30 `ConstantInfo.value?` default change does not apply.
-    Mirrors `Lean.collectAxioms`, with `usedConstants` in place of `getUsedConstants`
-    so projection structure names are edges on every supported toolchain. Takes the
-    `ConstantInfo` itself so a version of a constant the environment did *not* keep
-    (a co-import duplicate read from its module's olean) can be walked too. -/
-def constInfoChildren : ConstantInfo → Array Name
-  | .axiomInfo v  => usedConstants v.type
-  | .defnInfo v   => usedConstants v.type ++ usedConstants v.value
-  | .thmInfo v    => usedConstants v.type ++ usedConstants v.value
-  | .opaqueInfo v => usedConstants v.type ++ usedConstants v.value
-  | .ctorInfo v   => usedConstants v.type
-  | .recInfo v    => usedConstants v.type
-  | .inductInfo v => usedConstants v.type ++ v.ctors.toArray
+    inductive) — the out-edges of the transitive closure, with `used` collecting the
+    constants of one expression. The match is exhaustive over `ConstantInfo` on
+    purpose: if Lean ever adds a constructor, this fails to compile rather than
+    silently under-reporting axioms. Reads the value fields directly, so the Lean
+    4.30 `ConstantInfo.value?` default change does not apply. Mirrors
+    `Lean.collectAxioms`. Takes the `ConstantInfo` itself so a version of a constant
+    the environment did *not* keep (a co-import duplicate read from its module's
+    olean) can be walked too. -/
+def constInfoChildrenWith (used : Expr → Array Name) : ConstantInfo → Array Name
+  | .axiomInfo v  => used v.type
+  | .defnInfo v   => used v.type ++ used v.value
+  | .thmInfo v    => used v.type ++ used v.value
+  | .opaqueInfo v => used v.type ++ used v.value
+  | .ctorInfo v   => used v.type
+  | .recInfo v    => used v.type
+  | .inductInfo v => used v.type ++ v.ctors.toArray
   | .quotInfo _   => #[]
+
+/-- The taint walk's out-edges: `constInfoChildrenWith usedConstants`, projection
+    structure names included on every supported toolchain. -/
+def constInfoChildren : ConstantInfo → Array Name :=
+  constInfoChildrenWith usedConstants
 
 /-- `constInfoChildren` of the constant the environment holds under `c`. -/
 def constChildren (env : Environment) (c : Name) : Array Name :=
   match env.find? c with
   | some ci => constInfoChildren ci
+  | none    => #[]
+
+/-- The emitted graph's out-edges: `constInfoChildrenWith Expr.getUsedConstants`, the
+    same collector `Analysis.getDependencies` uses for an atom's direct edges. The
+    auxiliary fold traverses with this one (`Analysis.FoldWalk.ofEnv`) so that what it
+    recovers into `term-dependencies` is built from the same edge set as the direct
+    arrays, whatever the toolchain's `getUsedConstants` does with projections. -/
+def constChildrenEmitted (env : Environment) (c : Name) : Array Name :=
+  match env.find? c with
+  | some ci => constInfoChildrenWith Expr.getUsedConstants ci
   | none    => #[]
 
 /-- Whether `c`'s *type* (its statement) names `sorryAx`. -/

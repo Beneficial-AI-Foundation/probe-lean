@@ -484,10 +484,17 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   IO.println (formatTagSetLine pt.tagSet)
   reportTaintWarnings pt
 
+  -- A merged declaration emitted from a selected declaring module while the
+  -- environment attributes the name to an unselected one is an atom, so its
+  -- callers' edges to it are project edges: count those names as selected for the
+  -- dependency partition and the fold (`ProjectFilter.names`). With no selection
+  -- every owner is selected and the set is empty.
+  let atomFilter := selFilter.withNames
+    (decls.filterMap fun d => if selFilter.contains env d.name then none else some d.name)
   -- One fold state per run: its closure cache is keyed to this `Environment`
   -- and this project filter, and extraction is sequential (see `FoldState`).
   let auxCache : AuxDepCache ← IO.mkRef {}
-  let atoms ← buildAtoms env projectPath selFilter crate pathCache auxCache attrs decls
+  let atoms ← buildAtoms env projectPath atomFilter crate pathCache auxCache attrs decls
   reportFoldStats auxCache
   return .ok (atoms, pt)
 

@@ -68,6 +68,7 @@ def main():
           status(data, "probe:caller") == "verified")
     check("callerGood (built against the proved version) is verified too: fail closed",
           status(data, "probe:callerGood") == "verified")
+    check("callerSub (submodule of Merge.Good) is verified", status(data, "probe:callerSub") == "verified")
     check("shared's edges are both versions' (sorryAx and True.intro)",
           both_bodies(data.get("probe:shared", {})))
 
@@ -80,7 +81,19 @@ def main():
               shared.get("code-module") == f"Merge.{m}"
               and shared.get("code-path") == f"Merge/{m}.lean")
         check(f"--module Merge.{m}: shared's edges are both versions'", both_bodies(shared))
-        check(f"--module Merge.{m}: no caller is emitted", list(selected[m]) == ["probe:shared"])
+    check("--module Merge.Bad: nothing but shared is emitted", list(selected["Bad"]) == ["probe:shared"])
+    # `Merge.Good.Sub` is selected by the `Merge.Good` prefix; `Merge.Bad`, which owns
+    # `shared` in the environment, is not. The emitted `shared` must still be the
+    # caller's project dependency, not an external one.
+    check("--module Merge.Good: shared and the submodule's caller are emitted",
+          sorted(selected["Good"]) == ["probe:callerSub", "probe:shared"])
+    sub = selected["Good"].get("probe:callerSub", {})
+    check("--module Merge.Good: callerSub's edge to the emitted shared is a project edge",
+          "probe:shared" in sub.get("term-dependencies", [])
+          and "probe:shared" in sub.get("dependencies", [])
+          and "probe:shared" not in sub.get("term-dependencies-external", []))
+    check("--module Merge.Good: callerSub is verified (fail closed)",
+          sub.get("verification-status") == "verified")
 
     print("Extract stderr")
     check("the merged declaration is reported",
