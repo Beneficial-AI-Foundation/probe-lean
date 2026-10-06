@@ -57,6 +57,7 @@ def unifyAtom (atom : Atom) : UnifiedAtom :=
     primarySpec := atom.primarySpec
     verificationStatus := none
     trustedReason := none
+    statusOrigin := none
     codomainHead := atom.codomainHead
     codomainIsProp := atom.codomainIsProp
     codomainLastArgIsBool := atom.codomainLastArgIsBool

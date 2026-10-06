@@ -1,4 +1,4 @@
-{"tool": {"version": "0.15.0", "name": "probe-lean", "command": "extract"},
+{"tool": {"version": "0.16.0", "name": "probe-lean", "command": "extract"},
  "timestamp": "2026-01-01T00:00:00Z",
  "source":
  {"repo": "https://github.com/Beneficial-AI-Foundation/probe-lean",
@@ -9,7 +9,30 @@
  "schema-version": "3.0",
  "schema": "probe-lean/extract",
  "data":
- {"probe:ExampleProject.unproved":
+ {"probe:ExampleProject.unproved_corollary":
+  {"verification-status": "verified",
+   "type-dependencies": [],
+   "term-dependencies": ["probe:ExampleProject.unproved"],
+   "status-origin": "kernel-taint",
+   "rust-source": null,
+   "language": "lean",
+   "kind": "theorem",
+   "is-relevant": true,
+   "is-primary-spec": false,
+   "is-lean-generated": false,
+   "is-in-package": true,
+   "is-ignored": false,
+   "is-hidden": false,
+   "is-aeneas-generated": false,
+   "display-name": "unproved_corollary",
+   "dependencies": ["probe:ExampleProject.unproved"],
+   "codomain-last-arg-is-bool": false,
+   "codomain-is-prop": true,
+   "codomain-head": "Eq",
+   "code-text": {"lines-start": 42, "lines-end": 44},
+   "code-path": "ExampleProject/Core.lean",
+   "code-module": "ExampleProject.Core"},
+  "probe:ExampleProject.unproved":
   {"verification-status": "unverified",
    "type-dependencies": ["probe:ExampleProject.helper"],
    "term-dependencies": [],
@@ -32,7 +55,7 @@
    "code-path": "ExampleProject/Core.lean",
    "code-module": "ExampleProject.Core"},
   "probe:ExampleProject.helper_correct":
-  {"verification-status": "verified",
+  {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.helper"],
    "term-dependencies": [],
    "rust-source": null,
@@ -55,7 +78,7 @@
    "code-module": "ExampleProject.Core",
    "attributes": ["primary_spec"]},
   "probe:ExampleProject.helper_bounds":
-  {"verification-status": "verified",
+  {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.helper"],
    "term-dependencies": [],
    "rust-source": null,
@@ -78,7 +101,7 @@
    "code-module": "ExampleProject.Core",
    "attributes": ["primary_spec"]},
   "probe:ExampleProject.helper":
-  {"verification-status": "verified",
+  {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.Config"],
    "term-dependencies": [],
    "specs":
@@ -149,7 +172,7 @@
    "code-path": "ExampleProject/Core.lean",
    "code-module": "ExampleProject.Core"},
   "probe:ExampleProject.Config.limit":
-  {"verification-status": "verified",
+  {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.Config"],
    "term-dependencies": [],
    "rust-source": null,
@@ -171,7 +194,7 @@
    "code-path": "ExampleProject/Core.lean",
    "code-module": "ExampleProject.Core"},
   "probe:ExampleProject.Config":
-  {"verification-status": "verified",
+  {"verification-status": "transitively-verified",
    "type-dependencies": [],
    "term-dependencies": [],
    "rust-source": null,

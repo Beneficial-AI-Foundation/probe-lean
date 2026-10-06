@@ -31,10 +31,13 @@ def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVe
       else if pt.taint.tainted.contains n then (none, .verified)
       else (none, .transitivelyVerified)
 
-/-- Stamp `verification-status`/`trusted-reason` on every atom from the taint pass,
-    joined on `leanName`. `applyTaint := false` (`--skip-verify`) stamps only the
-    trusted atoms and leaves the rest without a status; `upgrade := false`
-    (`--skip-enrich`) caps clean atoms at `verified`. Atoms whose name is not in P
+/-- Stamp `verification-status`/`trusted-reason`/`status-origin` on every atom from
+    the taint pass, joined on `leanName`. `applyTaint := false` (`--skip-verify`)
+    stamps only the trusted atoms and leaves the rest without a status;
+    `upgrade := false` (`--skip-enrich`) caps clean atoms at `verified`. A tainted
+    atom (`verified` from the walk, not from the cap) gets `status-origin:
+    "kernel-taint"` in both modes: the emitted graph can lack the path to its
+    `sorry`, and the marker stops a consumer from promoting it or its callers. Atoms whose name is not in P
     get no status at all and are returned by name so the caller can warn
     (`formatUnknownAtomWarning`). -/
 def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
@@ -45,15 +48,18 @@ def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
     match taintVerdict pt a.leanName with
     | none =>
       unknown := unknown.push a.name
-      out := out.push { a with verificationStatus := none, trustedReason := none }
+      out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none }
     | some (reason, .trusted) =>
-      out := out.push { a with verificationStatus := some .trusted, trustedReason := reason }
+      out := out.push { a with verificationStatus := some .trusted, trustedReason := reason,
+                               statusOrigin := none }
     | some (_, status) =>
       if !applyTaint then
-        out := out.push { a with verificationStatus := none, trustedReason := none }
+        out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none }
       else
+        let origin := if status == .verified then some .kernelTaint else none
         let status := if status == .transitivelyVerified && !upgrade then .verified else status
-        out := out.push { a with verificationStatus := some status, trustedReason := none }
+        out := out.push { a with verificationStatus := some status, trustedReason := none,
+                                 statusOrigin := origin }
   return (out, unknown)
 
 /-- The graph-BFS input: the oracle's statuses with the upgrade undone, so the BFS

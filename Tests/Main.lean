@@ -2241,10 +2241,15 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
       let mut trustedHaveReason := true
       let mut reasonsValid := true
       let mut nonTrustedNoReason := true
+      let mut originMatchesVerified := true
       for (_, val) in obj.toArray do
         match val.getObjValAs? String "verification-status" with
         | .ok s =>
           if !validStatuses.contains s then allValid := false
+          -- Default-mode fixture: `verified` only ever comes from the taint walk.
+          let marked := match val.getObjValAs? String "status-origin" with
+            | .ok "kernel-taint" => true | _ => false
+          if marked != (s == "verified") then originMatchesVerified := false
           if s == "verified" then hasVerified := true
           if s == "trusted" then
             hasTrusted := true
@@ -2262,6 +2267,8 @@ def testExampleJsonVerificationStatus (result : TestResult) : IO TestResult := d
       result ← test "all trusted atoms have trusted-reason" trustedHaveReason result
       result ← test "all trusted-reason values are valid" reasonsValid result
       result ← test "non-trusted atoms have no trusted-reason" nonTrustedNoReason result
+      result ← test "status-origin kernel-taint exactly on the verified atoms"
+        originMatchesVerified result
       return result
 
 def testDeterminismInvariants (result : TestResult) : IO TestResult := do
@@ -4227,6 +4234,71 @@ def testApplyTaintStatus (result : TestResult) : IO TestResult := do
     ((uj.getObjVal? "lean-name").toOption.isNone && (uj.getObjVal? "leanName").toOption.isNone) result
   return result
 
+def testStatusOrigin (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing status-origin: kernel-taint (hub ADR-006)..."
+  let mkU (name : String) (ln : Lean.Name) : UnifiedAtom :=
+    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := none, kind := .theorem, verificationStatus := none }
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`T.ax, "axiom")]
+    taint := { tainted := Std.HashSet.ofArray #[`T.direct, `T.via],
+               direct := Std.HashSet.ofArray #[`T.direct], typeTainted := #[] }
+    constants := Std.HashSet.ofArray #[`T.ax, `T.direct, `T.via, `T.clean]
+    pSize := 4, moduleCount := 1 }
+  -- A stale marker on the input must not survive: every branch sets the field.
+  let atoms := #[mkU "probe:ax" `T.ax, mkU "probe:direct" `T.direct, mkU "probe:via" `T.via,
+    mkU "probe:clean" `T.clean, mkU "probe:unknown" `T.unknown].map
+    fun a => { a with statusOrigin := some .kernelTaint }
+  let origins (applyTaint upgrade : Bool) : Array (Option StatusOrigin) :=
+    (applyTaintStatus atoms pt applyTaint upgrade).1.map (·.statusOrigin)
+  let kt := some StatusOrigin.kernelTaint
+  result ← test "default: only the tainted, non-direct atom is marked"
+    (origins true true == #[none, none, kt, none, none]) result
+  result ← test "--skip-enrich: the tainted atom is still marked, the capped clean one is not"
+    (origins true false == #[none, none, kt, none, none]) result
+  let (noUp, _) := applyTaintStatus atoms pt true false
+  result ← test "--skip-enrich: marked and capped atoms both read verified"
+    (noUp[2]!.verificationStatus == some .verified && noUp[3]!.verificationStatus == some .verified) result
+  result ← test "--skip-verify: no atom is marked"
+    (origins false true == #[none, none, none, none, none]) result
+  let marked := (applyTaintStatus atoms pt true true).1[2]!
+  let j := Lean.toJson marked
+  result ← test "status-origin present in JSON when set"
+    (match j.getObjValAs? String "status-origin" with | .ok "kernel-taint" => true | _ => false) result
+  result ← test "status-origin round-trips through JSON"
+    (match Lean.FromJson.fromJson? j (α := UnifiedAtom) with
+     | .ok a => a.statusOrigin == kt | .error _ => false) result
+  let clean := (applyTaintStatus atoms pt true true).1[3]!
+  result ← test "status-origin absent from JSON when none"
+    ((Lean.toJson clean).getObjVal? "status-origin").toOption.isNone result
+  return result
+
+/-- `FromJson UnifiedAtom` reads `status-origin` strictly: a present but invalid
+    value fails the atom instead of decoding to `none`. -/
+def testStatusOriginReader (result : TestResult) : IO TestResult := do
+  let mut result := result
+  let base : UnifiedAtom :=
+    { name := "probe:T.x", displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := none, kind := .theorem,
+      verificationStatus := some .verified }
+  let withOrigin (v : Lean.Json) : Lean.Json := (Lean.toJson base).setObjVal! "status-origin" v
+  let decode (j : Lean.Json) : Except String UnifiedAtom := Lean.FromJson.fromJson? j
+  result ← test "reader: \"kernel-taint\" decodes to kernelTaint"
+    (match decode (withOrigin "kernel-taint") with
+     | .ok a => a.statusOrigin == some .kernelTaint | .error _ => false) result
+  result ← test "reader: absent status-origin decodes to none"
+    (match decode (Lean.toJson base) with
+     | .ok a => a.statusOrigin.isNone | .error _ => false) result
+  result ← test "reader: unknown status-origin string is an error"
+    (match decode (withOrigin "stale") with | .ok _ => false | .error _ => true) result
+  result ← test "reader: non-string status-origin is an error"
+    (match decode (withOrigin (17 : Nat)) with | .ok _ => false | .error _ => true) result
+  result ← test "reader: null status-origin is an error"
+    (match decode (withOrigin .null) with | .ok _ => false | .error _ => true) result
+  return result
+
 def testDivergenceLines (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -5230,6 +5302,8 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testReachabilityScaling result
   result ← testTrustListingFormat result
   result ← testApplyTaintStatus result
+  result ← testStatusOrigin result
+  result ← testStatusOriginReader result
   result ← testDivergenceLines result
   result ← testTaintFormatting result
   result ← testAttributeScan result

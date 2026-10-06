@@ -203,6 +203,9 @@ def statusOf (data : Json) (atom : String) : Option String :=
 def reasonOf (data : Json) (atom : String) : Option String :=
   atomField data atom "trusted-reason" >>= (·.getStr?.toOption)
 
+def originOf (data : Json) (atom : String) : Option String :=
+  atomField data atom "status-origin" >>= (·.getStr?.toOption)
+
 def strArray (data : Json) (atom field : String) : Array String :=
   match atomField data atom field with
   | some j => match j.getArr? with
@@ -255,6 +258,22 @@ def checkRound3 (fs : Failures) (data : Json) (helperHasRange : Bool) : IO Unit 
   -- Executable bodies: kernel dependencies only.
   expect "probe:loopy" "transitively-verified"
   check fs "loopy._unsafe_rec is not an atom" (data.getObjVal? "probe:loopy._unsafe_rec").toOption.isNone
+
+/-- Issue #117 (hub ADR-006): a `verified` that comes from the walk's tainted branch
+    carries `status-origin: "kernel-taint"`. These are exactly the atoms whose path to
+    the `sorry` the emitted graph lacks (`viaNoRange`; `ownSorry` when the obligation
+    sits in `ownSorry._proof_1`), so without the marker a re-enriching consumer would
+    promote them. Direct carriers, clean and trusted atoms carry none. -/
+def checkStatusOrigin (fs : Failures) (data : Json) (ownSorryDirect : Bool) : IO Unit := do
+  check fs "viaNoRange carries status-origin kernel-taint"
+    (originOf data "probe:viaNoRange" == some "kernel-taint")
+  if ownSorryDirect then
+    check fs "ownSorry (direct carrier) carries no status-origin" (originOf data "probe:ownSorry").isNone
+  else
+    check fs "ownSorry carries status-origin kernel-taint"
+      (originOf data "probe:ownSorry" == some "kernel-taint")
+  for atom in ["probe:cleanUse", "probe:sorried_bound", "probe:vouched"] do
+    check fs s!"{atom} carries no status-origin" (originOf data atom).isNone
 
 def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
@@ -322,6 +341,7 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect :
   -- then the direct carrier and never an atom). Never `transitively-verified`.
   expect "probe:ownSorry" (if ownSorryDirect then "unverified" else "verified")
   check fs "ownSorry._proof_1 is not an atom" (data.getObjVal? "probe:ownSorry._proof_1").toOption.isNone
+  checkStatusOrigin fs data ownSorryDirect
   checkRound3 fs data helperHasRange
 
 def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do

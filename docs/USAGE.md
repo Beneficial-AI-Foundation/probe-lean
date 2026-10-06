@@ -87,7 +87,10 @@ boundary (Lean and every dependency package are trusted wholesale) and at the **
 (axioms, the `externally_verified` tag set, non-proofs in `*External` modules); a `sorry` inside
 or below a trusted declaration does not taint its callers. [SCHEMA.md](SCHEMA.md#verification-status-and-the-trusted-base)
 defines the status values and [verification-status.md](verification-status.md) the edge cases.
-The pass prints its totals:
+An atom that reads `"verified"` because a project `sorry` is reachable from it also carries
+`"status-origin": "kernel-taint"`, under `--skip-enrich` too. A tool that recomputes statuses
+from the dependency arrays must not promote such an atom or its callers. The pass prints its
+totals:
 
 ```
 Project constants: 11293 in 231 module(s) | trusted: 150 | direct sorry carriers: 4 | tainted: 112
