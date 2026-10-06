@@ -229,44 +229,56 @@ def constChildrenEmitted (env : Environment) (c : Name) : Array Name :=
   | some ci => constInfoChildrenWith Expr.getUsedConstants ci
   | none    => #[]
 
-/-- Whether `c`'s *type* (its statement) names `sorryAx`. -/
-def typeNamesSorry (env : Environment) (c : Name) : Bool :=
+/-- The out-edges of a trusted constant: the constants of its statement, never of its
+    value. For an inductive, the statement includes its constructors, because their
+    types hold the field types. So a trusted structure whose field type rests on
+    `sorry` is tainted, and so is a raw projection (`x.1`) out of a value of it. A
+    trusted constructor in turn contributes only its own type. -/
+def statementChildren (env : Environment) (c : Name) : Array Name :=
   match env.find? c with
-  | some ci => ci.type.getUsedConstants.contains sorryAxiomName
-  | none => false
+  | some (.inductInfo v) => usedConstants v.type ++ v.ctors.toArray
+  | some ci => usedConstants ci.type
+  | none => #[]
 
 /-- Result of the project-boundary taint walk. -/
 structure TaintResult where
   /-- Project constants that are **not clean modulo T**: `sorryAx` is reachable from
-      them without expanding a non-project or trusted constant. Disjoint from the
-      trusted set by construction (trusted roots are blocked, hence never reach). -/
+      them over the walk's edges. A trusted constant is tainted if its statement
+      reaches `sorryAx`: trust excuses its proof, not its statement. -/
   tainted : Std.HashSet Name
-  /-- Project constants whose own type or value names `sorryAx`, trusted ones
-      included (a trusted direct carrier is the intended human-vouches case). -/
+  /-- Project constants whose walk edges name `sorryAx`. For an untrusted constant
+      these are its type and value, for a trusted one only its statement
+      (`statementChildren`). A vouched lemma (trusted, `sorry` in the proof only) is
+      therefore not a direct carrier. -/
   direct : Std.HashSet Name
-  /-- Trusted constants whose *statement* names `sorryAx`: their meaning is unknown,
-      which the caller reports as a warning. Sorted by name. -/
-  typeTainted : Array Name
 
 /-- The walk `extract` and `check-axioms` share. `roots` is P, the project's
-    constants. Children outside P or in T (`trusted`) are blocked: the trusted-base
-    decision takes them as leaves. `sorryAx` itself lives outside every project, but
-    the walk still recognises it because the target test precedes the blocked test.
+    constants. Children outside P are blocked: dependency packages are trusted
+    wholesale. `sorryAx` itself lives outside every project, but the walk still
+    recognises it because the target test precedes the blocked test.
 
-    `childrenOverride` replaces the environment's out-edges for the names it holds.
-    The caller uses it for a name that several project modules declare (the importer
-    kept one version). The walk then follows the union of every version's
-    dependencies, and the proof that survived cannot steer it clean. -/
+    A trusted root (`trusted`) has its statement as its only out-edges
+    (`statementChildren`). The trusted-base decision excuses its proof but not its
+    statement, so a `sorry` behind the statement still taints it and its callers.
+
+    `childrenOverride` replaces the environment's out-edges for the untrusted names
+    it holds. The caller uses it for a name that several project modules declare
+    (the importer kept one version). The walk then follows the union of every
+    version's dependencies, and the proof that survived cannot steer it clean. A
+    trusted name ignores it: the importer merges versions only if their types are
+    equal, so the kept type is every version's statement. -/
 def projectTaint (env : Environment) (isProject trusted : Name → Bool)
     (roots : Array Name) (childrenOverride : Std.HashMap Name (Array Name) := {})
     : TaintResult :=
-  let blocked (n : Name) : Bool := !isProject n || trusted n
+  let blocked (n : Name) : Bool := !isProject n
   -- `getUsedConstants` over every root's type and value is the dominant cost of
   -- the pass (about a second on dalek), and both the walk and the direct-carrier
   -- test need it, so compute it once. Only unblocked nodes are ever expanded, and
   -- with `roots = P` those are all roots; a non-root falls back to `constChildren`.
   let childrenOf : Std.HashMap Name (Array Name) := roots.foldl (init := {}) fun m r =>
-    m.insert r (childrenOverride.getD r (constChildren env r))
+    if trusted r then m.insert r (statementChildren env r)
+    else
+      m.insert r (childrenOverride.getD r (constChildren env r))
   let children (n : Name) : Array Name :=
     match childrenOf[n]? with
     | some cs => cs
@@ -274,8 +286,6 @@ def projectTaint (env : Environment) (isProject trusted : Name → Bool)
   let tainted := reachingNames children blocked sorryAxiomName roots
   let direct := roots.foldl (init := ({} : Std.HashSet Name)) fun acc r =>
     if (children r).contains sorryAxiomName then acc.insert r else acc
-  let typeTainted := (roots.filter fun r => trusted r && typeNamesSorry env r).qsort
-    fun a b => a.toString < b.toString
-  { tainted, direct, typeTainted }
+  { tainted, direct }
 
 end ProbeLean

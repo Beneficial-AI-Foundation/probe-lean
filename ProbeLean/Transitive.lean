@@ -18,22 +18,24 @@ namespace ProbeLean
 open Lean
 
 /-- The status the taint pass assigns to the constant `n`, with its `trusted-reason`.
-    Per the spec's definitions, the first match wins: `trusted` if in T,
-    `unverified` if a direct carrier, `verified` if an unexcused project `sorry` is
-    reachable, and `transitively-verified` otherwise. `none` for a name outside P: the walk never assessed it,
-    and absence from the analysis is not evidence of verification. -/
+    The first match wins: `unverified` if a direct carrier, `verified` if an
+    unexcused project `sorry` is reachable, `trusted` if in T, and
+    `transitively-verified` otherwise. The walk follows a trusted constant's
+    statement, so a member of T whose statement rests on a `sorry` loses its trust
+    and its `trusted-reason`. `none` for a name outside P: the walk never assessed
+    it, and absence from the analysis is not evidence of verification. -/
 def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVerificationStatus) :=
   if !pt.constants.contains n then none
+  else if pt.taint.direct.contains n then some (none, .unverified)
+  else if pt.taint.tainted.contains n then some (none, .verified)
   else some <| match pt.trust[n]? with
     | some reason => (some reason, .trusted)
-    | none =>
-      if pt.taint.direct.contains n then (none, .unverified)
-      else if pt.taint.tainted.contains n then (none, .verified)
-      else (none, .transitivelyVerified)
+    | none => (none, .transitivelyVerified)
 
 /-- Stamp `verification-status`/`trusted-reason`/`status-origin` on every atom from
     the taint pass, joined on `leanName`. `applyTaint := false` (`--skip-verify`)
-    stamps only the trusted atoms and leaves the rest without a status.
+    stamps only the atoms that read `trusted` and leaves the rest without a status,
+    a member of T whose statement is tainted included.
     `upgrade := false` (`--skip-enrich`) caps clean atoms at `verified`. A tainted
     atom (`verified` from the walk, not from the cap) gets `status-origin:
     "kernel-taint"` in both modes. The emitted graph can lack the path to its

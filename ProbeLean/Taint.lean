@@ -379,7 +379,7 @@ def generatedTrustedAxioms (env : Environment) (consts : Array (Name × Constant
     if trust[n]? == some "axiom" && !isSourceVisible env n ci then some n else none
   axs.qsort fun a b => a.toString < b.toString
 
-/-- The walk over P with T blocked. Merged declarations follow every version's
+/-- The walk over P. A member of T contributes only its statement. Merged declarations follow every version's
     dependencies (`mergedChildrenMap`). These are project/project pairs and the
     cross-boundary names walked from their project versions. Every cross-boundary name
     (`crossNames`) counts as a project constant whatever module the environment
@@ -429,13 +429,6 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
             tagSet, scanOnlyTags, tagOnly, generatedAxioms, dependencyRoots := roots,
             pSize := consts.size, moduleCount },
           attrs)
-
-/-- A trusted declaration whose *statement* names `sorryAx` directly: its meaning is
-    unknown. Blocking still applies. This is a warning, not a status change. Only a
-    literal occurrence is detected. A statement that reaches `sorry` through another
-    project constant (`axiom a : p` with `def p : Prop := sorry`) is not detected. -/
-def formatTypeTaintWarning (n : Name) : String :=
-  s!"Warning: trusted declaration {n} names `sorry` directly in its statement"
 
 /-- Printed when the import of the full project module set fails. The modules left
     out are outside the selection's import closure, so no emitted status rests on
@@ -543,17 +536,20 @@ def formatTrustHeader (n : Nat) : String :=
 
 /-- A `check-axioms` T line: the constant, its `trusted-reason`, the module the
     environment attributes it to and, for a rule-3 entry (`external`), its statement.
-    The type is what a reviewer of a hand-written model has to judge. -/
-def formatTrustedLine (n : Name) (reason : String) (module : Name) (type : Option String) : String :=
-  s!"  {n} [{reason}] {module}" ++ (match type with | some t => s!" : {t}" | none => "")
+    The type is what a reviewer of a hand-written model has to judge.
+    `statementTainted` appends ` [statement tainted]`: the rules trust the constant,
+    but its statement rests on an unexcused project `sorry`, so its atom does not
+    read `trusted`. -/
+def formatTrustedLine (n : Name) (reason : String) (module : Name) (type : Option String)
+    (statementTainted : Bool := false) : String :=
+  s!"  {n} [{reason}] {module}" ++ (match type with | some t => s!" : {t}" | none => "") ++
+    (if statementTainted then " [statement tainted]" else "")
 
-/-- Print the dependency-boundary, type-taint, merged-declaration, cross-boundary,
+/-- Print the dependency-boundary, merged-declaration, cross-boundary,
     realised-theorem, tag-audit and generated-axiom diagnostics to stderr. -/
 def reportTaintWarnings (pt : ProjectTaint) : IO Unit := do
   if !pt.dependencyRoots.isEmpty then
     IO.eprintln (formatDependencyRootsNote pt.dependencyRoots)
-  for n in pt.taint.typeTainted do
-    IO.eprintln (formatTypeTaintWarning n)
   if !pt.merged.isEmpty then
     IO.eprintln (formatMergedWarning pt.merged)
   if !pt.crossWalked.isEmpty then

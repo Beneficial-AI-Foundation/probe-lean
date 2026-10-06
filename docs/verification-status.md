@@ -19,10 +19,23 @@ and includes constants that are never atoms: auxiliaries, constructors, and rang
   boundary once per run on stderr.
 - The trusted base T inside the project, see [The trusted base T in full](#the-trusted-base-t-in-full).
 
-A trusted declaration is a leaf: a `sorry` inside or below it does not taint its callers. If its
-statement names `sorryAx` directly, both commands print
-`Warning: trusted declaration <n> names \`sorry\` directly in its statement`. A statement that
-reaches `sorry` only through another constant is not detected.
+Trust excuses a declaration's proof, not its statement. For a trusted declaration the walk follows
+the constants of its type and not those of its value. For a trusted inductive type or structure, the
+statement also includes its constructors, because their types hold the field types. A `sorry` in its
+proof, or below it, does not taint its callers. A project `sorry` behind its statement does. In the example below, `t` reads
+`"verified"` with `"status-origin": "kernel-taint"`, and so do `a` and `c`:
+
+```lean
+def p : Prop := sorry
+axiom a : p
+axiom c : p → True
+theorem t : True := c a
+```
+
+A trusted declaration whose statement rests on a project `sorry` loses its trust. If its statement
+names `sorryAx` itself, it reads `"unverified"`. Otherwise it reads `"verified"` with
+`"status-origin": "kernel-taint"`. In both cases it has no `trusted-reason`. It stays in T by the
+rules, and the `check-axioms` T listing marks it `[statement tainted]`.
 
 The edges are every constant that a declaration's type and value name, including the structure
 behind a projection node (`x.1`). The walk collects that structure itself on every toolchain.
@@ -186,4 +199,6 @@ or a subtype that carries a sorried proof field. No inhabitedness test is made.
 
 The `check-axioms` listing of T (`N trusted constant(s) (T):`, one
 `<name> [<reason>] <module>[ : <type>]` line each) shows the statement for rule-3 entries. A
-reviewer checks rule-3 models there.
+reviewer checks rule-3 models there. A member of T whose statement rests on a project `sorry` has
+the suffix ` [statement tainted]`. It is also in the tainted list above T, and its atom does not
+read `"trusted"`.

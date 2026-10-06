@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-06
+
+### Changed
+
+- **Trust excuses a declaration's proof, not its statement** (#119). The kernel walk follows the type of a trusted constant and not its value. For a trusted inductive type or structure, it also follows the constructors, so a `sorry` in a field type taints the structure. Before, it did not expand a trusted constant at all. So with `def p : Prop := sorry`, `axiom a : p` and `axiom c : p → True`, `theorem t : True := c a` read `transitively-verified`.
+  - A trusted constant whose statement rests on a project `sorry` reads `verified` with `status-origin: "kernel-taint"`, and its callers read the same. If its statement names `sorry` itself, it reads `unverified`. In both cases it has no `trusted-reason`. Under `--skip-verify` it gets no status.
+  - `check-axioms` lists such a constant in the tainted list and marks its T line ` [statement tainted]`.
+  - A direct carrier is now a constant whose walk edges name `sorryAx`. A vouched lemma (trusted, `sorry` in the proof only) is no longer one. The `direct sorry carriers` count and the `Direct sorry carriers (kernel)` line drop by those lemmas.
+  - The walk no longer reads the value of a trusted constant.
+
 ### Removed
 
 - The `Dockerfile`. probe-lean ships as release binaries only.
+- The ``Warning: trusted declaration <n> names `sorry` directly in its statement`` line. Such a declaration now reads `unverified`.
 
 ## [0.16.0] - 2026-10-06
 

@@ -4,3 +4,4 @@ import Demo.FunsExternal
 import Demo.NoRange
 import Demo.Exec
 import Demo.Kinds
+import Demo.StmtTaint

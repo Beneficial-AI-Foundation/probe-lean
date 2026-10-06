@@ -105,10 +105,10 @@ Lean accepts two modules that restate a theorem with the same name and statement
 
 #### Verification status
 
-A kernel walk over every constant of every built project module decides `verification-status`. The walk does not use the build log or the emitted dependency graph. It stops at the project boundary and at the trusted base (axioms, the `externally_verified` tag set, and non-proofs in `*External` modules). A `sorry` inside or below a trusted declaration does not taint its callers. The walk prints its totals:
+A kernel walk over every constant of every built project module decides `verification-status`. The walk does not use the build log or the emitted dependency graph. It stops at the project boundary. For a member of the trusted base (axioms, the `externally_verified` tag set, and non-proofs in `*External` modules), it follows the statement and not the proof. A `sorry` in the proof of a trusted declaration does not taint its callers. A `sorry` behind its statement does. The walk prints its totals:
 
 ```
-Project constants: 11293 in 231 module(s) | trusted: 150 | direct sorry carriers: 4 | tainted: 112
+Project constants: 11293 in 231 module(s) | trusted: 149 | direct sorry carriers: 3 | tainted: 112
 externally_verified tag set: 2 name(s) from externallyVerifiedAttr
 ```
 
@@ -144,30 +144,32 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 Output on `tests/fixtures/aux-fold` (shortened, the full report has one line per listed constant):
 
 ```
-Project constants: 119 in 8 module(s) | trusted: 9 | direct sorry carriers: 20 | tainted: 26
+Project constants: 126 in 9 module(s) | trusted: 13 | direct sorry carriers: 16 | tainted: 31
 externally_verified tag set: 7 name(s) from externallyVerifiedAttr
-26 constant(s) rest on an unexcused project sorry:
+31 constant(s) rest on an unexcused project sorry:
   admittedFact [direct]
   extThm [direct]
   instReprTagged
   loopy._unsafe_rec [direct] [not emitted]
   noRangeMid [direct] [not emitted]
+  stmtAx
   tacticUse._proof_1 [not emitted]
   viaNoRange
   ...
-9 trusted constant(s) (T):
+13 trusted constant(s) (T):
   Box [externally_verified] Demo.Trust
   externalOp [external] Demo.FunsExternal : Nat
   externalPred [external] Demo.FunsExternal : Prop
+  stmtAx [axiom] Demo.StmtTaint [statement tainted]
   vouched [externally_verified] Demo.Trust
   ...
 ```
 
-`[direct]` means the constant's own type or value names `sorryAx`. `[not emitted]` means the constant is not an atom. The listed atoms are exactly those that `extract` marks `"verified"` or `"unverified"`. No `"transitively-verified"` atom appears here.
+`[direct]` means the constant's own type or value names `sorryAx`. For a trusted constant only its type counts. `[not emitted]` means the constant is not an atom. The listed atoms are exactly those that `extract` marks `"verified"` or `"unverified"`. No `"transitively-verified"` atom appears here.
 
-The trusted base T follows as `<name> [<trusted-reason>] <module>`. A rule-3 (`external`) model also shows its statement. Use this list to review what the "clean modulo T" claim rests on. `extract` shows only the trusted constants that are atoms. Both commands also print a `Note(axiom): ...` line for generated project axioms, such as those from `native_decide`. [verification-status.md](verification-status.md), section "Kernel dependencies, not executable bodies", explains why they stay trusted.
+The trusted base T follows as `<name> [<trusted-reason>] <module>`. A rule-3 (`external`) model also shows its statement. ` [statement tainted]` marks a member of T whose statement rests on a project `sorry`: it is also in the tainted list, and its atom does not read `"trusted"`. Use this list to review what the "clean modulo T" claim rests on. `extract` shows only the trusted constants that are atoms. Both commands also print a `Note(axiom): ...` line for generated project axioms, such as those from `native_decide`. [verification-status.md](verification-status.md), section "Kernel dependencies, not executable bodies", explains why they stay trusted.
 
-The walk is memoized and stops at the project boundary and the trusted base. It takes about a second on a 230-module project that depends on Mathlib. `-m` and `-l` do not make it smaller.
+The walk is memoized and stops at the project boundary and at the proofs of the trusted base. It takes about a second on a 230-module project that depends on Mathlib. `-m` and `-l` do not make it smaller.
 
 ### `viewify`
 
@@ -269,7 +271,7 @@ If its saved build output is newer than every `.lean` file, `lean-toolchain`, `l
 
 ### `--skip-verify`
 
-`--skip-verify` leaves `verification-status` off every atom except trusted ones. The kernel walk still runs and prints its summary, so the flag saves only the build-log cross-check. The flag is for consumers that must not see statuses. It does not make the run faster:
+`--skip-verify` leaves `verification-status` off every atom except the ones that read `"trusted"`. The kernel walk still runs and prints its summary, so the flag saves only the build-log cross-check. The flag is for consumers that must not see statuses. It does not make the run faster:
 
 ```bash
 probe-lean extract ./my-project --skip-verify
