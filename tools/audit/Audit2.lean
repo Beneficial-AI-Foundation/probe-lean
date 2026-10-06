@@ -62,8 +62,8 @@ Stands in for probe-lean's build-warning-based "unverified" root set, and the
 auxiliaries are why: Lean reports `declaration uses 'sorry'` against the *host*,
 so `def h := ⟨3, by sorry⟩` is `unverified` in probe-lean's output even though
 `sorryAx` occurs only under `h._proof_N`. Testing `usedConsts` alone made this
-root set a strict subset of probe-lean's, and an oracle that under-reports roots
-under-reports missed taint — in an audit whose whole subject is edges hidden
+root set a strict subset of probe-lean's. An oracle that under-reports roots
+under-reports missed taint, and the whole subject of this audit is edges hidden
 under auxiliaries.
 
 `auxClosure` stops at non-internal constants, so this stays *local*

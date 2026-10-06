@@ -76,8 +76,8 @@ def parseLeanLibsFromToml (content : String) : Array String := Id.run do
 
 /-- Extract every `srcDir = "..."` value declared under a `[[lean_lib]]` (or
     `[[lean_exe]]`) section of a lakefile.toml string. Package-level `srcDir`
-    keys (outside any `[[...]]` table) are ignored. Used to know where a module's
-    backing source may live when filtering orphan oleans. -/
+    keys (outside any `[[...]]` table) are ignored. The orphan-olean filter uses
+    these values as the places where a module's backing source can live. -/
 def parseSrcDirsFromToml (content : String) : Array String := Id.run do
   let mut result : Array String := #[]
   let mut inTable := false
@@ -97,7 +97,9 @@ def parseSrcDirsFromToml (content : String) : Array String := Id.run do
 /-- Candidate source roots for resolving a module's backing `.lean` file:
     always `"."` plus every `srcDir` declared in lakefile.toml. Deduplicated.
     A `lakefile.lean` (Lean DSL) is not parsed, so its custom `srcDir`s are not
-    discovered — `getProjectModules` stays conservative and reports any drops. -/
+    discovered. With a `lakefile.lean` library that has a custom `srcDir`,
+    `getProjectModules` finds no source for that library's live modules and drops
+    them as orphans. It prints every dropped module. -/
 def getSourceRoots (projectPath : System.FilePath) : IO (Array String) := do
   let tomlPath := projectPath / "lakefile.toml"
   let mut roots : Array String := #["."]
@@ -126,8 +128,8 @@ def parseDefaultTargetsFromToml (content : String) : Array String := Id.run do
   result
 
 /-- Read build targets from a project's lakefile.toml.
-    Prefers `defaultTargets` when present; falls back to all `[[lean_lib]]` names.
-    Returns an empty array if the file doesn't exist or has no targets. -/
+    Prefers `defaultTargets` when present, and falls back to all `[[lean_lib]]` names.
+    Returns an empty array if the file does not exist or has no targets. -/
 def getLeanLibs (projectPath : System.FilePath) : IO (Array String) := do
   let tomlPath := projectPath / "lakefile.toml"
   if ← tomlPath.pathExists then
@@ -205,8 +207,8 @@ def buildViewsOutputPath (projectPath : System.FilePath) : System.FilePath :=
 def isAtomsFileName (name : String) (pkgNamePrefix : String) : Bool :=
   name.startsWith pkgNamePrefix && name.endsWith ".json"
 
-/-- Find the default probes input path. Tries the exact computed path first;
-    if it doesn't exist, searches .verilib/probes/ for a matching file
+/-- Find the default probes input path. Tries the exact computed path first.
+    If it does not exist, searches .verilib/probes/ for a matching file
     (picking the most recently modified one). Emits a warning when falling back.
     Returns `(path, usedFallback)`. -/
 def findDefaultAtomsPath (projectPath : System.FilePath) (source : SourceInfo)

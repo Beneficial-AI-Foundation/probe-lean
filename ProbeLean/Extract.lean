@@ -63,14 +63,14 @@ def unifyAtom (atom : Atom) : UnifiedAtom :=
     codomainLastArgIsBool := atom.codomainLastArgIsBool
   }
 
-/-- A generated atom (lean- or aeneas-generated) is *contaminated* — worth
-    surfacing so users can trace why a downstream atom isn't fully verified —
-    when, after full enrichment, it is locally verified but not transitively
-    verified (`.verified`), or is itself `.unverified`/`.failed`.
+/-- A generated atom (lean- or aeneas-generated) is *contaminated* in two cases.
+    After full enrichment, it is locally verified but not transitively verified
+    (`.verified`). Or it is itself `.unverified`/`.failed`. Such an atom is worth
+    surfacing, so users can trace why a downstream atom is not fully verified.
     `.transitivelyVerified` and `.trusted` generated atoms are clean and stay
-    hidden. Only meaningful after enrichment — the caller skips the unhide
-    pass under `--skip-enrich`, where every proved atom still reads
-    `.verified` and would be misread as contaminated. -/
+    hidden. The test has meaning only after enrichment. The caller skips the
+    unhide pass under `--skip-enrich`, where every proved atom still reads
+    `.verified` and so looks contaminated. -/
 def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
   (atom.isLeanGenerated || atom.isAeneasGenerated) &&
     match atom.verificationStatus with
@@ -78,8 +78,8 @@ def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
     | _ => false
 
 /-- Clear `is-hidden` on contaminated generated atoms so consumers that read
-    `extract` output directly (e.g. the web UI) surface them for tracing; clean
-    (transitively-verified/trusted) generated atoms stay hidden. Note: `viewify`
+    `extract` output directly (for example the web UI) surface them for tracing.
+    Clean (transitively-verified/trusted) generated atoms stay hidden. Note: `viewify`
     (`filterAtomsForView`) drops all generated atoms regardless of `is-hidden`. -/
 def unhideContaminatedGenerated (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
   atoms.map fun atom =>
@@ -94,8 +94,8 @@ def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
 
     Restricts to `libraries` ONLY when they are explicitly provided (via the
     `--library` flag). Auto-detected build targets are deliberately NOT used as a
-    module filter here: `defaultTargets` may name a `lean_exe` and a `lean_lib` may
-    declare custom `roots` that differ from its name, so filtering by them can
+    module filter here. `defaultTargets` can name a `lean_exe`, and a `lean_lib`
+    can declare custom `roots` that differ from its name. Filtering by them can
     silently drop every module. `.lake/build/lib/lean` already contains only the
     project's own modules, so the default is to analyze all of them. A single
     `moduleFilter` (`--module`) further narrows the result by name prefix.
@@ -137,10 +137,10 @@ def ensureMathlibCache (projectPath : System.FilePath)
     IO.println "  ✓ Mathlib cache downloaded"
     IO.println ""
 
-/-- Published atom names occurring more than once. Collisions are only possible
-    among private declarations whose user-facing names coincide across modules
-    (e.g. a top-level `private theorem aux` in two files both publish as
-    `probe:aux`). Reported as a warning; not deduplicated. -/
+/-- Published atom names occurring more than once. Only private declarations can
+    collide, when their user-facing names coincide across modules (for example,
+    a top-level `private theorem aux` in two files both publish as `probe:aux`).
+    Reported as a warning, not deduplicated. -/
 def duplicateAtomNames (atoms : Array Atom) : Array String := Id.run do
   let mut counts : Std.HashMap String Nat := {}
   for a in atoms do
@@ -161,19 +161,19 @@ structure PrimarySpecCollision where
     target name, sorted by target name, candidate names de-duplicated.
 
     Only targets with `primarySpec` set are considered, so this must run on the
-    post-`computeSpecs` array. Derived from the same `specs` / `isPrimarySpec`
-    data the artifact emits, so a warning cannot disagree with the emitted JSON
-    when published names are unique; under duplicate names it follows the
-    pre-serialization array and is the more correct of the two.
+    post-`computeSpecs` array. The records come from the same `specs` /
+    `isPrimarySpec` data the artifact emits. So a warning cannot disagree with
+    the emitted JSON when published names are unique. Under duplicate names it
+    follows the pre-serialization array and is the more correct of the two.
 
     The tagged set is a union over names rather than a `name → Bool` map: with
     duplicate published names, an untagged namesake must not clobber a tagged
     theorem. The `kind == theorem` gate mirrors `attrPrimarySpecMap`. The cost is
     a spurious record when a tagged theorem's published name is shared by an
     untagged namesake that some other target lists: the name counts as tagged for
-    that target too. Only this warning is affected — `attrPrimarySpecMap` keys on
-    each tagged theorem's own `specTargets`, so the emitted `primary-spec` stays
-    correct. Suppressing it would mean masking real candidates instead. -/
+    that target too. Only this warning is affected, because `attrPrimarySpecMap`
+    keys on each tagged theorem's own `specTargets`, so the emitted `primary-spec`
+    stays correct. Suppressing the record means masking real candidates instead. -/
 def ambiguousPrimarySpecs (atoms : Array Atom) : Array PrimarySpecCollision := Id.run do
   let mut tagged : Std.HashSet String := {}
   for a in atoms do
@@ -216,7 +216,7 @@ def warnAmbiguousPrimarySpecs (atoms : Array Atom) : IO Unit := do
 
 /-- What `prepareProject` hands to the pipeline. -/
 structure PreparedProject where
-  /-- Every built project module — P, the taint walk's domain, whatever was selected. -/
+  /-- Every built project module: P, the taint walk's domain, whatever was selected. -/
   allModules : Array ProjectModule
   /-- The `--library`/`--module` selection: which declarations become atoms. -/
   selectedModules : Array ProjectModule
@@ -319,17 +319,17 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
   return .ok { allModules := modules, selectedModules := filteredModules, orphans, nixMode, buildOutput }
 
 /-- Where the build log and the kernel disagree about an atom. The log is matched to
-    atoms by file and line range, so a `sorry` abstracted into an auxiliary
-    (`X._proof_N`) is attributed to `X` by the log while the kernel makes `X` tainted
-    rather than direct — that is agreement, not divergence. Generated atoms share
-    their range with the declaration that produced them (a `.mvcgen_spec` companion
-    with its parent, a derived instance with its type), so the log cannot speak about
-    them and they are skipped. So are trusted atoms: a `sorry` inside one is excused
-    by trust, not missed by the kernel, and when it sits in an auxiliary the host is
-    neither direct nor tainted (it is blocked), so the log's finding is moot rather
-    than a disagreement. Reported: the log flags an atom the kernel finds clean
-    modulo T, or the kernel finds a direct carrier the log never warned about (a
-    module with errors, `warn.sorry` off). -/
+    atoms by file and line range. So the log attributes a `sorry` abstracted into an
+    auxiliary (`X._proof_N`) to `X`, while the kernel makes `X` tainted rather than
+    direct. That is agreement, not divergence. Generated atoms share their range with
+    the declaration that produced them (a `.mvcgen_spec` companion with its parent, a
+    derived instance with its type). The log cannot speak about them, so they are
+    skipped. So are trusted atoms: a `sorry` inside one is excused by trust, not
+    missed by the kernel. When it sits in an auxiliary, the host is neither direct
+    nor tainted (it is blocked). So the log's finding is moot, not a disagreement.
+    Two cases are reported. The log flags an atom the kernel finds clean modulo T.
+    Or the kernel finds a direct carrier the log never warned about (a module with
+    errors, `warn.sorry` off). -/
 def logDivergences (warnings : Array SorryWarning) (atoms : Array Atom) (pt : ProjectTaint)
     : Array String := Id.run do
   let mut out : Array String := #[]
@@ -355,7 +355,7 @@ def logDivergences (warnings : Array SorryWarning) (atoms : Array Atom) (pt : Pr
       out := out.push s!"Divergence(log): {atom.name} kernel says sorry, no warning in the log"
   return out
 
-/-- Step 2. The build log decides nothing — the kernel walk does — but it is parsed
+/-- Step 2. The build log decides nothing (the kernel walk does), but it is parsed
     as before and cross-checked against the walk (`logDivergences`). -/
 private def runVerifyStep (config : ExtractConfig) (buildOutput : String) (atoms : Array Atom)
     (pt : ProjectTaint) : IO Unit := do
@@ -383,9 +383,9 @@ private def runVerifyStep (config : ExtractConfig) (buildOutput : String) (atoms
     for line in logDivergences warnings atoms pt do
       IO.eprintln line
 
-/-- Enrich. The reverse-BFS over the emitted graph no longer decides status; it runs
-    on the oracle's seeds and every atom on which it disagrees with the walk is
-    printed (`divergenceLines`), never reconciled. -/
+/-- Enrich. The reverse-BFS over the emitted graph no longer decides status. It runs
+    on the oracle's seeds. Every atom on which it disagrees with the walk is printed
+    (`divergenceLines`), never reconciled. -/
 private def runEnrichStep (config : ExtractConfig) (oracle : Array UnifiedAtom) : IO Unit := do
   if config.skipEnrich then
     IO.println "Enrichment skipped (--skip-enrich)"

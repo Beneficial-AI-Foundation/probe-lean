@@ -17,10 +17,10 @@ namespace ProbeLean
 
 open Lean
 
-/-- The statements of the rule-3 entries of T, pretty-printed on one line each: a
+/-- The statements of the rule-3 entries of T, pretty-printed on one line each. A
     hand-written model in a `*External` module is trusted once its type is not a
-    proposition, with nothing checked about what that type says, so the type is what
-    a reviewer has to judge. -/
+    proposition. Nothing checks what that type says, so the type is what a reviewer
+    has to judge. -/
 def externalStatements (env : Environment) (names : Array Name) : IO (Std.HashMap Name String) := do
   if names.isEmpty then return {}
   let act : MetaM (Std.HashMap Name String) := do
@@ -37,7 +37,7 @@ def externalStatements (env : Environment) (names : Array Name) : IO (Std.HashMa
 /-- Print the report for a computed pass. `emitted` is the set of constants
     `extract` publishes as atoms (the selected, source-visible declarations). The
     tainted list comes first, then T: every trusted constant with its
-    `trusted-reason` and module, and the statement of each rule-3 entry — the
+    `trusted-reason` and module, and the statement of each rule-3 entry. The
     soundness claim ("clean modulo T") rests on exactly those constants, and
     `extract` shows only the ones that are atoms. -/
 def printTaintReport (env : Environment) (pt : ProjectTaint) (emitted : Std.HashSet Name)

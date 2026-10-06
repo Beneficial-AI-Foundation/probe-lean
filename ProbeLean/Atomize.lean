@@ -1,6 +1,6 @@
 /-
   Atomize: core logic for extracting dependency graph atoms from a Lean environment.
-  Not a CLI command - used by Verify.lean.
+  Not a CLI command - used by Extract.lean.
 -/
 import Lean
 import ProbeLean.Types
@@ -14,7 +14,7 @@ namespace ProbeLean
 open Lean
 
 /-- Read the target project's lean-toolchain file and return its contents (trimmed),
-    or `none` if the file doesn't exist or can't be read. -/
+    or `none` if the file does not exist or cannot be read. -/
 def readToolchain (projectPath : System.FilePath) : IO (Option String) := do
   let path := projectPath / "lean-toolchain"
   if !(← path.pathExists) then return none
@@ -111,16 +111,16 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
     4. Sole-spec inference (exactly one spec)
 
     Only `typeDependencies` are walked, not the union `dependencies`: a theorem
-    specifies what its *statement* is about. A constant a proof merely happens to
-    invoke — a helper lemma, a definition it unfolds — is not something the
-    theorem specifies, and admitting those edges would put a spurious spec on
-    most definitions in the project and defeat primary-spec detection, whose
+    specifies what its *statement* is about. A constant that only the proof uses
+    (a helper lemma, a definition it unfolds) is not something the theorem
+    specifies. Following proof edges puts a spurious spec on most definitions in the
+    project. It also defeats primary-spec detection, because its
     known-attribute and sole-spec signals both require exactly one candidate.
 
-    Fallback for explicit tags: a theorem carrying `@[primary_spec]` whose
+    Fallback for explicit tags: a theorem can carry `@[primary_spec]` while its
     *statement* names no specifiable constant (an abstract statement whose
-    specified function enters only via the proof term) falls back to the union
-    `dependencies` — provided that leaves exactly one candidate — so the
+    specified function enters only through the proof term). Such a theorem falls
+    back to the union `dependencies` if that leaves exactly one candidate, so the
     user's explicit override can still attach. With several candidates the
     tag is ambiguous (it marks the theorem, not a target) and attaches to
     nothing, like an untagged abstract theorem. The `specs` map and the
@@ -329,23 +329,23 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
 
 /-- The project modules an environment actually holds: `all` restricted to
     `loaded` (`env.allImportedModuleNames`). Importing a selection loads every
-    project module in its import closure too, and those must be in P: a constant can
-    only reference constants of its own module's import closure, so with P built this
-    way every emitted atom's whole dependency closure is inside P even when only the
-    selection could be imported. Building P from the selection itself left a
-    transitively loaded sorried module outside P — blocked, hence clean. -/
+    project module in its import closure too, and those must be in P. A constant can
+    only reference constants of its own module's import closure. With P built this
+    way, every emitted atom's whole dependency closure is inside P, even when only the
+    selection imports. Building P from the selection itself left a transitively
+    loaded sorried module outside P, where it was blocked and so read as clean. -/
 def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
     : Array ProjectModule :=
   let set := Std.HashSet.ofArray loaded
   all.filter fun m => set.contains m.name
 
 /-- The orphan modules (oleans discovery dropped for lack of a source,
-    `getProjectModules`) that the import loaded anyway, sorted by name. Discovery
-    dropping a module does not stop `importModules` from loading it when a kept module
-    imports it; such a module is then outside P — blocked, hence trusted like a
-    dependency package — and a `sorry` in it would shield its callers. Non-empty means
-    the extraction must abort (`formatLoadedOrphansError`): the artifact is stale and
-    there is no source to build its atoms from. -/
+    `getProjectModules`) that the import loaded anyway, sorted by name. If a kept
+    module imports a dropped module, `importModules` still loads it. Such a module is
+    then outside P, so it is blocked and trusted like a dependency package, and a
+    `sorry` in it shields its callers. A non-empty result means the extraction must
+    abort (`formatLoadedOrphansError`): the artifact is stale and there is no source
+    to build its atoms from. -/
 def loadedOrphans (orphans loaded : Array Name) : Array Name :=
   let set := Std.HashSet.ofArray loaded
   (orphans.filter set.contains).qsort fun a b => a.toString < b.toString
@@ -357,32 +357,33 @@ def formatLoadedOrphansError (names : Array Name) : String :=
     the project boundary and be trusted. Run `lake clean` in the target project and rebuild."
 
 /-- The error when the fallback import of the selection fails too: the selection's
-    own error first, then the full import's. The readable diagnosis — the preflight's
-    collision list, or `formatProoflessError` for a module missing its split parts —
-    is in the full import's message; the selection's may be Lean's raw form of the
-    same fault (`missing data file` for a part-less module inside the selection's
-    import closure), which alone would not say what to rebuild. -/
+    own error first, then the full import's. The full import's message holds the
+    readable diagnosis: the preflight's collision list, or `formatProoflessError` for
+    a module missing its split parts. The selection's message can be Lean's raw form
+    of the same fault (`missing data file` for a part-less module inside the
+    selection's import closure). That message alone does not say what to rebuild. -/
 def formatFallbackFailure (fullMsg selectedMsg : String) : String :=
   s!"{selectedMsg}\n\nThe import of all project modules had already failed:\n{fullMsg}"
 
-/-- Import the project for the taint walk: **all** built project modules (P must
-    cover the whole project, whatever `--module`/`--library` selected for output),
-    falling back to the selected modules when the full set cannot be imported.
+/-- Import the project for the taint walk. This imports **all** built project modules,
+    because P must cover the whole project, whatever `--module`/`--library` selected
+    for output. If the full set does not import, it falls back to the selected modules.
     Returns the environment and the project modules it holds (`loadedProjectModules`).
 
-    The full import is attempted only when the cheap olean-header preflight passes,
-    so a project that relies on the selection to dodge a collision pays one
-    preflight, not a failed import. The fallback is taken whatever the full import
-    failed on — a preflight collision, an import-time duplicate the preflight cannot
-    see, or an unselected library's stale or part-less oleans (`formatProoflessError`:
-    `--library` builds only the selected libraries, so an unselected one may have
-    stale artifacts) — because the argument that makes it sound does not depend on the
-    fault: the modules left out are exactly those outside the selection's import
-    closure, so no emitted status can depend on them and only the `check-axioms` audit
-    loses them (`formatFallbackWarning`). A fault *inside* the closure fails the
-    selection's import too (`formatFallbackFailure`).
+    The full import runs only when the cheap olean-header preflight passes. A project
+    that relies on the selection to avoid a collision then pays one preflight, not a
+    failed import. The fallback runs whatever the full import failed on: a preflight
+    collision, an import-time duplicate the preflight cannot see, or an unselected
+    library's stale or part-less oleans (`formatProoflessError`). `--library` builds
+    only the selected libraries, so an unselected one can have stale artifacts.
 
-    This is the import without the orphan check; `importProjectEnvWithFallback` adds it. -/
+    The argument that makes the fallback sound does not depend on the fault. The
+    modules left out are exactly those outside the selection's import closure. No
+    emitted status can depend on them, and only the `check-axioms` audit loses them
+    (`formatFallbackWarning`). A fault *inside* the closure fails the selection's
+    import too (`formatFallbackFailure`).
+
+    This is the import without the orphan check. `importProjectEnvWithFallback` adds it. -/
 private def importProjectEnvSelecting (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode)
     : IO (Except String (Environment × Array ProjectModule)) := do
@@ -401,8 +402,8 @@ private def importProjectEnvSelecting (projectPath : System.FilePath)
       return .ok (env, imported)
 
 /-- `importProjectEnvSelecting` (all modules, falling back to the selection), then the
-    orphan check — whichever import succeeded, an orphan module among `orphans` that it
-    loaded (`loadedOrphans`) is fatal, see `formatLoadedOrphansError`. Returns the
+    orphan check. Whichever import succeeded, an orphan module among `orphans` that it
+    loaded (`loadedOrphans`) is fatal (see `formatLoadedOrphansError`). Returns the
     environment and the project modules it holds. -/
 def importProjectEnvWithFallback (projectPath : System.FilePath)
     (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
@@ -448,10 +449,10 @@ private def buildAtoms (env : Environment) (projectPath : System.FilePath)
     atoms := atoms.push atom
   return atoms
 
-/-- Auxiliary-fold accounting. The counters are the performance gate's inputs
-    (node expansions, edges scanned, materialised closure entries, peak cache
-    size); the unresolved report is why `classifyFoldCandidate` consults
-    `env.find?` before any name test — a dependency the environment cannot
+/-- Auxiliary-fold accounting. The counters are the performance gate's inputs:
+    node expansions, edges scanned, materialised closure entries and peak cache
+    size. The unresolved report is why `classifyFoldCandidate` consults
+    `env.find?` before any name test. A dependency the environment cannot
     resolve is a diagnostic, not something to drop by suffix. -/
 private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
   let fold ← auxCache.get

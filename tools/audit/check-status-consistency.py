@@ -3,8 +3,8 @@
 
 Both come from the same kernel walk, so they must agree *exactly* on every emitted
 atom. One-directional checks ("every `unverified` atom is a direct carrier") pass
-vacuously when nothing is `unverified`; this asserts the equivalence in both
-directions:
+vacuously when nothing is `unverified`. This script asserts the equivalence in
+both directions:
 
     emitted, listed `[direct]`          <=>  verification-status == "unverified"
     emitted, listed, not `[direct]`     <=>  verification-status == "verified"
@@ -14,7 +14,7 @@ directions:
 
 An atom without a `verification-status` fails unless `--allow-missing` is given
 (`--skip-verify` runs). `--skip-enrich` artifacts read `verified` where the report
-predicts `transitively-verified`; pass `--no-upgrade` for those. The
+predicts `transitively-verified`. Pass `--no-upgrade` for those. The
 `status-origin` equivalence holds in both modes: the marker distinguishes a tainted
 `verified` from a capped clean one.
 
@@ -23,16 +23,16 @@ Usage:
     tools/audit/check-status-consistency.py ARTIFACT.json check-axioms.out
                                             [--allow-missing] [--no-upgrade]
 
-Names: the artifact prints private declarations through `privateToUserName`; the
-report prints raw `Name`s, so `_private.<module>.0.` prefixes are stripped before
-matching (`user_name`, the same normalisation). A listed name marked emitted that is
-still not an atom after that is a failure like any other: the stripping is exact, so
-there is no residual class of "unresolvable" names, and treating one as such let
-the gate pass while an emitted private atom was missing from the artifact. The
+Names: the artifact prints private declarations through `privateToUserName`, but
+the report prints raw `Name`s. So `_private.<module>.0.` prefixes are stripped
+before matching (`user_name`, the same normalization). A listed name marked emitted
+that is still not an atom after that is a failure like any other. The stripping is
+exact, so there is no residual class of "unresolvable" names. Treating one as such
+let the gate pass while an emitted private atom was missing from the artifact. The
 message says when a prefix was stripped so the raw name can be found in the report.
 
 The report must contain the tainted header, followed by exactly as many lines as
-its count says; otherwise the gate fails.
+its count says. Otherwise the gate fails.
 
 Exit status is 0 only if every equivalence holds.
 """
@@ -61,7 +61,7 @@ TAINTED_LINE = re.compile(r"^(?P<raw>.*?)(?P<direct> \[direct\])?(?P<not_emitted
 
 def parse_report(path):
     """({name: (direct, emitted, raw)}, problems). The map has every listed tainted
-    constant, keyed by the user-facing name; `raw` is the name as the report printed
+    constant, keyed by the user-facing name. `raw` is the name as the report printed
     it, which differs from the key only for a private declaration.
 
     Only the indented lines under the tainted header are read: the report goes on to

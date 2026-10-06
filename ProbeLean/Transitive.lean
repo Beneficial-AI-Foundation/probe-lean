@@ -18,9 +18,9 @@ namespace ProbeLean
 open Lean
 
 /-- The status the taint pass assigns to the constant `n`, with its `trusted-reason`.
-    Per the spec's definitions: `trusted` if in T; else `unverified` if a direct
-    carrier; else `verified` if an unexcused project `sorry` is reachable; else
-    `transitively-verified`. `none` for a name outside P: the walk never assessed it,
+    Per the spec's definitions, the first match wins: `trusted` if in T,
+    `unverified` if a direct carrier, `verified` if an unexcused project `sorry` is
+    reachable, and `transitively-verified` otherwise. `none` for a name outside P: the walk never assessed it,
     and absence from the analysis is not evidence of verification. -/
 def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVerificationStatus) :=
   if !pt.constants.contains n then none
@@ -33,13 +33,13 @@ def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVe
 
 /-- Stamp `verification-status`/`trusted-reason`/`status-origin` on every atom from
     the taint pass, joined on `leanName`. `applyTaint := false` (`--skip-verify`)
-    stamps only the trusted atoms and leaves the rest without a status;
+    stamps only the trusted atoms and leaves the rest without a status.
     `upgrade := false` (`--skip-enrich`) caps clean atoms at `verified`. A tainted
     atom (`verified` from the walk, not from the cap) gets `status-origin:
-    "kernel-taint"` in both modes: the emitted graph can lack the path to its
-    `sorry`, and the marker stops a consumer from promoting it or its callers. Atoms whose name is not in P
-    get no status at all and are returned by name so the caller can warn
-    (`formatUnknownAtomWarning`). -/
+    "kernel-taint"` in both modes. The emitted graph can lack the path to its
+    `sorry`, and the marker stops a consumer from promoting it or its callers.
+    Atoms whose name is not in P get no status at all. They are returned by name
+    so the caller can warn (`formatUnknownAtomWarning`). -/
 def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
     (applyTaint upgrade : Bool) : Array UnifiedAtom × Array String := Id.run do
   let mut out : Array UnifiedAtom := Array.mkEmpty atoms.size
@@ -72,7 +72,7 @@ def demoteTransitive (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
 /-- Where the graph-BFS and the walk disagree, one line per atom. `oracle` and
     `graph` are index-aligned (the same atom array, stamped two ways). Only the
     `verified`/`transitively-verified` pair can differ: seeds and trusted atoms are
-    identical inputs to both. Never reconciled — printed as a bug signal. -/
+    identical inputs to both. Never reconciled: printed as a bug signal. -/
 def divergenceLines (oracle graph : Array UnifiedAtom) : Array String := Id.run do
   let mut out : Array String := #[]
   for i in [:oracle.size] do
@@ -113,7 +113,7 @@ def isTypeDefinition (kind : DeclKind) : Bool :=
   | _ => false
 
 /-- The parent path segment of a dotted code-name: everything before the final
-    `.` (e.g. `probe:spqr.Error.StateDecode` → `probe:spqr.Error`). `none` when
+    `.` (for example `probe:spqr.Error.StateDecode` → `probe:spqr.Error`). `none` when
     the name has no `.` separator. -/
 def parentName (dep : String) : Option String :=
   let parts := dep.splitOn "."
@@ -123,11 +123,11 @@ def parentName (dep : String) : Option String :=
 /-- Partition missing-dependency names into genuine orphans vs. benign
     references to members of an extracted type. A dep `Foo.Bar` is a benign
     "type member" when `Foo` names an extracted `inductive`/`structure`/`class`
-    atom: its constructors/fields/projections are not emitted as their own
-    atoms, carry no verification status, and treating them as trusted is
-    correct — so they should not be surfaced. Everything else (a reference whose
-    parent is absent, or whose parent is a `def`/`theorem`/etc.) is a genuine
-    orphan worth reporting.
+    atom. Its constructors/fields/projections are not emitted as their own
+    atoms and carry no verification status. Treating them as trusted is
+    correct, so they are not surfaced. Everything else (a reference whose
+    parent is absent, or whose parent is a `def`, `theorem` or other non-type) is
+    a genuine orphan worth reporting.
 
     Returns `(orphans, typeMemberCount)`. `orphans` preserves the sorted,
     deduplicated order of `missingDeps` (P14). -/
@@ -153,10 +153,10 @@ def partitionMissingDeps (atoms : Array UnifiedAtom) (missingDeps : Array String
 /-- Enrich verification status through the dependency graph using
     reverse-BFS contamination.
 
-    For each verified atom, determines whether it is **transitively verified**
-    (all transitive dependencies are verified or trusted) or only
-    **locally verified** (the atom itself is verified but at least one
-    transitive dependency is not).
+    For each verified atom, determines whether it is **transitively verified** or
+    only **locally verified**. Transitively verified: all transitive dependencies
+    are verified or trusted. Locally verified: the atom itself is verified, but at
+    least one transitive dependency is not.
 
     Returns `(enrichedAtoms, transitiveCount, localCount, missingDeps)`.
     `missingDeps` lists dependency names not found in the atom map

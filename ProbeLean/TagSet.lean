@@ -54,7 +54,7 @@ private def natLiteral? (e : Expr) : Option Nat :=
     | .const ``OfNat.ofNat _, #[_, .lit (.natVal n), _] => some n
     | _, _ => none
 
-/-- A `String` literal, `.lit (.strVal s)`; an interpolation or any computed string is
+/-- A `String` literal, `.lit (.strVal s)`. An interpolation or any computed string is
     `none`. -/
 private def strLiteral? (e : Expr) : Option String :=
   match e.consumeMData with
@@ -69,7 +69,7 @@ private def mkStrN : Array Name :=
 /-- A `Name` literal as the elaborator emits it for `` `foo.bar `` or `decl_name%`:
     `Name.anonymous`, `Name.mkStr1 … mkStr8` over string literals, `Name.mkSimple`, or
     nested `Name.str`/`Name.mkStr` and `Name.num`/`Name.mkNum` applications. Anything
-    else — a computed name — is `none`. -/
+    else (a computed name) is `none`. -/
 partial def nameLiteral? (e : Expr) : Option Name :=
   let e := e.consumeMData
   match e.getAppFn with
@@ -126,9 +126,9 @@ def tagAttributeOf? (env : Environment) (x : Name) : Option (Name × Name) := do
 /-- The entries a `TagAttribute` exports are its tagged names: `registerTagAttribute`
     builds a `PersistentEnvExtension Name Name NameSet` whose `exportEntriesFn`
     returns an `Array Name`, stored in the olean as opaque `EnvExtensionEntry`s. The
-    cast is justified only after `tagAttributeOf?` has confirmed that the extension's
-    name is a `TagAttribute` constant registered under that very name — the caller's
-    responsibility (`externallyVerifiedTagSet`). -/
+    cast is justified only after `tagAttributeOf?` confirms that the extension's
+    name is a `TagAttribute` constant registered under that very name. That check
+    is the caller's responsibility (`externallyVerifiedTagSet`). -/
 unsafe def tagEntriesUnsafe (es : Array EnvExtensionEntry) : Array Name := unsafeCast es
 
 @[implemented_by tagEntriesUnsafe]
@@ -155,7 +155,7 @@ structure TagSet where
 
 /-- The `externally_verified` tag set over the project modules (`pFilter`), read from
     `ModuleData.entries`. Only extensions that have entries in a project module are
-    examined, and each extension name is classified once, so the cost is a handful of
+    examined, and each extension name is classified once. The cost is a handful of
     `env.find?` calls per run. A tag can only sit in the module that declares the
     constant (`throwAttrDeclInImportedModule`), so project modules are the whole
     story for project constants. -/

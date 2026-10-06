@@ -66,7 +66,7 @@ def valueOf : ConstantInfo → Option Expr
   | _             => none
 
 /-- `constChildren`: type constants ++ value constants (++ constructors, for an
-inductive — never reached, since inductives are not foldable). -/
+inductive. That case is never reached, because inductives are not foldable). -/
 def children (env : Environment) (c : Name) : Array Name :=
   match env.find? c with
   | some (.axiomInfo v)  => v.type.getUsedConstants
