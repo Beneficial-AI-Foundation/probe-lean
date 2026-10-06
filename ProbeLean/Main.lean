@@ -54,10 +54,10 @@ def extractCmd : Cmd := `[Cli|
   FLAGS:
     o, output : String; "Output file path (default: .verilib/probes/lean_<pkg>_<ver>.json)"
     m, module : String; "Filter to specific module prefix"
-    "skip-verify"; "Skip the sorry detection step"
-    "from-file" : String; "Use existing build output for sorry detection instead of running lake"
+    "skip-verify"; "Omit verification-status (trusted atoms keep it)"
+    "from-file" : String; "Use existing build output for the build-log cross-check instead of the captured lake build output"
     l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
-    "skip-enrich"; "Skip transitive verification enrichment"
+    "skip-enrich"; "No upgrade to transitively-verified (clean atoms read verified); skip the graph cross-check"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to analyze"
