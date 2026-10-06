@@ -1,0 +1,12 @@
+name = "modcoll"
+defaultTargets = ["ModColl"]
+
+# The `collision` fixture under the module system. No root `ModColl.lean`:
+# `ModColl.A` and `ModColl.B` both export `public def dup`, so the full project cannot
+# be co-imported and `extract --module ModColl.Main` falls back to the selection. The
+# fallback preflights the same module-system modules three times in one process (all,
+# then the selection, then the imported set), which segfaulted while the split olean
+# parts were read with separate `readModuleData` calls.
+[[lean_lib]]
+name = "ModColl"
+globs = ["ModColl.+"]

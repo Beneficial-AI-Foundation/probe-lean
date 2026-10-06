@@ -1,13 +1,92 @@
 /-
-  Transitive verification enrichment via reverse-BFS contamination.
-  Ports the algorithm from probe's propagate.rs to Lean.
+  `verification-status` from the kernel taint pass, plus the graph-BFS it replaced.
+
+  `applyTaintStatus` stamps every atom from `ProjectTaint` (see `Taint`). The
+  reverse-BFS contamination (`enrichTransitiveVerification`, ported from probe's
+  propagate.rs) is kept but no longer decides anything: `extract` runs it over the
+  emitted graph and prints every atom on which it disagrees with the walk
+  (`divergenceLines`) — a disagreement localises a node or edge the emitted graph is
+  missing, which is exactly the signal that was absent when Lean 4.30 emptied the
+  proof edges.
 -/
 import Lean
 import ProbeLean.Types
+import ProbeLean.Taint
 
 namespace ProbeLean
 
 open Lean
+
+/-- The status the taint pass assigns to the constant `n`, with its `trusted-reason`.
+    Per the spec's definitions: `trusted` if in T; else `unverified` if a direct
+    carrier; else `verified` if an unexcused project `sorry` is reachable; else
+    `transitively-verified`. `none` for a name outside P: the walk never assessed it,
+    and absence from the analysis is not evidence of verification. -/
+def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVerificationStatus) :=
+  if !pt.constants.contains n then none
+  else some <| match pt.trust[n]? with
+    | some reason => (some reason, .trusted)
+    | none =>
+      if pt.taint.direct.contains n then (none, .unverified)
+      else if pt.taint.tainted.contains n then (none, .verified)
+      else (none, .transitivelyVerified)
+
+/-- Stamp `verification-status`/`trusted-reason` on every atom from the taint pass,
+    joined on `leanName`. `applyTaint := false` (`--skip-verify`) stamps only the
+    trusted atoms and leaves the rest without a status; `upgrade := false`
+    (`--skip-enrich`) caps clean atoms at `verified`. Atoms whose name is not in P
+    get no status at all and are returned by name so the caller can warn
+    (`formatUnknownAtomWarning`). -/
+def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
+    (applyTaint upgrade : Bool) : Array UnifiedAtom × Array String := Id.run do
+  let mut out : Array UnifiedAtom := Array.mkEmpty atoms.size
+  let mut unknown : Array String := #[]
+  for a in atoms do
+    match taintVerdict pt a.leanName with
+    | none =>
+      unknown := unknown.push a.name
+      out := out.push { a with verificationStatus := none, trustedReason := none }
+    | some (reason, .trusted) =>
+      out := out.push { a with verificationStatus := some .trusted, trustedReason := reason }
+    | some (_, status) =>
+      if !applyTaint then
+        out := out.push { a with verificationStatus := none, trustedReason := none }
+      else
+        let status := if status == .transitivelyVerified && !upgrade then .verified else status
+        out := out.push { a with verificationStatus := some status, trustedReason := none }
+  return (out, unknown)
+
+/-- The graph-BFS input: the oracle's statuses with the upgrade undone, so the BFS
+    re-derives `transitively-verified` from the emitted edges alone. -/
+def demoteTransitive (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
+  atoms.map fun a =>
+    if a.verificationStatus == some .transitivelyVerified
+    then { a with verificationStatus := some .verified } else a
+
+/-- Where the graph-BFS and the walk disagree, one line per atom. `oracle` and
+    `graph` are index-aligned (the same atom array, stamped two ways). Only the
+    `verified`/`transitively-verified` pair can differ: seeds and trusted atoms are
+    identical inputs to both. Never reconciled — printed as a bug signal. -/
+def divergenceLines (oracle graph : Array UnifiedAtom) : Array String := Id.run do
+  let mut out : Array String := #[]
+  for i in [:oracle.size] do
+    let o := oracle[i]!
+    let some g := graph[i]? | break
+    match o.verificationStatus, g.verificationStatus with
+    | some .transitivelyVerified, some .verified =>
+      out := out.push s!"Divergence(graph): {o.name} graph says tainted, oracle says clean"
+    | some .verified, some .transitivelyVerified =>
+      out := out.push s!"Divergence(graph): {o.name} graph says clean, oracle says tainted"
+    | _, _ => pure ()
+  return out
+
+/-- `(transitivelyVerified, locallyVerified, other)` over the final statuses. -/
+def statusCounts (atoms : Array UnifiedAtom) : Nat × Nat × Nat :=
+  atoms.foldl (init := (0, 0, 0)) fun (t, l, o) a =>
+    match a.verificationStatus with
+    | some .transitivelyVerified => (t + 1, l, o)
+    | some .verified => (t, l + 1, o)
+    | _ => (t, l, o + 1)
 
 private def isVerified (status : Option WebVerificationStatus) : Bool :=
   match status with

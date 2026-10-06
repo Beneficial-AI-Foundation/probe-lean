@@ -144,6 +144,9 @@ def atomField (data : Json) (atom field : String) : Option Json :=
 def statusOf (data : Json) (atom : String) : Option String :=
   atomField data atom "verification-status" >>= (·.getStr?.toOption)
 
+def kindOf (data : Json) (atom : String) : Option String :=
+  atomField data atom "kind" >>= (·.getStr?.toOption)
+
 def depsOf (data : Json) (atom field : String) : Array String :=
   match atomField data atom field with
   | some j => match j.getArr? with
@@ -184,6 +187,11 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
     (statusOf data "probe:cleanUse" == some "transitively-verified")
   check fs "sorried_bound is unverified"
     (statusOf data "probe:sorried_bound" == some "unverified")
+  -- `kind` from imported extension entries (issue #111, `Demo/Kinds.lean`).
+  for (atom, kind) in [("probe:Foo", "class"), ("probe:fooNat", "instance"),
+      ("probe:instFooBool", "instance"), ("probe:instLike", "def"),
+      ("probe:fooUnit", "instance")] do
+    check fs s!"{atom} has kind {kind}" (kindOf data atom == some kind)
   -- NOTE: the *type*-position fold (an auxiliary named in a statement, whose
   -- reach must be routed to `term-dependencies` rather than
   -- `type-dependencies`) is deliberately not asserted here. It needs a project

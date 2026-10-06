@@ -1,0 +1,9 @@
+name = "coll"
+defaultTargets = ["Coll"]
+
+# No root `Coll.lean`: `Coll.A` and `Coll.B` both declare `dup`, so a module that
+# imported both would not build. Each module builds on its own; only co-importing
+# the whole set (what `extract` tries first) collides.
+[[lean_lib]]
+name = "Coll"
+globs = ["Coll.+"]

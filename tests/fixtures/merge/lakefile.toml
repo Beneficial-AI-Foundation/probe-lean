@@ -1,0 +1,10 @@
+name = "merge"
+defaultTargets = ["Merge"]
+
+# No root `Merge.lean`: `Merge.Bad` and `Merge.Good` both declare `theorem shared :
+# True`, with the same statement. Lean's importer tolerates that pair (it keeps one
+# proof without comparing bodies), so — unlike tests/fixtures/collision — the whole
+# set co-imports and `extract` never falls back. Each module builds on its own.
+[[lean_lib]]
+name = "Merge"
+globs = ["Merge.+"]

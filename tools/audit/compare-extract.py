@@ -34,7 +34,13 @@ limits worth knowing when reading its output:
 Usage:
 
     tools/audit/compare-extract.py BEFORE.json AFTER.json [--oracle oracle.tsv]
-                                   [--report N]
+                                   [--report N] [--status-policy fold|taint]
+                                   [--exec-hosts NAME,...]
+
+`--status-policy taint` is the 0.14 -> 0.15 comparison (status from the kernel
+walk). `--exec-hosts` names the `partial def` / `@[implemented_by]` hosts whose
+0.14 `unverified` came from a `sorry` in an executable body the kernel constant does
+not reference; see the option help for which moves that excuses.
 
 Exit status is 0 only if every invariant holds.
 """
@@ -75,7 +81,35 @@ def main():
     ap.add_argument("--oracle", help="TSV from tools/audit/Audit6.lean")
     ap.add_argument("--report", type=int, default=10,
                     help="how many example violations to print per check")
+    ap.add_argument("--status-policy", choices=("fold", "taint"), default="fold",
+                    help="which verification-status moves are legitimate: `fold` "
+                         "(default) allows only transitively-verified -> verified, "
+                         "the one move adding edges can cause; `taint` is for the "
+                         "0.14 -> 0.15 comparison, where status comes from the "
+                         "kernel walk: it additionally allows trusted -> "
+                         "transitively-verified (generated companions no longer "
+                         "inherit their parent's tag) and unverified -> verified "
+                         "(0.14 attributed a `sorry` to the atom whose source range "
+                         "held it; 0.15 attributes it to the kernel constant that "
+                         "names sorryAx, and on Lean <= 4.28 a def's sorried proof "
+                         "obligation is abstracted into X._proof_N, so X reads "
+                         "verified with the auxiliary as the direct carrier), and "
+                         "reports every move by kind")
+    ap.add_argument("--exec-hosts", default="",
+                    help="comma-separated atom names (without `probe:`) whose 0.14 "
+                         "status came from a `sorry` in an executable body the kernel "
+                         "constant does not reference: a `partial def` (the sorry is "
+                         "in X._unsafe_rec, see `Note(log)` on extract's stderr and "
+                         "`X._unsafe_rec [direct] [not emitted]` in check-axioms) or "
+                         "an @[implemented_by] host. Under `taint` these may move "
+                         "unverified -> transitively-verified, and an atom whose old "
+                         "`dependencies` reached one of them (what the 0.14 BFS "
+                         "tainted) may move verified -> transitively-verified. Any "
+                         "other atom making either move still fails")
     args = ap.parse_args()
+    exec_hosts = {h.strip() for h in args.exec_hosts.split(",") if h.strip()}
+    if exec_hosts and args.status_policy != "taint":
+        ap.error("--exec-hosts only applies under --status-policy taint")
 
     before, after = load(args.before), load(args.after)
     failures = []
@@ -231,20 +265,77 @@ def main():
                      if deg_before.get(name, 0) == 0 and deg_after.get(name, 0) > 0)
     notes.append(f"in-degree 0 -> >0: {len(rescued)}")
 
-    # Status changes: the fold can only ever *add* edges, so the only legitimate
-    # move is a downgrade away from `transitively-verified`.
+    # Status changes. Under the `fold` policy the fold can only ever *add* edges,
+    # so the only legitimate move is a downgrade away from `transitively-verified`.
+    # Under `taint` (the kernel-walk comparison) a `trusted` companion may also
+    # rise to `transitively-verified`, and an atom the build log called
+    # `unverified` may read `verified` when its `sorry` sits in an abstracted
+    # `X._proof_N` (Lean <= 4.28); every move is counted by kind so the golden
+    # numbers can be checked against the expected delta.
+    #
+    # The one clean-ward move 0.14 -> 0.15 can legitimately make is through an
+    # executable body: the build log attributed a `partial def`'s or an
+    # `@[implemented_by]` host's `sorry` to the host (`unverified`) and the BFS
+    # tainted its callers (`verified`), while the kernel constant has no edge to
+    # that body, so 0.15 reads both clean. That is also exactly the move an
+    # unsound walk would produce, so it is not allowed wholesale: the hosts are
+    # named with `--exec-hosts`, and a caller qualifies only if its *old*
+    # `dependencies` reached a named host, the same closure the 0.14 BFS used.
+    allowed = {("transitively-verified", "verified")}
+    if args.status_policy == "taint":
+        allowed.add(("trusted", "transitively-verified"))
+        allowed.add(("unverified", "verified"))
+    exec_keys = {PREFIX + h for h in exec_hosts}
+    unknown_hosts = sorted(h for h in exec_keys if h not in before)
+    fail("--exec-hosts names an atom the BEFORE artifact does not have",
+         [strip(h) for h in unknown_hosts])
+    reached_host = set()
+    if exec_keys:
+        rdeps = defaultdict(set)   # target -> atoms whose old `dependencies` name it
+        for name in before:
+            for dep in deps(before[name], "dependencies"):
+                rdeps[dep].add(name)
+        stack = list(exec_keys & set(before))
+        while stack:
+            cur = stack.pop()
+            for caller in rdeps.get(cur, ()):
+                if caller not in reached_host and caller not in exec_keys:
+                    reached_host.add(caller)
+                    stack.append(caller)
     bad_status = []
-    downgrades = 0
+    moves = Counter()
+    exec_moves = Counter()
     for name in common:
         b, a = before[name].get("verification-status"), after[name].get("verification-status")
         if b == a:
             continue
-        if b == "transitively-verified" and a == "verified":
-            downgrades += 1
-        else:
-            bad_status.append(f"{name}: {b} -> {a}")
-    notes.append(f"transitively-verified -> verified: {downgrades}")
-    fail("verification-status moved in a direction the fold cannot cause", bad_status)
+        moves[(b, a)] += 1
+        if (b, a) in allowed:
+            continue
+        if a == "transitively-verified" and (
+                (b == "unverified" and name in exec_keys) or
+                (b == "verified" and name in reached_host)):
+            exec_moves[(b, a)] += 1
+            continue
+        bad_status.append(f"{name}: {b} -> {a}")
+    if exec_keys:
+        notes.append(f"--exec-hosts: {len(exec_keys)} host(s), {len(reached_host)} atom(s) "
+                     f"reached one in the old graph; excused moves: "
+                     + (", ".join(f"{b} -> {a}: {n}" for (b, a), n in sorted(exec_moves.items()))
+                        or "none"))
+    for (b, a), n in sorted(moves.items(), key=lambda kv: str(kv[0])):
+        notes.append(f"{b} -> {a}: {n}")
+    if not moves:
+        notes.append("verification-status: no moves")
+    fail(f"verification-status moved in a direction the `{args.status_policy}` policy forbids",
+         bad_status)
+    if args.status_policy == "taint":
+        attr_changes = [f"{name}: {deps(before[name], 'attributes')} -> {deps(after[name], 'attributes')}"
+                        for name in common
+                        if deps(before[name], "attributes") != deps(after[name], "attributes")]
+        notes.append(f"attributes changed: {len(attr_changes)}")
+        for line in attr_changes[:args.report]:
+            notes.append(f"  {line}")
 
     # --- specs / primary-spec blast radius ----------------------------------
     # Not an invariant: `computeSpecs`' `@[primary_spec]` fallback walks the
