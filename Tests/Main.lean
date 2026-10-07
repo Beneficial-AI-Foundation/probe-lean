@@ -5284,8 +5284,8 @@ def testProjectTaintEnv (result : TestResult) : IO TestResult := do
     result ← test name ok result
   return result
 
-/-- First half of the suite. `main` is split in two so neither `do` block grows
-    past the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
+/-- Part A of the suite. `main` calls four suites so no `do` block grows past
+    the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
     depth"): the single 80-bind chain hit `maxRecDepth`. -/
 def runSuiteA (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -5308,6 +5308,11 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testUnifiedAtomJson result
   result ← testCodomainFacts result
   result ← testViewHelpers result
+  return result
+
+/-- Part B of the suite (see `runSuiteA`). -/
+def runSuiteB (result : TestResult) : IO TestResult := do
+  let mut result := result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result
   result ← testEnvelopeAwareLoading result
@@ -5329,8 +5334,8 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testDeterminismInvariants result
   return result
 
-/-- Second half of the suite (see `runSuiteA`). -/
-def runSuiteB (result : TestResult) : IO TestResult := do
+/-- Part C of the suite (see `runSuiteA`). -/
+def runSuiteC (result : TestResult) : IO TestResult := do
   let mut result := result
   result ← testReadToolchain result
   result ← testToolchainVersionParsing result
@@ -5359,6 +5364,11 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testDerivedInstanceClusterNames result
   result ← testGeneratedCompanionTheoremNames result
   result ← testDropRegression result
+  return result
+
+/-- Part D of the suite (see `runSuiteA`). -/
+def runSuiteD (result : TestResult) : IO TestResult := do
+  let mut result := result
   result ← testGeneratedFieldRoundTrip result
   result ← testConditionalHiding result
   result ← testViewFilterOmitsGenerated result
@@ -5393,6 +5403,8 @@ def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
   result ← runSuiteB result
+  result ← runSuiteC result
+  result ← runSuiteD result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
