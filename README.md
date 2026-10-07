@@ -86,7 +86,7 @@ For all flags and examples, see [docs/usage.md](docs/usage.md), section "Command
 3. Atomize: import the modules into one environment and convert each declaration to an atom with type and term dependencies. Edges through auxiliary constants such as `X._proof_N` are folded into the caller. See [docs/schema.md](docs/schema.md), section "Auxiliary-dependency folding".
 4. Filter: apply the flags from `.verilib/probes/config.json` and mark generated code as hidden. See [docs/schema.md](docs/schema.md).
 5. Specs: compute `specs` and `primary-spec` for each atom from the `type-dependencies` of theorems. See [docs/schema.md](docs/schema.md).
-6. Status: a kernel walk decides `verification-status`. Direct `sorry` carriers read `"unverified"`. An atom that rests on an unexcused `sorry` below it reads `"verified"` with `"status-origin": "kernel-taint"`. Clean atoms read `"transitively-verified"`, or `"verified"` with no marker under `--skip-enrich`. Axioms and externally verified declarations read `"trusted"`. See [docs/verification-status.md](docs/verification-status.md).
+6. Status: a kernel walk decides `verification-status`. Direct `sorry` carriers read `"unverified"`. An atom that rests on an unexcused `sorry` below it reads `"verified"` with `"status-origin": "kernel-taint"`. Clean atoms read `"transitively-verified"`, or `"verified"` with no marker under `--skip-enrich`. Axioms and externally verified declarations read `"trusted"`, unless their statement rests on a project `sorry`. See [docs/verification-status.md](docs/verification-status.md).
 7. Write: wrap the atoms in the Schema 3.0 envelope with the git commit, package information and a timestamp.
 
 ## Documentation

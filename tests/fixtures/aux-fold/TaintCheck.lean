@@ -43,6 +43,12 @@
   emitted]`); Lean ≥ 4.29 keeps the `sorry` inline (`unverified`, no divergence). The
   precondition reads which shape the toolchain produced and the output half asserts the
   matching one; on both it is tainted and never `transitively-verified`.
+  Statement taint (#119, 2026-10-06): `Demo.StmtTaint`. Trust excuses a proof, not a
+  statement. The trusted axioms whose statement rests on `stmtP := sorry` lose their
+  trust (`verified` with `kernel-taint`, or `unverified` for a literal `sorry`), and so
+  does a caller that reaches the `sorry` only through them. They add 5 tainted
+  constants and 4 members of T. `check-axioms` marks the 3 demoted ones
+  `[statement tainted]`.
 -/
 import Lean
 import Demo
@@ -275,6 +281,22 @@ def checkStatusOrigin (fs : Failures) (data : Json) (ownSorryDirect : Bool) : IO
   for atom in ["probe:cleanUse", "probe:sorried_bound", "probe:vouched"] do
     check fs s!"{atom} carries no status-origin" (originOf data atom).isNone
 
+/-- Statement taint (#119): demoted trusted axioms, their caller, and the controls. -/
+def checkStmtTaint (fs : Failures) (data : Json) : IO Unit := do
+  let expect (atom status : String) : IO Unit :=
+    check fs s!"{atom} is {status}" (statusOf data atom == some status)
+  expect "probe:stmtP" "unverified"
+  expect "probe:stmtLit" "unverified"
+  for atom in ["probe:stmtAx", "probe:stmtUse", "probe:stmtCaller"] do
+    check fs s!"{atom} is verified with status-origin kernel-taint"
+      (statusOf data atom == some "verified" && originOf data atom == some "kernel-taint")
+  for atom in ["probe:stmtAx", "probe:stmtUse", "probe:stmtLit"] do
+    check fs s!"{atom} (statement tainted) has no trusted-reason" (reasonOf data atom).isNone
+  check fs "stmtLit (direct) carries no status-origin" (originOf data "probe:stmtLit").isNone
+  expect "probe:stmtClean" "trusted"
+  check fs "stmtClean trusted-reason is axiom" (reasonOf data "probe:stmtClean" == some "axiom")
+  expect "probe:viaStmtClean" "transitively-verified"
+
 def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
   IO.println "Extract output: statuses under the trusted base"
@@ -342,6 +364,7 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect :
   expect "probe:ownSorry" (if ownSorryDirect then "unverified" else "verified")
   check fs "ownSorry._proof_1 is not an atom" (data.getObjVal? "probe:ownSorry._proof_1").toOption.isNone
   checkStatusOrigin fs data ownSorryDirect
+  checkStmtTaint fs data
   checkRound3 fs data helperHasRange
 
 def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
@@ -406,6 +429,21 @@ def sectionUnder (lines : Array String) (header : String → Bool) : Array Strin
     else if inside then out := out.push l
   return out
 
+/-- Statement taint (#119) in the `check-axioms` report: the demoted members of T are
+    in the tainted list and keep their T line with the ` [statement tainted]` suffix. -/
+def checkStmtTaintReport (fs : Failures) (lines trusted : Array String) : IO Unit := do
+  check fs "statement taint: the tainted list has stmtP and stmtLit as direct, the rest plain"
+    (lines.contains "  stmtP [direct]" && lines.contains "  stmtLit [direct]" &&
+     lines.contains "  stmtAx" && lines.contains "  stmtUse" && lines.contains "  stmtCaller")
+  check fs "statement taint: the clean-statement axiom and its caller are not listed"
+    (!lines.any fun l => l.startsWith "  stmtClean" || l.startsWith "  viaStmtClean")
+  check fs "statement taint: the demoted T entries carry the suffix"
+    (trusted.contains "  stmtAx [axiom] Demo.StmtTaint [statement tainted]" &&
+     trusted.contains "  stmtUse [axiom] Demo.StmtTaint [statement tainted]" &&
+     trusted.contains "  stmtLit [axiom] Demo.StmtTaint [statement tainted]")
+  check fs "statement taint: the clean-statement axiom has no suffix"
+    (trusted.contains "  stmtClean [axiom] Demo.StmtTaint")
+
 def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
   IO.println s!"check-axioms report ({path}): the same tainted set, non-atoms marked"
@@ -446,7 +484,8 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
     (if ownSorryDirect then has "  ownSorry [direct]" && !has "  ownSorry._proof_1 [direct] [not emitted]"
      else has "  ownSorry" && has "  ownSorry._proof_1 [direct] [not emitted]")
   -- 24 constants before `ownSorry`; it adds itself, plus its auxiliary when abstracted.
-  let expectedTainted := 24 + (if ownSorryDirect then 1 else 2)
+  -- `Demo.StmtTaint` adds 5.
+  let expectedTainted := 29 + (if ownSorryDirect then 1 else 2)
   check fs "the count line matches"
     (allLines.contains s!"{expectedTainted} constant(s) rest on an unexcused project sorry:")
   check fs s!"the tainted section lists exactly {expectedTainted} constants" (lines.size == expectedTainted)
@@ -456,8 +495,8 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
   -- statement of each rule-3 model.
   let trusted := sectionUnder allLines (fun l => l.endsWith " trusted constant(s) (T):")
   check fs "T header counts the summary's trusted constants"
-    (allLines.contains "9 trusted constant(s) (T):")
-  check fs "T lists exactly 9 constants" (trusted.size == 9)
+    (allLines.contains "13 trusted constant(s) (T):")
+  check fs "T lists exactly 13 constants" (trusted.size == 13)
   check fs "T: rule-2 entries carry their reason and module"
     (trusted.contains "  vouched [externally_verified] Demo.Trust" &&
      trusted.contains "  laterVouched [externally_verified] Demo.Trust" &&
@@ -469,6 +508,7 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
   check fs "T: nothing tainted or clean-modulo-T is trusted"
     (!trusted.any fun l => l.startsWith "  admittedFact" || l.startsWith "  extThm" ||
       l.startsWith "  viaVouched" || l.startsWith "  instInhabitedBox" || l.startsWith "  victim")
+  checkStmtTaintReport fs lines trusted
 
 def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]

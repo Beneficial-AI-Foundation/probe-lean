@@ -2904,8 +2904,7 @@ def testLeanInvariants (result : TestResult) : IO TestResult := do
   IO.println "Testing invariant: taintVerdict produces valid values..."
   let pt : ProjectTaint := {
     trust := Std.HashMap.ofList [(`t, "axiom")]
-    taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d],
-               typeTainted := #[] }
+    taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d] }
     constants := Std.HashSet.ofArray #[`t, `d, `v, `c]
     pSize := 4, moduleCount := 1 }
   let vsOf (n : Lean.Name) : WebVerificationStatus :=
@@ -4187,7 +4186,7 @@ def testApplyTaintStatus (result : TestResult) : IO TestResult := do
   let pt : ProjectTaint := {
     trust := Std.HashMap.ofList [(`T.ax, "axiom"), (`T.ev, "externally_verified")]
     taint := { tainted := Std.HashSet.ofArray #[`T.direct, `T.via],
-               direct := Std.HashSet.ofArray #[`T.direct, `T.ev], typeTainted := #[] }
+               direct := Std.HashSet.ofArray #[`T.direct] }
     constants := Std.HashSet.ofArray #[`T.ax, `T.ev, `T.direct, `T.via, `T.clean]
     pSize := 5, moduleCount := 1 }
   let atoms := #[mkU "probe:ax" `T.ax, mkU "probe:ev" `T.ev, mkU "probe:direct" `T.direct,
@@ -4197,7 +4196,7 @@ def testApplyTaintStatus (result : TestResult) : IO TestResult := do
   let (full, unknown) := applyTaintStatus atoms pt true true
   result ← test "trusted axiom → trusted/axiom"
     (vs full 0 == some .trusted && full[0]!.trustedReason == some "axiom") result
-  result ← test "trusted direct carrier stays trusted (the human-vouches case)"
+  result ← test "vouched lemma stays trusted (the walk does not read its proof)"
     (vs full 1 == some .trusted && full[1]!.trustedReason == some "externally_verified") result
   result ← test "direct carrier → unverified, no reason"
     (vs full 2 == some .unverified && full[2]!.trustedReason == none) result
@@ -4243,7 +4242,7 @@ def testStatusOrigin (result : TestResult) : IO TestResult := do
   let pt : ProjectTaint := {
     trust := Std.HashMap.ofList [(`T.ax, "axiom")]
     taint := { tainted := Std.HashSet.ofArray #[`T.direct, `T.via],
-               direct := Std.HashSet.ofArray #[`T.direct], typeTainted := #[] }
+               direct := Std.HashSet.ofArray #[`T.direct] }
     constants := Std.HashSet.ofArray #[`T.ax, `T.direct, `T.via, `T.clean]
     pSize := 4, moduleCount := 1 }
   -- A stale marker on the input must not survive: every branch sets the field.
@@ -4272,6 +4271,45 @@ def testStatusOrigin (result : TestResult) : IO TestResult := do
   let clean := (applyTaintStatus atoms pt true true).1[3]!
   result ← test "status-origin absent from JSON when none"
     ((Lean.toJson clean).getObjVal? "status-origin").toOption.isNone result
+  return result
+
+/-- A member of T that the walk finds tainted through its statement (#119): direct
+    if the statement names `sorryAx`, tainted otherwise. Either way it loses
+    `trusted` and its `trusted-reason`. -/
+def testStatementTaintVerdict (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the verdict of statement-tainted trusted constants..."
+  let mkU (name : String) (ln : Lean.Name) : UnifiedAtom :=
+    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := none, kind := .axiom, verificationStatus := none }
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`T.ok, "axiom"), (`T.lit, "axiom"),
+      (`T.stmt, "externally_verified")]
+    taint := { tainted := Std.HashSet.ofArray #[`T.lit, `T.stmt, `T.caller],
+               direct := Std.HashSet.ofArray #[`T.lit] }
+    constants := Std.HashSet.ofArray #[`T.ok, `T.lit, `T.stmt, `T.caller]
+    pSize := 4, moduleCount := 1 }
+  result ← test "taintVerdict: clean statement → trusted with its reason"
+    (taintVerdict pt `T.ok == some (some "axiom", .trusted)) result
+  result ← test "taintVerdict: statement names sorry → unverified, no reason"
+    (taintVerdict pt `T.lit == some (none, .unverified)) result
+  result ← test "taintVerdict: statement reaches sorry → verified, no reason"
+    (taintVerdict pt `T.stmt == some (none, .verified)) result
+  result ← test "taintVerdict: caller of a demoted constant → verified"
+    (taintVerdict pt `T.caller == some (none, .verified)) result
+  let atoms := #[mkU "probe:ok" `T.ok, mkU "probe:lit" `T.lit, mkU "probe:stmt" `T.stmt,
+    mkU "probe:caller" `T.caller]
+  let (full, _) := applyTaintStatus atoms pt true true
+  let kt := some StatusOrigin.kernelTaint
+  result ← test "default: the demoted constants carry no trusted-reason"
+    (full.map (·.trustedReason) == #[some "axiom", none, none, none]) result
+  result ← test "default: kernel-taint on the tainted, non-direct ones"
+    (full.map (·.statusOrigin) == #[none, none, kt, kt]) result
+  let (noTaint, _) := applyTaintStatus atoms pt false true
+  result ← test "--skip-verify: a demoted constant gets no status"
+    (noTaint.map (·.verificationStatus) == #[some .trusted, none, none, none] &&
+     noTaint.map (·.trustedReason) == #[some "axiom", none, none, none]) result
   return result
 
 /-- `FromJson UnifiedAtom` reads `status-origin` strictly: a present but invalid
@@ -4338,6 +4376,9 @@ def testTrustListingFormat (result : TestResult) : IO TestResult := do
   result ← test "trusted line: external with its statement"
     (formatTrustedLine `Foo.op "external" `Pkg.FunsExternal (some "Nat → Nat") ==
       "  Foo.op [external] Pkg.FunsExternal : Nat → Nat") result
+  result ← test "trusted line: statement tainted"
+    (formatTrustedLine `Foo.ax "axiom" `Pkg.Basic none (statementTainted := true) ==
+      "  Foo.ax [axiom] Pkg.Basic [statement tainted]") result
   result ← test "generated-axiom note: one line, count and names"
     (formatGeneratedAxiomNote #[`t._native.native_decide.ax_1_1, `u._native.decide.ax_1_1] ==
       "Note(axiom): 2 generated project axiom(s) trusted by rule 1 (not source-visible \
@@ -4371,9 +4412,6 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
       "Warning: 3 project module(s) not imported (full import failed); they are outside the \
        selection's import closure, so no emitted status depends on them, but check-axioms \
        does not audit them") result
-  result ← test "type taint warning"
-    (formatTypeTaintWarning `Foo.bar ==
-      "Warning: trusted declaration Foo.bar names `sorry` directly in its statement") result
   result ← test "unknown atom warning"
     (formatUnknownAtomWarning "probe:x" ==
       "Warning: atom probe:x is not a project constant the kernel walk covered; \
@@ -4386,8 +4424,7 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
     (formatTaintedLine `Foo.a true false == "  Foo.a [direct] [not emitted]") result
   let pt : ProjectTaint := {
     trust := Std.HashMap.ofList [(`t, "axiom")]
-    taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d],
-               typeTainted := #[] }
+    taint := { tainted := Std.HashSet.ofArray #[`d, `v], direct := Std.HashSet.ofArray #[`d] }
     constants := Std.HashSet.ofArray #[`t, `d, `v]
     pSize := 40, moduleCount := 3 }
   result ← test "summary line"
@@ -4414,7 +4451,7 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   let pt2 : ProjectTaint := {
     trust := Std.HashMap.ofList [(`T.ext, "external")]
     taint := { tainted := Std.HashSet.ofArray #[`T.host, `T.d, `T.missed, `T.loopy._unsafe_rec],
-               direct := Std.HashSet.ofArray #[`T.d, `T.missed, `T.loopy._unsafe_rec], typeTainted := #[] }
+               direct := Std.HashSet.ofArray #[`T.d, `T.missed, `T.loopy._unsafe_rec] }
     constants := Std.HashSet.ofArray #[`T.host, `T.d, `T.clean, `T.missed, `T.d.mvcgen_spec, `T.ext,
       `T.loopy, `T.loopy._unsafe_rec]
     pSize := 4, moduleCount := 1 }
@@ -4807,15 +4844,32 @@ run_cmd do
   -- inherits the theorem's range.
   mkDecl `TaintEnv.genAx (← `(((0 : Nat) < 5 : Prop))) true false
   mkDecl `TaintEnv.nd._native.native_decide.ax_1_1 (← `(((0 : Nat) < 5 : Prop))) true true
+  -- Statement taint (#119): a trusted axiom whose statement rests on a project
+  -- `sorry`, a trusted user of it, their caller, and a trusted axiom whose statement
+  -- names the first one.
+  let sorryProp ← liftTermElabM do
+    let v ← elabTerm (← `((sorry : Prop))) none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    instantiateMVars v
+  let stmtPDecl : DefinitionVal := {
+    name := `TaintEnv.stmtP, levelParams := [], type := .sort .zero, value := sorryProp,
+    hints := ReducibilityHints.abbrev, safety := .safe }
+  liftCoreM <| addDecl (.defnDecl stmtPDecl)
+  mkDecl `TaintEnv.stmtAx (ref `TaintEnv.stmtP) true true
+  mkDecl `TaintEnv.stmtUse (← `($(ref `TaintEnv.stmtP) → True)) true true
+  mkDecl `TaintEnv.stmtCaller (← `($(ref `TaintEnv.stmtUse) $(ref `TaintEnv.stmtAx))) false true
+  mkDecl `TaintEnv.stmtChain (← `($(ref `TaintEnv.stmtAx) = $(ref `TaintEnv.stmtAx))) true true
 
   let env ← getEnv
   let roots : Array Name := #[`TaintEnv.sorried, `TaintEnv.viaProof, `TaintEnv.noRangeMid,
     `TaintEnv.callerOfNoRange, `TaintEnv.clean, `TaintEnv.trustAx, `TaintEnv.viaAx,
     `TaintEnv.evSorried, `TaintEnv.viaEv, `TaintEnv.evSorried.mvcgen_spec, `TaintEnv.badAx,
-    `TaintEnv.genAx, `TaintEnv.nd._native.native_decide.ax_1_1]
+    `TaintEnv.genAx, `TaintEnv.nd._native.native_decide.ax_1_1, `TaintEnv.stmtP,
+    `TaintEnv.stmtAx, `TaintEnv.stmtUse, `TaintEnv.stmtCaller, `TaintEnv.stmtChain]
   let isProject : Name → Bool := (`TaintEnv).isPrefixOf
   let trusted : Name → Bool := fun n =>
-    n == `TaintEnv.trustAx || n == `TaintEnv.evSorried || n == `TaintEnv.badAx
+    n == `TaintEnv.trustAx || n == `TaintEnv.evSorried || n == `TaintEnv.badAx ||
+    n == `TaintEnv.stmtAx || n == `TaintEnv.stmtUse || n == `TaintEnv.stmtChain
   let tr := projectTaint env isProject trusted roots
   let untrusted := projectTaint env isProject (fun _ => false) roots
   -- Cross-check against Lean's own oracle, with no trusted base (collectAxioms
@@ -4932,23 +4986,25 @@ run_cmd do
       overridden.direct.contains `TaintEnv.clean && overridden.tainted.contains `TaintEnv.clean),
     ("childrenOverride: unrelated roots are unchanged",
       !overridden.tainted.contains `TaintEnv.viaAx && overridden.tainted.contains `TaintEnv.viaProof),
-    ("direct carriers: the three sorried lemmas and the sorry-typed axiom",
-      tr.direct.size == 4 &&
-      [`TaintEnv.sorried, `TaintEnv.noRangeMid, `TaintEnv.evSorried, `TaintEnv.badAx].all tr.direct.contains),
-    ("tainted set is exactly the unexcused carriers and their callers",
-      tr.tainted.size == 4 &&
-      [`TaintEnv.sorried, `TaintEnv.viaProof, `TaintEnv.noRangeMid, `TaintEnv.callerOfNoRange].all tr.tainted.contains),
+    ("direct carriers: the untrusted sorried constants and the sorry-typed axiom, not the vouched lemma",
+      tr.direct.size == 4 && !tr.direct.contains `TaintEnv.evSorried &&
+      [`TaintEnv.sorried, `TaintEnv.noRangeMid, `TaintEnv.badAx, `TaintEnv.stmtP].all tr.direct.contains),
+    ("tainted set is exactly the unexcused carriers, the statement-tainted trusted constants and their callers",
+      tr.tainted.size == 10 &&
+      [`TaintEnv.sorried, `TaintEnv.viaProof, `TaintEnv.noRangeMid, `TaintEnv.callerOfNoRange,
+       `TaintEnv.badAx, `TaintEnv.stmtP, `TaintEnv.stmtAx, `TaintEnv.stmtUse, `TaintEnv.stmtCaller,
+       `TaintEnv.stmtChain].all tr.tainted.contains),
+    ("statement taint: the trusted axioms and their caller are tainted, not direct",
+      [`TaintEnv.stmtAx, `TaintEnv.stmtUse, `TaintEnv.stmtCaller, `TaintEnv.stmtChain].all
+        fun n => tr.tainted.contains n && !tr.direct.contains n),
     ("caller of a range-less carrier is tainted", tr.tainted.contains `TaintEnv.callerOfNoRange),
     ("trusted sorried lemma shields its caller", !tr.tainted.contains `TaintEnv.viaEv),
     ("companion of a trusted theorem is clean, not tainted",
       !tr.tainted.contains `TaintEnv.evSorried.mvcgen_spec),
-    ("trusted nodes are never tainted",
-      !tr.tainted.contains `TaintEnv.evSorried && !tr.tainted.contains `TaintEnv.trustAx &&
-      !tr.tainted.contains `TaintEnv.badAx),
+    ("trusted constants with a clean statement are not tainted",
+      !tr.tainted.contains `TaintEnv.evSorried && !tr.tainted.contains `TaintEnv.trustAx),
     ("clean theorem and axiom user are clean",
       !tr.tainted.contains `TaintEnv.clean && !tr.tainted.contains `TaintEnv.viaAx),
-    ("trusted constant with sorry in its statement is reported",
-      tr.typeTainted == #[`TaintEnv.badAx]),
     ("without T, the walk agrees with Lean.collectAxioms on every root", agree),
     ("without T, the vouched lemma's caller and companion are tainted",
       untrusted.tainted.contains `TaintEnv.viaEv &&
@@ -4968,7 +5024,8 @@ run_cmd do
       has `TaintEnv.evSorried.mvcgen_spec (isSourceVisible env `TaintEnv.evSorried.mvcgen_spec ·)),
     ("isSourceVisible: a constructor is not", has `Nat.succ (!isSourceVisible env `Nat.succ ·)),
     ("computeTrustBase: only the axioms without attributes",
-      trustNoAttrs.size == 4 && trustNoAttrs[`TaintEnv.trustAx]? == some "axiom" &&
+      trustNoAttrs.size == 7 && trustNoAttrs[`TaintEnv.trustAx]? == some "axiom" &&
+      trustNoAttrs[`TaintEnv.stmtAx]? == some "axiom" && trustNoAttrs[`TaintEnv.stmtChain]? == some "axiom" &&
       trustNoAttrs[`TaintEnv.badAx]? == some "axiom" && trustNoAttrs[`TaintEnv.genAx]? == some "axiom" &&
       trustNoAttrs[`TaintEnv.nd._native.native_decide.ax_1_1]? == some "axiom"),
     ("computeTrustBase: the tagged lemma and the tagged range-less constant are trusted (a tag is a tag), the untagged companion is not",
@@ -5053,6 +5110,7 @@ structure S where
 
 axiom trustedS : S
 theorem viaProjFn : True := trustedS.proof
+theorem reflS (v : S) : v = v := rfl
 
 end ProjEnv
 
@@ -5063,9 +5121,12 @@ run_cmd do
       value := mkProj ``ProjEnv.S 0 (mkConst ``ProjEnv.trustedS) }
   let env ← getEnv
   let roots : Array Name := #[`ProjEnv.fieldTy, `ProjEnv.S, `ProjEnv.S.mk, `ProjEnv.S.proof,
-    `ProjEnv.trustedS, `ProjEnv.viaProjFn, `ProjEnv.viaRawProj]
+    `ProjEnv.trustedS, `ProjEnv.viaProjFn, `ProjEnv.viaRawProj, `ProjEnv.reflS]
   let isProject : Name → Bool := (`ProjEnv).isPrefixOf
   let tr := projectTaint env isProject (· == `ProjEnv.trustedS) roots
+  -- The structure and its constructor trusted too: the statement of `S` includes `S.mk`.
+  let trS := projectTaint env isProject
+    (fun n => n == `ProjEnv.trustedS || n == `ProjEnv.S || n == `ProjEnv.S.mk) roots
   let rawValue := (env.find? `ProjEnv.viaRawProj).bind fun ci => match ci with
     | .thmInfo v => some v.value | _ => none
   let checks : Array (String × Bool) := #[
@@ -5080,7 +5141,18 @@ run_cmd do
     ("a raw projection out of a trusted constant is tainted through the structure",
       tr.tainted.contains `ProjEnv.viaRawProj),
     ("the projection-function form is tainted the same way", tr.tainted.contains `ProjEnv.viaProjFn),
-    ("the trusted operand itself is blocked, not tainted", !tr.tainted.contains `ProjEnv.trustedS)]
+    ("the trusted operand is tainted through its statement (#119), not direct",
+      tr.tainted.contains `ProjEnv.trustedS && !tr.direct.contains `ProjEnv.trustedS),
+    ("statementChildren of an inductive names its constructors",
+      (statementChildren env `ProjEnv.S).contains `ProjEnv.S.mk),
+    ("trusted structure: the constructor is direct through its type",
+      trS.direct.contains `ProjEnv.S.mk),
+    ("trusted structure: tainted through its constructor, not direct",
+      trS.tainted.contains `ProjEnv.S && !trS.direct.contains `ProjEnv.S),
+    ("trusted structure: a theorem that names only the structure is tainted",
+      trS.tainted.contains `ProjEnv.reflS),
+    ("trusted structure: the raw projection and the projection function agree",
+      trS.tainted.contains `ProjEnv.viaRawProj && trS.tainted.contains `ProjEnv.viaProjFn)]
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
   elabCommand (← `(def $(mkIdent `projEnvChecks) : Array (String × Bool) :=
     #[$items,*]))
@@ -5104,7 +5176,7 @@ def testUsedConstants (result : TestResult) : IO TestResult := do
        (Lean.mkLet `b (Lean.mkConst `B) (Lean.mkProj `T 0 (Lean.mkBVar 0))
          (Lean.mkMData {} (Lean.mkForall `c .default (Lean.mkConst `C) (Lean.mkBVar 0))))
      usedConstants e == #[`A, `B, `T, `C]) result
-  result ← test "environment-backed projection checks were generated" (projEnvChecks.size == 7) result
+  result ← test "environment-backed projection checks were generated" (projEnvChecks.size == 12) result
   for (name, ok) in projEnvChecks do
     result ← test name ok result
   return result
@@ -5212,8 +5284,8 @@ def testProjectTaintEnv (result : TestResult) : IO TestResult := do
     result ← test name ok result
   return result
 
-/-- First half of the suite. `main` is split in two so neither `do` block grows
-    past the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
+/-- Part A of the suite. `main` calls four suites so no `do` block grows past
+    the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
     depth"): the single 80-bind chain hit `maxRecDepth`. -/
 def runSuiteA (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -5236,6 +5308,11 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testUnifiedAtomJson result
   result ← testCodomainFacts result
   result ← testViewHelpers result
+  return result
+
+/-- Part B of the suite (see `runSuiteA`). -/
+def runSuiteB (result : TestResult) : IO TestResult := do
+  let mut result := result
   result ← testStubEntryJson result
   result ← testMoleculesOutputJson result
   result ← testEnvelopeAwareLoading result
@@ -5257,8 +5334,8 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testDeterminismInvariants result
   return result
 
-/-- Second half of the suite (see `runSuiteA`). -/
-def runSuiteB (result : TestResult) : IO TestResult := do
+/-- Part C of the suite (see `runSuiteA`). -/
+def runSuiteC (result : TestResult) : IO TestResult := do
   let mut result := result
   result ← testReadToolchain result
   result ← testToolchainVersionParsing result
@@ -5287,6 +5364,11 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testDerivedInstanceClusterNames result
   result ← testGeneratedCompanionTheoremNames result
   result ← testDropRegression result
+  return result
+
+/-- Part D of the suite (see `runSuiteA`). -/
+def runSuiteD (result : TestResult) : IO TestResult := do
+  let mut result := result
   result ← testGeneratedFieldRoundTrip result
   result ← testConditionalHiding result
   result ← testViewFilterOmitsGenerated result
@@ -5302,6 +5384,7 @@ def runSuiteB (result : TestResult) : IO TestResult := do
   result ← testTrustListingFormat result
   result ← testApplyTaintStatus result
   result ← testStatusOrigin result
+  result ← testStatementTaintVerdict result
   result ← testStatusOriginReader result
   result ← testDivergenceLines result
   result ← testTaintFormatting result
@@ -5320,6 +5403,8 @@ def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
   result ← runSuiteB result
+  result ← runSuiteC result
+  result ← runSuiteD result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

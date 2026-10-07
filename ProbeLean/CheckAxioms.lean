@@ -37,7 +37,8 @@ def externalStatements (env : Environment) (names : Array Name) : IO (Std.HashMa
 /-- Print the report for a computed pass. `emitted` is the set of constants
     `extract` publishes as atoms (the selected, source-visible declarations). The
     tainted list comes first, then T: every trusted constant with its
-    `trusted-reason` and module, and the statement of each rule-3 entry. The
+    `trusted-reason` and module, and the statement of each rule-3 entry. A member of T
+    whose statement is tainted is in both lists. The
     soundness claim ("clean modulo T") rests on exactly those constants, and
     `extract` shows only the ones that are atoms. -/
 def printTaintReport (env : Environment) (pt : ProjectTaint) (emitted : Std.HashSet Name)
@@ -54,7 +55,8 @@ def printTaintReport (env : Environment) (pt : ProjectTaint) (emitted : Std.Hash
     (trusted.filterMap fun (n, r) => if r == "external" then some n else none)
   IO.println (formatTrustHeader trusted.size)
   for (n, reason) in trusted do
-    IO.println (formatTrustedLine n reason ((moduleNameOf modNames env n).getD .anonymous) types[n]?)
+    IO.println (formatTrustedLine n reason ((moduleNameOf modNames env n).getD .anonymous) types[n]?
+      (pt.taint.tainted.contains n))
 
 /-- Build, import, and report declarations that rest on an unexcused project `sorry`.
     Returns a process exit code. -/

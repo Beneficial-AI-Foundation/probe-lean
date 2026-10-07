@@ -324,9 +324,10 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     direct. That is agreement, not divergence. Generated atoms share their range with
     the declaration that produced them (a `.mvcgen_spec` companion with its parent, a
     derived instance with its type). The log cannot speak about them, so they are
-    skipped. So are trusted atoms: a `sorry` inside one is excused by trust, not
-    missed by the kernel. When it sits in an auxiliary, the host is neither direct
-    nor tainted (it is blocked). So the log's finding is moot, not a disagreement.
+    skipped. So are the members of T, also the ones whose statement is tainted: a
+    `sorry` in a trusted proof is excused by trust, not missed by the kernel. The
+    walk does not follow a trusted proof. So the log's finding is moot, not a
+    disagreement.
     Two cases are reported. The log flags an atom the kernel finds clean modulo T.
     Or the kernel finds a direct carrier the log never warned about (a module with
     errors, `warn.sorry` off). -/

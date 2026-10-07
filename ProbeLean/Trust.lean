@@ -3,14 +3,15 @@
   without a proof.
 
   Soundness in probe-lean means: no `sorry` inside the project is reachable from a
-  declaration except through a *trusted* declaration. Lean itself and every
+  declaration except through the *proof* of a trusted declaration (trust excuses
+  the proof, not the statement). Lean itself and every
   dependency package (Aeneas, Mathlib, …) are trusted wholesale. The kernel walk in
   `AxiomCheck.projectTaint` never expands a non-project constant, except a name a
   project module declares that the environment attributes to a dependency (a
   cross-boundary merge, walked from the project's own bodies; `Taint.runProjectTaint`).
   Inside the project,
   three rules decide trust, and this module is the **only** place they are written
-  down: the atom's `trusted-reason`, the taint walk's blocked set, and the
+  down: the atom's `trusted-reason`, the taint walk's edges, and the
   `check-axioms` report all call `trustedReason`, so they cannot drift.
 -/
 import Lean

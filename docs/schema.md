@@ -214,8 +214,8 @@ where the value comes from: auto (computed from the environment), config
 | `specs` | array or absent | auto | Theorem atoms whose statement mentions this atom. Absent when empty. An atom is "specified" when `specs` is non-empty. |
 | `primary-spec` | string or absent | auto | The primary specification theorem, see [Specs and primary-spec](#specs-and-primary-spec). |
 | `verification-status` | string or absent | auto | One of the five values in [Verification status](#verification-status-and-the-trusted-base). |
-| `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`. |
-| `status-origin` | string or absent | auto | `"kernel-taint"` on an atom that reads `"verified"` because the walk found a reachable project `sorry`. See [Re-deriving statuses](#re-deriving-statuses). |
+| `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`. A member of T whose statement rests on a project `sorry` has none. |
+| `status-origin` | string or absent | auto | `"kernel-taint"` on an atom that reads `"verified"` because the walk found a reachable project `sorry`, a member of T with a tainted statement included. See [Re-deriving statuses](#re-deriving-statuses). |
 | `codomain-head` | string or absent | auto | Head constant of the result type after stripping `∀`/`→` binders, if it is a constant. |
 | `codomain-is-prop` | bool | auto | The result type is `Sort 0`. |
 | `codomain-last-arg-is-bool` | bool | auto | The final application argument of the result type is `Bool`. |
@@ -321,19 +321,20 @@ every built project module (the set P), atoms or not. It stops at two boundaries
 
 - the project boundary. Lean and every dependency package in `lake-manifest.json` are trusted
   wholesale.
-- the trusted base T inside the project, defined by the three rules below.
+- the proof of each member of the trusted base T inside the project, defined by the three rules
+  below. The walk still follows the statement of a member of T.
 
 | Status | Meaning |
 |--------|---------|
-| `"trusted"` | In T. `trusted-reason` says why. |
-| `"unverified"` | The declaration's own type or value names `sorryAx` (a direct carrier). |
+| `"trusted"` | In T, and its statement does not rest on a project `sorry`. `trusted-reason` says why. |
+| `"unverified"` | The declaration's own type or value names `sorryAx` (a direct carrier). For a member of T, only its type counts. |
 | `"verified"` | Locally sorry-free, but an unexcused project `sorry` is reachable from it. |
-| `"transitively-verified"` | No project `sorry` is reachable except through a trusted declaration ("clean modulo T"). |
+| `"transitively-verified"` | No project `sorry` is reachable except through the proof of a trusted declaration ("clean modulo T"). |
 | `"failed"` | Currently never produced. |
 
 Under `--skip-enrich`, atoms that are clean modulo T read `"verified"`, and
-`"transitively-verified"` never appears. Under `--skip-verify`, only trusted atoms get a status
-(`"trusted"`), and no atom gets `status-origin`. An atom whose name is not in P gets no status, and
+`"transitively-verified"` never appears. Under `--skip-verify`, only the atoms that read
+`"trusted"` get a status, and no atom gets `status-origin`. An atom whose name is not in P gets no status, and
 `extract` prints a warning.
 
 The trusted base, one shared rule set (`ProbeLean/Trust.lean`) in precedence order:
@@ -345,8 +346,13 @@ The trusted base, one shared rule set (`ProbeLean/Trust.lean`) in precedence ord
 3. `"external"`: a non-proof (not a theorem, and not Prop-typed) in a module whose name ends with
    `External`, trusted as a model whatever its type.
 
-A trusted declaration is a leaf: a `sorry` inside or below it does not taint its callers. Two
-consequences a consumer must know:
+Trust excuses a declaration's proof, not its statement. The walk follows the type of a trusted
+declaration and not its value. For a trusted inductive type or structure, it also follows the
+constructors. A `sorry` in its proof or below it does not taint its callers. If
+its statement rests on a project `sorry`, it reads `"unverified"` or `"verified"` like any other
+declaration, without `trusted-reason`. See
+[verification-status.md](verification-status.md#the-walk). Two more consequences a
+consumer must know:
 
 - Attribution is per kernel constant. On Lean ≤ 4.28 a `def`'s sorried proof obligation is
   abstracted into `f._proof_1`, so `f` reads `"verified"`. From 4.29 the `sorry` stays inline and
