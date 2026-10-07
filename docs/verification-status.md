@@ -17,7 +17,9 @@ and includes constants that are never atoms: auxiliaries, constructors, and rang
   everything `lake-manifest.json` lists, including a second Lake package that holds the project's
   own code. Move such code into the main package to have it analysed. Both commands name the
   boundary once per run on stderr.
-- The trusted base T inside the project, see [The trusted base T in full](#the-trusted-base-t-in-full).
+- The proof of each member of the trusted base T inside the project, see
+  [The trusted base T in full](#the-trusted-base-t-in-full). The walk still follows the statement
+  of a member of T.
 
 Trust excuses a declaration's proof, not its statement. For a trusted declaration the walk follows
 the constants of its type and not those of its value. For a trusted inductive type or structure, the

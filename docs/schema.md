@@ -321,14 +321,15 @@ every built project module (the set P), atoms or not. It stops at two boundaries
 
 - the project boundary. Lean and every dependency package in `lake-manifest.json` are trusted
   wholesale.
-- the trusted base T inside the project, defined by the three rules below.
+- the proof of each member of the trusted base T inside the project, defined by the three rules
+  below. The walk still follows the statement of a member of T.
 
 | Status | Meaning |
 |--------|---------|
 | `"trusted"` | In T, and its statement does not rest on a project `sorry`. `trusted-reason` says why. |
 | `"unverified"` | The declaration's own type or value names `sorryAx` (a direct carrier). For a member of T, only its type counts. |
 | `"verified"` | Locally sorry-free, but an unexcused project `sorry` is reachable from it. |
-| `"transitively-verified"` | No project `sorry` is reachable except through a trusted declaration ("clean modulo T"). |
+| `"transitively-verified"` | No project `sorry` is reachable except through the proof of a trusted declaration ("clean modulo T"). |
 | `"failed"` | Currently never produced. |
 
 Under `--skip-enrich`, atoms that are clean modulo T read `"verified"`, and
