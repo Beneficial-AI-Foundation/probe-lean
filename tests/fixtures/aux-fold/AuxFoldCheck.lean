@@ -187,10 +187,12 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
     (statusOf data "probe:cleanUse" == some "transitively-verified")
   check fs "sorried_bound is unverified"
     (statusOf data "probe:sorried_bound" == some "unverified")
-  -- `kind` from imported extension entries (issue #111, `Demo/Kinds.lean`).
+  -- `kind` from imported extension entries (issue #111, `Demo/Kinds.lean`), and
+  -- Prop-valued projections, which Lean compiles as theorems (issue #115).
   for (atom, kind) in [("probe:Foo", "class"), ("probe:fooNat", "instance"),
       ("probe:instFooBool", "instance"), ("probe:instLike", "def"),
-      ("probe:fooUnit", "instance")] do
+      ("probe:fooUnit", "instance"), ("probe:Bundle.val", "projection"),
+      ("probe:Bundle.pos", "projection"), ("probe:PosNat.toIsPos", "projection")] do
     check fs s!"{atom} has kind {kind}" (kindOf data atom == some kind)
   -- Spec targets (issue #130, `Demo/Kinds.lean`): each atom below is named in a
   -- theorem's statement, but only the data def `needsPos` is a target.
