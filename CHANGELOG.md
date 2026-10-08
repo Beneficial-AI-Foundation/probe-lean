@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-08
+
+### Fixed
+
+- The projection of a Prop-valued structure field or class parent now has kind `projection`, not `theorem` (#115). Lean compiles such a projection as a theorem, and `getDeclKind` checked `env.isProjectionFn` only for definitions. The atom is now hidden and `is-lean-generated` like other projections. It is no longer a spec of the data fields that its statement names, so for example `AlgebraicMAC.alg` loses `specs: [AlgebraicMAC.correct]` and its primary spec. Its `verification-status` does not change.
+
 ## [0.17.0] - 2026-10-06
 
 ### Changed

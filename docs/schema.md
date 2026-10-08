@@ -162,7 +162,7 @@ construction, and `source.package` tells projects apart.
 | `def` | `def` | Computable definition |
 | `theorem` | `theorem` | Proven proposition (erased at runtime) |
 | `abbrev` | `abbrev` | Reducible definition |
-| `projection` | (auto) | Structure field or class method projection (`env.isProjectionFn`) |
+| `projection` | (auto) | Structure field or class method projection (`env.isProjectionFn`). This includes the projection of a Prop-valued field or class parent, which Lean compiles as a theorem. |
 | `class` | `class` | Type class |
 | `structure` | `structure` | Record type |
 | `inductive` | `inductive` | Inductive type |

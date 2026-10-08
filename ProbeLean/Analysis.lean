@@ -145,7 +145,9 @@ def getDeclKind (env : Environment) (name : Name) (info : ConstantInfo) : DeclKi
       .abbrev
     else
       .def
-  | .thmInfo _ => .theorem
+  -- Lean compiles the projection of a Prop-valued field or class parent as a
+  -- theorem (issue #115).
+  | .thmInfo _ => if env.isProjectionFn name then .projection else .theorem
   | .inductInfo _ =>
     -- Check if it's a class, structure, or plain inductive
     if isRegisteredClass env name then
