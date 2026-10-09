@@ -3925,6 +3925,16 @@ def instLooksLike : Nat := 0
 def markedUnit : Marked Unit := ⟨()⟩
 attribute [instance] markedUnit
 
+/-- Issue #115: a Prop-valued field and a Prop-valued class parent compile to
+    theorems, but their projections are kind `projection`. -/
+structure Bundle where
+  val : Nat
+  pos : 0 < val
+class IsPos (n : Nat) : Prop where
+  out : 0 < n
+class PosNat (n : Nat) extends IsPos n where
+  tag : Nat
+
 end AuxFoldEnv
 
 open Lean Elab Command Term in
@@ -4077,7 +4087,14 @@ run_cmd do
     ("a def named inst… is kind def, not instance",
       kindOf `AuxFoldEnv.instLooksLike == some .def),
     ("a def promoted by attribute [instance] is kind instance",
-      kindOf `AuxFoldEnv.markedUnit == some .instance)]
+      kindOf `AuxFoldEnv.markedUnit == some .instance),
+    ("a data field projection is kind projection",
+      kindOf `AuxFoldEnv.Bundle.val == some .projection),
+    ("a Prop field projection is kind projection, not theorem",
+      kindOf `AuxFoldEnv.Bundle.pos == some .projection),
+    ("a Prop-valued class parent projection is kind projection",
+      kindOf `AuxFoldEnv.PosNat.toIsPos == some .projection),
+    ("a theorem is still kind theorem", kindOf `AuxFoldEnv.base == some .theorem)]
   -- `mkIdent`, not a plain quotation: a quoted binder name picks up macro
   -- scopes and the generated definition would be unreferenceable.
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
