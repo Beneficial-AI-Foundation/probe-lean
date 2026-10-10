@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-10
+
+### Changed
+
+- **Spec targets by role, not by kind** (#130). Only a data `def`, `abbrev`, `instance`, `opaque` or `axiom` receives `specs` and `primary-spec`. Before, every atom whose kind was not `theorem` did.
+  - Types (`structure`, `class`, `inductive`, `quot`) and projections no longer receive specs. Their specs are dropped, not moved to another atom.
+  - A proof (a constant whose type is a proposition, checked with `Meta.isProp`) and a predicate (`codomain-is-prop: true`) no longer receive specs. If `Meta.isProp` cannot decide a type, `extract` prints a warning and the constant is not a spec target.
+  - The set of theorems that are specs, `kind` and `verification-status` do not change. `viewify` already drops hidden and generated atoms, so the web UI does not change.
+
 ## [0.17.0] - 2026-10-06
 
 ### Changed
