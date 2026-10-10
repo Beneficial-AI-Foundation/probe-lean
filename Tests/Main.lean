@@ -4904,7 +4904,11 @@ run_cmd do
   -- a `def` whose type is the proposition `0 < 5`; `natDef` a `def` of type `Nat`.
   let thmLike := mkTestDefn `A.FunsExternal.p (env.find? `TaintEnv.clean |>.get!).type
   let natDef := mkTestDefn `A.FunsExternal.n (mkConst ``Nat)
-  let propTyped ← propTypedNames env #[(`A.FunsExternal.p, thmLike), (`A.FunsExternal.n, natDef)]
+  -- `badTy` names a constant the environment does not have, so `Meta.isProp` throws:
+  -- the forced failure of the fail-closed path.
+  let badTy := mkTestDefn `A.badTy (mkConst `No.Such.Const)
+  let (propTyped, propFailed) ← propTypedNamesWithFailures env
+    #[(`A.FunsExternal.p, thmLike), (`A.FunsExternal.n, natDef), (`A.badTy, badTy)]
   let noDup := headerMerges env (mkProjectFilter env #[`Init.Prelude])
   -- Merged declarations (co-import kept one of several same-statement versions).
   let thmSorried := env.find? `TaintEnv.sorried |>.get!
@@ -5036,6 +5040,8 @@ run_cmd do
       trustAttrs[`TaintEnv.viaProof]? == none),
     ("propTypedNames: a def whose type is a proposition, not a def of type Nat",
       propTyped.contains `A.FunsExternal.p && !propTyped.contains `A.FunsExternal.n),
+    ("propTypedNamesWithFailures: an unchecked type is reported and counted as a proposition",
+      propFailed == #[`A.badTy] && propTyped.contains `A.badTy),
     ("headerMerges: a project module with no duplicated names yields neither merged nor cross names",
       noDup.1.isEmpty && noDup.2.isEmpty),
     ("getProjectDeclsFrom: the merged branch emits the owner's version with the union of edges",
@@ -5284,6 +5290,71 @@ def testProjectTaintEnv (result : TestResult) : IO TestResult := do
     result ← test name ok result
   return result
 
+/-- A test atom for the spec-target rule (issue #130). -/
+def mkTargetAtom (name : String) (kind : DeclKind) (isProof : Bool := false)
+    (codomainIsProp : Bool := false) (typeDeps : Array String := #[]) : Atom :=
+  { name, displayName := name, dependencies := typeDeps, typeDependencies := typeDeps,
+    codeModule := "Test", codePath := "Test.lean", codeText := none, kind, isProof,
+    codomainIsProp }
+
+/-- `isSpecTarget` on each row of the Behavior table of issue #130: only a data `def`,
+    `abbrev`, `instance`, `opaque` or `axiom` is a target. -/
+def testIsSpecTarget (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing isSpecTarget (issue #130)..."
+  let rows : List (String × Atom × Bool) := [
+    ("data def", mkTargetAtom "needsPos" .def, true),
+    ("data abbrev", mkTargetAtom "ab" .abbrev, true),
+    ("data opaque", mkTargetAtom "op" .opaque, true),
+    ("data axiom (Aeneas external function)", mkTargetAtom "f" .axiom, true),
+    ("data instance", mkTargetAtom "instAddT" .instance, true),
+    ("structure", mkTargetAtom "Bundle" .structure, false),
+    ("class", mkTargetAtom "PosNat" .class, false),
+    ("inductive", mkTargetAtom "T" .inductive, false),
+    ("quot", mkTargetAtom "Quot" .quot, false),
+    ("data projection", mkTargetAtom "Bundle.val" .projection, false),
+    ("Prop projection", mkTargetAtom "Bundle.pos" .projection (isProof := true), false),
+    ("theorem", mkTargetAtom "t" .theorem (isProof := true), false),
+    ("proof axiom", mkTargetAtom "ax" .axiom (isProof := true), false),
+    ("proof def", mkTargetAtom "admitted" .def (isProof := true), false),
+    ("predicate def", mkTargetAtom "IsValid" .def (codomainIsProp := true), false),
+    ("proof instance", mkTargetAtom "instIsPos5" .instance (isProof := true), false)]
+  for (label, atom, expected) in rows do
+    result ← test s!"isSpecTarget: {label} -> {expected}" (isSpecTarget atom == expected) result
+  return result
+
+/-- `computeSpecs` gives `specs` and `primary-spec` to targets only. One theorem names
+    every kind of atom, so a target and a non-target see the same theorem. -/
+def testComputeSpecsTargetRule (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing computeSpecs target rule (issue #130)..."
+  let nonTargets := [mkTargetAtom "S" .structure, mkTargetAtom "S.val" .projection,
+    mkTargetAtom "pf" .def (isProof := true), mkTargetAtom "P" .def (codomainIsProp := true),
+    mkTargetAtom "instPos" .instance (isProof := true)]
+  let targets := [mkTargetAtom "d" .def, mkTargetAtom "ax" .axiom, mkTargetAtom "instAdd" .instance]
+  let names := (nonTargets ++ targets).map (·.name)
+  let thm := mkTargetAtom "t" .theorem (isProof := true) (typeDeps := names.toArray)
+  let out := computeSpecs ((nonTargets ++ targets).toArray.push thm)
+  let get (n : String) := out.find? (·.name == n)
+  for a in nonTargets do
+    result ← test s!"computeSpecs: non-target {a.name} has no specs and no primary-spec"
+      ((get a.name).all fun r => r.specs.isEmpty && r.primarySpec.isNone) result
+  for a in targets do
+    result ← test s!"computeSpecs: target {a.name} has specs [t] and primary-spec t"
+      ((get a.name).any fun r => r.specs == #["t"] && r.primarySpec == some "t") result
+  -- The `@[primary_spec]` fallback to `dependencies` counts targets only: the
+  -- statement names a structure, the proof uses a predicate and one data def.
+  let tagged := { mkTargetAtom "tagged" .theorem (isProof := true) (typeDeps := #["S"]) with
+    dependencies := #["P", "S", "d"], isPrimarySpec := true }
+  let out2 := computeSpecs #[mkTargetAtom "S" .structure, mkTargetAtom "P" .def
+    (codomainIsProp := true), mkTargetAtom "d" .def, tagged]
+  result ← test "computeSpecs: the primary_spec fallback attaches to the one target"
+    ((out2.find? (·.name == "d")).any (·.primarySpec == some "tagged") &&
+     out2.all fun r => r.name == "d" || r.primarySpec.isNone) result
+  return result
+
 /-- Part A of the suite. `main` calls four suites so no `do` block grows past
     the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
     depth"): the single 80-bind chain hit `maxRecDepth`. -/
@@ -5301,6 +5372,8 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testAtomizeHelpers result
   result ← testComputeSpecs result
   result ← testComputeSpecsGeneratedExclusion result
+  result ← testIsSpecTarget result
+  result ← testComputeSpecsTargetRule result
   result ← testAtomsOutputJson result
   result ← testAtomSpecsJson result
   result ← testAtomLanguageField result

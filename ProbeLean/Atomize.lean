@@ -102,8 +102,18 @@ def primarySpecAttributes : List String :=
 def hasKnownSpecAttribute (attrs : Array String) : Bool :=
   primarySpecAttributes.any fun a => attrs.contains a
 
+/-- The kinds of a spec target (`isSpecTarget`). -/
+def specTargetKinds : List DeclKind := [.def, .abbrev, .instance, .opaque, .axiom]
+
+/-- A spec target is a constant with computational behavior that a theorem can describe:
+    its kind is in `specTargetKinds`, and it is a data constant, neither a proof
+    (`isProof`) nor a predicate (`codomainIsProp`). Types, projections, proofs and
+    predicates are never targets. -/
+def isSpecTarget (a : Atom) : Bool :=
+  specTargetKinds.contains a.kind && !a.isProof && !a.codomainIsProp
+
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
-    list of every non-theorem **type** dependency. Also propagate `primarySpec`
+    list of every spec-target **type** dependency (`isSpecTarget`). Also propagate `primarySpec`
     using a multi-signal precedence chain:
     1. `@[primary_spec]` attribute (always wins)
     2. Known verification-framework attributes (`primarySpecAttributes`)
@@ -118,7 +128,7 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
     known-attribute and sole-spec signals both require exactly one candidate.
 
     Fallback for explicit tags: a theorem can carry `@[primary_spec]` while its
-    *statement* names no specifiable constant (an abstract statement whose
+    *statement* names no spec target (an abstract statement whose
     specified function enters only through the proof term). Such a theorem falls
     back to the union `dependencies` if that leaves exactly one candidate, so the
     user's explicit override can still attach. With several candidates the
@@ -136,21 +146,19 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
     it wins signal 1 as usual, and a tagged generated theorem also re-enters
     the `specs` lists, so `primary-spec` never points outside `specs`. -/
 def computeSpecs (atoms : Array Atom) : Array Atom :=
-  let kindMap : Lean.RBMap String DeclKind compare :=
-    atoms.foldl (init := .empty) fun m a => m.insert a.name a.kind
+  let targetMap : Lean.RBMap String Bool compare :=
+    atoms.foldl (init := .empty) fun m a => m.insert a.name (isSpecTarget a)
   let attrsMap : Lean.RBMap String (Array String) compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name a.attributes
   let isGeneratedTheorem : Atom → Bool := fun a =>
     (a.isLeanGenerated || a.isAeneasGenerated) && !a.isPrimarySpec
-  -- A non-theorem constant a spec can attach to (theorems and unknown names are
-  -- never spec targets).
+  -- A constant a spec can attach to (`isSpecTarget`; unknown names are never
+  -- spec targets).
   let isSpecifiable : String → Bool := fun dep =>
-    match kindMap.find? dep with
-    | some k => k != DeclKind.theorem
-    | none   => false
+    (targetMap.find? dep).getD false
   -- The constants a theorem is a spec *of*: normally those named in its statement
   -- (`typeDependencies`). Fallback: an explicitly `@[primary_spec]`-tagged theorem
-  -- whose statement names no specifiable constant walks the union `dependencies`
+  -- whose statement names no spec target walks the union `dependencies`
   -- so the tag can still attach — but only when that leaves exactly one
   -- candidate. The tag marks the theorem, not its target, so with several
   -- proof-invoked definitions there is nothing to disambiguate by: attaching
@@ -182,7 +190,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
   -- Signals 1-3: known-attribute > _spec suffix > sole-spec
   let primarySpecMap :=
     atoms.foldl (init := attrPrimarySpecMap) fun m a =>
-      if a.kind == DeclKind.theorem then m
+      if !isSpecTarget a then m
       else
         match m.find? a.name with
         | some _ => m
@@ -417,6 +425,23 @@ def importProjectEnvWithFallback (projectPath : System.FilePath)
       return .error (formatLoadedOrphansError stale)
     return .ok r
 
+/-- The warning for a declaration whose type `Meta.isProp` could not check. -/
+def formatSpecProofWarning (n : Name) : String :=
+  s!"Warning: could not decide whether the type of {n} is a proposition; \
+    it is not a spec target"
+
+/-- Of `decls`, those of a spec-target kind (`specTargetKinds`) whose type is a
+    proposition (`propTypedNamesWithFailures`, one `MetaM` run). A declaration whose
+    type cannot be checked is reported and counted as a proof, so it is not a spec
+    target (fail closed, like rule 3). Theorems need no check and are not included. -/
+def specProofNames (env : Environment) (decls : Array DeclInfo) : IO (Std.HashSet Name) := do
+  let cands := decls.filterMap fun d =>
+    if specTargetKinds.contains d.kind then (env.find? d.name).map (d.name, ·) else none
+  let (props, failed) ← propTypedNamesWithFailures env cands
+  for n in failed do
+    IO.eprintln (formatSpecProofWarning n)
+  return props
+
 /-- The per-declaration atom loop. Generated code is flagged hidden + generated so
     viewify and the web UI omit it from the presented graph, split by origin:
     deriving clusters and structure/class projections are core-Lean output
@@ -436,10 +461,13 @@ private def buildAtoms (env : Environment) (projectPath : System.FilePath)
   -- misflagged.
   let companionNames := generatedCompanionTheoremNames decls
     (externalParentKind := fun n => (env.find? n).map (getDeclKind env n))
+  let propTyped ← specProofNames env decls
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath selFilter crate pathCache auxCache
       (attrs.getD decl.name default).attributes decl
+    let atom := { atom with
+      isProof := decl.kind == .theorem || propTyped.contains decl.name }
     let isLeanGen := derivedNames.contains decl.name || decl.kind == .projection
     let isAeneasGen := companionNames.contains decl.name
     let atom :=

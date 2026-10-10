@@ -292,10 +292,13 @@ def externalRule3Candidates (env : Environment) (consts : Array (Name × Constan
     elaboration error, or a heartbeat/recursion limit that `Core.tryCatch` rethrows
     and `tryCatchRuntimeEx` catches. Such a candidate is reported and counted as a
     proof (fail closed). Each candidate gets its own heartbeat budget
-    (`withCurrHeartbeats`), so one pathological statement cannot starve the rest. -/
-def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
-    : IO (Std.HashSet Name) := do
-  if cands.isEmpty then return {}
+    (`withCurrHeartbeats`), so one pathological statement cannot starve the rest.
+
+    Returns the proposition-typed names (failures included) and the failures, so each
+    caller prints its own warning (`propTypedNames`, `Atomize.buildAtoms`). -/
+def propTypedNamesWithFailures (env : Environment) (cands : Array (Name × ConstantInfo))
+    : IO (Std.HashSet Name × Array Name) := do
+  if cands.isEmpty then return ({}, #[])
   let act : MetaM (Std.HashSet Name × Array Name) := do
     let mut props : Std.HashSet Name := {}
     let mut failed : Array Name := #[]
@@ -310,7 +313,14 @@ def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
         failed := failed.push name
     return (props, failed)
   let ctx : Core.Context := { fileName := "<probe-lean>", fileMap := default }
-  let ((props, failed), _) ← (act.run' {} {}).toIO ctx { env }
+  let (r, _) ← (act.run' {} {}).toIO ctx { env }
+  return r
+
+/-- Rule 3's proof test (`propTypedNamesWithFailures`), with its warning for each
+    candidate whose type could not be checked. -/
+def propTypedNames (env : Environment) (cands : Array (Name × ConstantInfo))
+    : IO (Std.HashSet Name) := do
+  let (props, failed) ← propTypedNamesWithFailures env cands
   for n in failed do
     IO.eprintln s!"Warning: could not decide whether the type of {n} is a proposition; \
       it is not trusted by the External-module rule"

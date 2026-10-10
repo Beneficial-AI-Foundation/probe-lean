@@ -183,6 +183,10 @@ native declaration taxonomy:
 | Proof | `proof` | No separate kind. The proof is the body of a `theorem`. |
 | Type definition | none | `class`, `structure`, `inductive`, `quot` |
 
+This table maps kinds only. The atoms that can receive `specs` are a smaller set, see
+[Specs and primary-spec](#specs-and-primary-spec). For example, a `projection` is never a spec
+target.
+
 ## Atom fields (`probe-lean/extract`)
 
 Every atom carries every field below unless the type says "or absent". The Source column says
@@ -211,7 +215,7 @@ where the value comes from: auto (computed from the environment), config
 | `is-primary-spec` | bool | attribute | The declaration carries `@[primary_spec]`. This means tagged, not chosen, see [Specs and primary-spec](#specs-and-primary-spec). |
 | `attributes` | array or absent | attribute | Lean attributes on the declaration. Absent when empty. Not evidence of trust, see [Attributes](#attributes). |
 | `rust-source` | string or null | auto | Path from an Aeneas docstring's `Source: 'path'` line. probe-lean reads the declaration's own docstring first, then the docstring of its sibling `<name>_body`. |
-| `specs` | array or absent | auto | Theorem atoms whose statement mentions this atom. Absent when empty. An atom is "specified" when `specs` is non-empty. |
+| `specs` | array or absent | auto | Theorem atoms whose statement mentions this atom. Only spec targets have `specs`, see [Specs and primary-spec](#specs-and-primary-spec). Absent when empty. An atom is "specified" when `specs` is non-empty. |
 | `primary-spec` | string or absent | auto | The primary specification theorem, see [Specs and primary-spec](#specs-and-primary-spec). |
 | `verification-status` | string or absent | auto | One of the five values in [Verification status](#verification-status-and-the-trusted-base). |
 | `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`. A member of T whose statement rests on a project `sorry` has none. |
@@ -291,11 +295,25 @@ carries no `classification` object and no `source.class` field.
 
 ### Specs and primary-spec
 
+Only a spec target has `specs` and `primary-spec`. A spec target is a constant with
+computational behavior that a theorem can describe. It has two properties:
+
+1. Its `kind` is `def`, `abbrev`, `instance`, `opaque` or `axiom`.
+2. It is a data constant: it is neither a proof nor a predicate. A proof is a constant whose type
+   is a proposition (`Meta.isProp`), for example `def admitted : False := sorry`. A predicate is a
+   constant with `codomain-is-prop: true`, for example `def IsValid (x : T) : Prop`.
+
+So types (`structure`, `class`, `inductive`, `quot`), projections and theorems are never spec
+targets. If `Meta.isProp` cannot decide a constant's type, `extract` prints a warning on stderr
+and the constant is not a spec target. Aeneas pairs a data axiom `f` (an external function) with
+a Prop axiom `f_spec` tagged `@[step]`. `f` is a target. `f_spec` is not, and it is not a spec
+either, because it is not a theorem. Its generated companion `f_spec.mvcgen_spec` is a theorem
+whose statement names `f`, so it is a spec of `f`.
+
 `specs` lists the theorem atoms whose `type-dependencies` include this atom. A constant that a
 theorem uses only in its proof is not something the theorem specifies. One exception exists. If a
-`@[primary_spec]` theorem's statement mentions no specifiable constant, probe-lean reads the
-theorem's `dependencies` instead. If that array names exactly one specifiable constant, the tag
-attaches to it. With several, the tag attaches to nothing. Generated theorems are excluded. A
+`@[primary_spec]` theorem's statement mentions no spec target, probe-lean reads the theorem's
+`dependencies` instead. If that array names exactly one spec target, the tag attaches to it. With several, the tag attaches to nothing. Generated theorems are excluded. A
 generated theorem tagged `@[primary_spec]` is the exception.
 
 `primary-spec` picks one theorem from `specs`, by this precedence:
@@ -411,7 +429,7 @@ external constant reached only through an auxiliary is not listed anywhere, beca
 `by omega` reaches about 50 `Lean.Omega.*` constants.
 
 `type-dependencies` never grows, so type-driven spec selection is unaffected. One fallback reads
-`dependencies`: a `@[primary_spec]` theorem whose statement names no specifiable constant. A
+`dependencies`: a `@[primary_spec]` theorem whose statement names no spec target. A
 folded edge can add a second candidate there and detach the tag.
 
 Folding recovers edges, not nodes. It does not bear on `verification-status`, which the kernel walk
