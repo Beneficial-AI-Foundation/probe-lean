@@ -1211,7 +1211,7 @@ def foldAtomDeps (env : Environment) (isProjectMember : Name → Bool)
     -- It is not a blanket "`specs` cannot change" guarantee. `specTargets`
     -- (`ProbeLean/Atomize.lean`) has one fallback that reads the union
     -- `dependencies`: a `@[primary_spec]`-tagged theorem whose statement names
-    -- nothing specifiable. A folded *term* edge can add a second candidate
+    -- no spec target. A folded *term* edge can add a second candidate
     -- there and detach the tag with `type-dependencies` byte-identical — see
     -- `testPrimarySpecFoldFallback` in `Tests/Main.lean`.
     --

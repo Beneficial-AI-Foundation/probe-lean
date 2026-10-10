@@ -192,6 +192,15 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
       ("probe:instFooBool", "instance"), ("probe:instLike", "def"),
       ("probe:fooUnit", "instance")] do
     check fs s!"{atom} has kind {kind}" (kindOf data atom == some kind)
+  -- Spec targets (issue #130, `Demo/Kinds.lean`): each atom below is named in a
+  -- theorem's statement, but only the data def `needsPos` is a target.
+  for atom in ["probe:Bundle", "probe:PosNat", "probe:Bundle.val", "probe:Bundle.pos",
+      "probe:PosNat.toIsPos", "probe:provedDef", "probe:IsSmall", "probe:isPosFive"] do
+    check fs s!"{atom} exists" (data.getObjVal? atom).toBool
+    check fs s!"{atom} has no specs and no primary-spec"
+      ((atomField data atom "specs").isNone && (atomField data atom "primary-spec").isNone)
+  check fs "needsPos has specs [needsPos_eq]"
+    (depsOf data "probe:needsPos" "specs" == #["probe:needsPos_eq"])
   -- NOTE: the *type*-position fold (an auxiliary named in a statement, whose
   -- reach must be routed to `term-dependencies` rather than
   -- `type-dependencies`) is deliberately not asserted here. It needs a project
