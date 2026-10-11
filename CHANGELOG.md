@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - A proof (a constant whose type is a proposition, checked with `Meta.isProp`) and a predicate (`codomain-is-prop: true`) no longer receive specs. If `Meta.isProp` cannot decide a type, `extract` prints a warning and the constant is not a spec target.
   - The set of theorems that are specs, `kind` and `verification-status` do not change. `viewify` already drops hidden and generated atoms, so the web UI does not change.
 
+### Added
+
+- `docs/spec-relationships.md` states the rules for `specs` and `primary-spec`, with the reason for each decision and the known limitations. `docs/schema.md` links to it.
+
 ## [0.17.0] - 2026-10-06
 
 ### Changed
