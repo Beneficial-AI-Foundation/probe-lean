@@ -7,6 +7,8 @@ Run from this directory, after
     probe-lean check-axioms . >check-axioms.out
     probe-lean extract . --module Merge.Good -o .verilib/module-Good.json
     probe-lean extract . --module Merge.Bad -o .verilib/module-Bad.json
+    probe-lean extract . --module Merge.FixAdd -o .verilib/module-FixAdd.json
+    probe-lean extract . --module Merge.FixRestate -o .verilib/module-FixRestate.json
     python3 check.py
 
 `Merge.Bad` and `Merge.Good` both declare `theorem shared : True`; one proof is a
@@ -20,6 +22,11 @@ of both versions' dependencies, so `shared` reads `unverified` and both callers 
 The atom's edges are that same union, and a `--module` run selecting either
 declaring module emits `shared`, located in the selected module's file: the
 importer's choice of body and owner must not decide the output either.
+
+`Merge.Fix.mutual` (issue #135) is merged the same way. `Merge.FixAdd` adds it with no
+declaration range and owns it, `Merge.FixRestate` states it in source. `extract`
+drops the direct edge to a generated `partial_fixpoint` body, but this name is an
+emitted atom, so its callers keep the edge.
 """
 
 import glob
@@ -52,7 +59,7 @@ def main():
     with open(paths[0]) as fh:
         data = json.load(fh)["data"]
     selected = {}
-    for m in ("Good", "Bad"):
+    for m in ("Good", "Bad", "FixAdd", "FixRestate"):
         with open(f".verilib/module-{m}.json") as fh:
             selected[m] = json.load(fh)["data"]
     with open("extract.stderr") as fh:
@@ -97,10 +104,26 @@ def main():
     check("--module Merge.Good: callerSub is verified (fail closed)",
           sub.get("verification-status") == "verified")
 
+    print("Merged .mutual name: an emitted atom, so its edges stay")
+    fix = "probe:Merge.Fix.mutual"
+    check("Merge.Fix.mutual is an atom located in Merge/FixRestate.lean",
+          data.get(fix, {}).get("code-path") == "Merge/FixRestate.lean")
+    for caller in ("probe:fixCaller", "probe:fixCallerSub"):
+        check(f"{caller} lists Merge.Fix.mutual",
+              fix in data.get(caller, {}).get("term-dependencies", [])
+              and fix in data.get(caller, {}).get("dependencies", []))
+    restate = selected["FixRestate"]
+    check("--module Merge.FixRestate: Merge.Fix.mutual is emitted from Merge/FixRestate.lean",
+          restate.get(fix, {}).get("code-path") == "Merge/FixRestate.lean")
+    check("--module Merge.FixRestate: fixCallerSub lists Merge.Fix.mutual as a project edge",
+          fix in restate.get("probe:fixCallerSub", {}).get("term-dependencies", []))
+    check("--module Merge.FixAdd: Merge.Fix.mutual is not an atom (no range there)",
+          fix not in selected["FixAdd"])
+
     print("Extract stderr")
-    check("the merged declaration is reported",
-          any(l.startswith("Warning: 1 declaration name(s) are declared by more than one project module")
-              and "shared" in l for l in stderr))
+    check("the merged declarations are reported",
+          any(l.startswith("Warning: 2 declaration name(s) are declared by more than one project module")
+              and "shared" in l and "Merge.Fix.mutual" in l for l in stderr))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))
     check("no cross-boundary note (both declarers are project modules)",
