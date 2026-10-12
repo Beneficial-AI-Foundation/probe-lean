@@ -26,7 +26,8 @@ importer's choice of body and owner must not decide the output either.
 `Merge.Fix.mutual` (issue #135) is merged the same way. `Merge.FixAdd` adds it with no
 declaration range and owns it, `Merge.FixRestate` states it in source. `extract`
 drops the direct edge to a generated `partial_fixpoint` body, but this name is an
-emitted atom, so its callers keep the edge.
+emitted atom, so its callers keep the edge. In `--module Merge.FixAdd` it is not
+emitted, but no `partial_fixpoint` block made it, so `fixCallerAdd` keeps the edge too.
 """
 
 import glob
@@ -108,7 +109,7 @@ def main():
     fix = "probe:Merge.Fix.mutual"
     check("Merge.Fix.mutual is an atom located in Merge/FixRestate.lean",
           data.get(fix, {}).get("code-path") == "Merge/FixRestate.lean")
-    for caller in ("probe:fixCaller", "probe:fixCallerSub"):
+    for caller in ("probe:fixCaller", "probe:fixCallerSub", "probe:fixCallerAdd"):
         check(f"{caller} lists Merge.Fix.mutual",
               fix in data.get(caller, {}).get("term-dependencies", [])
               and fix in data.get(caller, {}).get("dependencies", []))
@@ -119,6 +120,11 @@ def main():
           fix in restate.get("probe:fixCallerSub", {}).get("term-dependencies", []))
     check("--module Merge.FixAdd: Merge.Fix.mutual is not an atom (no range there)",
           fix not in selected["FixAdd"])
+    add_caller = selected["FixAdd"].get("probe:fixCallerAdd", {})
+    check("--module Merge.FixAdd: fixCallerAdd keeps its edge to Merge.Fix.mutual "
+          "(no partial_fixpoint block made it)",
+          fix in add_caller.get("term-dependencies", [])
+          and fix in add_caller.get("dependencies", []))
 
     print("Extract stderr")
     check("the merged declarations are reported",

@@ -4177,10 +4177,14 @@ end AuxFoldEnv
 
 open Lean Elab Command Term in
 run_cmd do
-  -- A range-less `.mutual` axiom: no value, so not a generated body.
+  -- Range-less `.mutual` constants that no `partial_fixpoint` block made: an axiom,
+  -- and a theorem with a value.
   liftCoreM <| addDecl <| .axiomDecl
     { name := `AuxFoldEnv.Ax.mutual, levelParams := [], type := mkConst ``Nat,
       isUnsafe := false }
+  liftCoreM <| addDecl <| .thmDecl
+    { name := `AuxFoldEnv.Thm.mutual, levelParams := [], type := mkConst ``True,
+      value := mkConst ``True.intro }
   let env ← getEnv
   let inProject : Name → Bool := fun n => (`AuxFoldEnv).isPrefixOf n
   let notEmitted : Name → Bool := fun _ => false
@@ -4198,7 +4202,7 @@ run_cmd do
       typeDependencies := #[``Nat, ``Option],
       termDependencies := #[`AuxFoldEnv.pfEv.mutual], sourceInfo := none }
   let (evUnion, _, evTerm) ← foldAtomDeps env inProject auxCache evInfo #[] #[]
-  let isMutual (n : Name) : Bool := match privateToUserName n with
+  let isMutual (n : Name) : Bool := match n with
     | .str _ "mutual" => true
     | _ => false
   let checks : Array (String × Bool) := #[
@@ -4213,8 +4217,11 @@ run_cmd do
         `AuxFoldEnv.pfEv.mutual),
     ("a hand-written User.mutual with a range is not a generated body",
       !body `AuxFoldEnv.User.mutual),
-    ("a range-less .mutual axiom (no value) is not a generated body",
+    ("a range-less .mutual axiom is not a generated body",
       !body `AuxFoldEnv.Ax.mutual),
+    ("a range-less .mutual theorem with a value but no fixpoint entry is not a generated body",
+      (declRangeExt.find? env `AuxFoldEnv.Thm.mutual).isNone &&
+        !body `AuxFoldEnv.Thm.mutual),
     ("a .mutual name not in the environment is not a generated body",
       !body `AuxFoldEnv.missing.mutual),
     ("a range-less value-bearing name without the suffix is not a generated body",
@@ -4238,7 +4245,7 @@ def testGeneratedFixpointBody (result : TestResult) : IO TestResult := do
   IO.println ""
   IO.println "Testing isGeneratedFixpointBody against a real environment..."
   result ← test "fixpoint environment checks were generated"
-    (fixpointEnvChecks.size == 12) result
+    (fixpointEnvChecks.size == 13) result
   for (name, ok) in fixpointEnvChecks do
     result ← test name ok result
   return result

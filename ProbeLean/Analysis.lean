@@ -974,8 +974,10 @@ inductive DepClass where
       "Not foldable" is different from "not an edge". But it is not "edge
       preserved" either, and the name filter decides which applies, not anything
       here. A direct reference that survives `isInternalName` stays in its project
-      or `*-external` bucket as always. `partitionDeps` drops a reference that the
-      name filter catches from all four arrays, also as always. The name filter
+      or `*-external` bucket as always, except the generated body of a
+      `partial_fixpoint` block (`isGeneratedFixpointBody`). `partitionDeps` drops
+      a reference that the name filter catches from all four arrays, also as
+      always. The name filter
       catches every structural-member suffix, the recursor suffixes included (a
       nested-inductive `Foo.rec_1` matches none). Constructors split on that same
       rule, not as a class: `Color.red` is kept, `Foo.mk` is not. -/
@@ -1027,24 +1029,27 @@ def classifyFoldCandidate (env : Environment) (isProjectMember : Name → Bool)
     else .ignored
 
 /-- A project constant that Lean generated as the body of a `partial_fixpoint`
-block (issue #135): its name ends in `.mutual`, it is not emitted, it has no
-declaration range, and it has a value. Such a constant is never an atom, and
-`classifyFoldCandidate` makes it `.foldable`, so the fold adds its callees.
-`partitionDeps` drops the direct edge to it, which would otherwise dangle.
+block (issue #135). Such a constant is never an atom, and `classifyFoldCandidate`
+makes it `.foldable`, so the fold adds its callees. `partitionDeps` drops the
+direct edge to it, which would otherwise dangle.
 
-The emitted test is needed because a range test alone can miss: for a name
-that several project modules declare, `mergedDeclInfo` can emit the atom from
-a module other than the range-less owner. A hand-written `X.mutual` with a
-range fails the range test and stays an edge.
+The test asks Lean for provenance: Lean names the body `f.mutual` after the first
+function `f` of the block, and records it as `declNameNonRec` in the
+`partial_fixpoint` equation info of `f`. A range-less `X.mutual` that
+metaprogramming added has no such entry and stays an edge, and so does a
+hand-written one. If the entry is missing, the edge stays.
 
-The suffix test matches the last name component and builds no string. It runs
-first, so the other tests run only for `.mutual` names. -/
+The emitted test covers a name that several project modules declare:
+`mergedDeclInfo` can emit the atom from a module other than the owner.
+
+The suffix test matches the last name component, which a private prefix does not
+change, so it runs first and costs one comparison for most names. -/
 def isGeneratedFixpointBody (env : Environment) (isProjectMember : Name → Bool)
     (isEmitted : Name → Bool) (n : Name) : Bool :=
-  match privateToUserName n with
-  | .str _ "mutual" =>
-    isProjectMember n && !isEmitted n && (declRangeExt.find? env n).isNone &&
-      ((env.find? n).bind valueOf).isSome
+  match n with
+  | .str f "mutual" =>
+    isProjectMember n && !isEmitted n &&
+      (Elab.PartialFixpoint.eqnInfoExt.find? env f).any (·.declNameNonRec == n)
   | _ => false
 
 /-- Cross-root state for the auxiliary-fold traversal.

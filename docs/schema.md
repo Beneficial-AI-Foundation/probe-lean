@@ -405,15 +405,14 @@ a single function whose fixed parameters are not a prefix. The body is a constan
 `f` references only that constant. If a name meets all of these conditions, `extract` drops the
 direct edge to it:
 
-- The last name component is `mutual`.
+- The name is `f.mutual`, and Lean recorded it as the body of the `partial_fixpoint` block of `f`.
 - The name is in the module filter.
 - This run does not emit it as an atom.
-- It has no declaration range.
-- It has a value.
 
 The fold then lists the callees of the body.
 So no array lists the generated `.mutual` name, and `extract` prints no "not found in atom map"
-warning for it. A hand-written `X.mutual` has a range and stays listed. This rule does not change
+warning for it. Any other `X.mutual` stays listed: a hand-written one, and also a range-less one
+that metaprogramming added. If the latter is not an atom, the warning still flags it. This rule does not change
 the invariant above, which is about the fold. When `tools/audit/compare-extract.py` compares
 output from before and after 0.18.2, it reports these removed edges.
 
