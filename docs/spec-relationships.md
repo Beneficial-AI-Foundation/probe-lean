@@ -56,7 +56,9 @@ Decisions (issue #130):
   `montgomery.valid_ladder_state` had the wrong `primary-spec`.
 - Projections and types are not targets. Their specs are dropped, not moved to another atom (for
   example, from `Bundle.val` to a constructor). The theorems that name only a projection are
-  mostly structure lemmas such as `ext`.
+  mostly structure lemmas such as `ext`. The `@[primary_spec]` fallback in "Spec sources" is the
+  one exception: if a tagged theorem's statement names no target, its tag can attach to a
+  function that its proof uses.
 - Type formers are not targets. A type alias plays the role of a structure: theorems mention it
   because they are about its values. In curve25519-dalek-lean-verify, 10 type formers received
   specs before this rule, for example `Edwards.CurveField` (275), `FieldElement51` (219) and
@@ -67,7 +69,8 @@ Decisions (issue #130):
   ([verification-status.md](verification-status.md)).
 
 Known limitation: the predicate and type-former tests read the syntax of the result type. They
-do not unfold aliases. So a constant whose result type is an alias of `Prop` stays a target, for
+do not unfold aliases or reduce the result type (for example a `let` or a function
+application in the type). So a constant whose result type is an alias of `Prop` stays a target, for
 example `def HiddenPredicate (n : Nat) : Proposition` with `abbrev Proposition : Type := Prop`, or
 a constant of type `Set α`. An alias of `Type` stays a target too. The `aux-fold` fixture records
 the `HiddenPredicate` case.

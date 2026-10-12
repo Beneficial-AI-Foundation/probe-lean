@@ -202,6 +202,11 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
       ((atomField data atom "specs").isNone && (atomField data atom "primary-spec").isNone)
   check fs "needsPos has specs [needsPos_eq]"
     (depsOf data "probe:needsPos" "specs" == #["probe:needsPos_eq"])
+  -- The theorems do name the type formers, so the absent specs come from the rule.
+  check fs "score_zero names Score in its statement"
+    ((depsOf data "probe:score_zero" "type-dependencies").contains "probe:Score")
+  check fs "grid_zero_eq names Grid in its statement"
+    ((depsOf data "probe:grid_zero_eq" "type-dependencies").contains "probe:Grid")
   -- Known limitation (docs/spec-relationships.md): a predicate that returns an alias
   -- of `Prop` is not recognized, so it keeps its spec.
   check fs "HiddenPredicate has specs [HiddenPredicate_spec] (known limitation)"
