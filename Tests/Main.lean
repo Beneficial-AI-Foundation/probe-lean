@@ -5172,17 +5172,16 @@ run_cmd do
     #[$items,*]))
 
 /-! The spec proof test (`specProofNames`) on a constant whose type `Meta.isProp` cannot
-decide. `addDeclCore (doCheck := false)` adds it without the kernel check, so its type
-names a constant that does not exist. -/
+decide. `debug.skipKernelTC` adds it without the kernel check, so its type names a
+constant that does not exist. -/
 open Lean Elab Command in
 run_cmd do
   let badTy := mkConst `No.Such.Const
   let bad : Declaration := .defnDecl
     { name := `SpecEnv.badTy, levelParams := [], type := badTy, value := badTy,
       hints := .opaque, safety := .safe }
-  let env ← match (← getEnv).addDeclCore 0 bad none (doCheck := false) with
-    | .ok e => pure e
-    | .error _ => throwError "could not add SpecEnv.badTy"
+  liftCoreM <| withOptions (·.setBool `debug.skipKernelTC true) <| addDecl bad
+  let env ← getEnv
   let info (n : Name) (kind : DeclKind) : DeclInfo :=
     { name := n, displayName := n.toString, moduleName := .anonymous, kind,
       dependencies := #[], typeDependencies := #[], termDependencies := #[], sourceInfo := none }
