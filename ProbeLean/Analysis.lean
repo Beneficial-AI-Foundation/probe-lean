@@ -330,6 +330,15 @@ def codomainIsPropOf (type : Expr) : Bool :=
   | .sort .zero => true
   | _ => false
 
+/-- True when the result type (after stripping `∀`/`→` binders) is `Sort u` with `u`
+not syntactically zero: a type former such as `abbrev T : Type := Nat`. A polymorphic
+`Sort u` counts. Like `codomainIsPropOf`, it does not unfold aliases. -/
+def codomainIsTypeOf (type : Expr) : Bool :=
+  match stripForalls type with
+  | .sort .zero => false
+  | .sort _ => true
+  | _ => false
+
 /-- Information about a declaration for analysis -/
 structure DeclInfo where
   name : Name
@@ -345,6 +354,8 @@ structure DeclInfo where
   /-- Result type is `Sort 0` (a `Prop`). Neutral primitive (see
       `codomainIsPropOf`). -/
   codomainIsProp : Bool := false
+  /-- Result type is a `Sort` other than `Prop` (see `codomainIsTypeOf`). -/
+  codomainIsType : Bool := false
   /-- Final application arg of the result type is `Bool`. Neutral primitive (see
       `lastArgIsBool`). -/
   codomainLastArgIsBool : Bool := false
@@ -365,6 +376,7 @@ def analyzeDecl (env : Environment) (modNames : Array Name) (name : Name) (info 
     sourceInfo,
     codomainHead := codomainHeadOf info.type,
     codomainIsProp := codomainIsPropOf info.type,
+    codomainIsType := codomainIsTypeOf info.type,
     codomainLastArgIsBool := lastArgIsBool (stripForalls info.type) }
 
 /-- `outer` covers `inner`'s line range, sharing boundaries allowed but not the
@@ -1211,7 +1223,7 @@ def foldAtomDeps (env : Environment) (isProjectMember : Name → Bool)
     -- It is not a blanket "`specs` cannot change" guarantee. `specTargets`
     -- (`ProbeLean/Atomize.lean`) has one fallback that reads the union
     -- `dependencies`: a `@[primary_spec]`-tagged theorem whose statement names
-    -- nothing specifiable. A folded *term* edge can add a second candidate
+    -- no spec target. A folded *term* edge can add a second candidate
     -- there and detach the tag with `type-dependencies` byte-identical — see
     -- `testPrimarySpecFoldFallback` in `Tests/Main.lean`.
     --
@@ -1356,6 +1368,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
     isPrimarySpec := isPrimarySpec
     codomainHead := info.codomainHead.map (·.toString)
     codomainIsProp := info.codomainIsProp
+    codomainIsType := info.codomainIsType
     codomainLastArgIsBool := info.codomainLastArgIsBool
   }
 

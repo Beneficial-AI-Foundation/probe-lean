@@ -183,6 +183,10 @@ native declaration taxonomy:
 | Proof | `proof` | No separate kind. The proof is the body of a `theorem`. |
 | Type definition | none | `class`, `structure`, `inductive`, `quot` |
 
+This table maps kinds only. The atoms that can receive `specs` are a smaller set, see
+[spec-relationships.md](spec-relationships.md). For example, a `projection` is never a spec
+target.
+
 ## Atom fields (`probe-lean/extract`)
 
 Every atom carries every field below unless the type says "or absent". The Source column says
@@ -208,11 +212,11 @@ where the value comes from: auto (computed from the environment), config
 | `is-lean-generated` | bool | auto | Core-Lean output: `deriving`-generated instance clusters and structure or class projections. |
 | `is-aeneas-generated` | bool | config + auto | Exists only because of Aeneas, see [Generated-code hiding](#generated-code-hiding). |
 | `is-ignored` | bool | config | From the config's `is-ignored` list. Always an editorial decision. |
-| `is-primary-spec` | bool | attribute | The declaration carries `@[primary_spec]`. This means tagged, not chosen, see [Specs and primary-spec](#specs-and-primary-spec). |
+| `is-primary-spec` | bool | attribute | The declaration carries `@[primary_spec]`. This means tagged, not chosen, see [spec-relationships.md](spec-relationships.md). |
 | `attributes` | array or absent | attribute | Lean attributes on the declaration. Absent when empty. Not evidence of trust, see [Attributes](#attributes). |
 | `rust-source` | string or null | auto | Path from an Aeneas docstring's `Source: 'path'` line. probe-lean reads the declaration's own docstring first, then the docstring of its sibling `<name>_body`. |
-| `specs` | array or absent | auto | Theorem atoms whose statement mentions this atom. Absent when empty. An atom is "specified" when `specs` is non-empty. |
-| `primary-spec` | string or absent | auto | The primary specification theorem, see [Specs and primary-spec](#specs-and-primary-spec). |
+| `specs` | array or absent | auto | Theorem atoms whose statement mentions this atom. Only spec targets have `specs`, see [spec-relationships.md](spec-relationships.md). Absent when empty. An atom is "specified" when `specs` is non-empty. |
+| `primary-spec` | string or absent | auto | The primary specification theorem, see [spec-relationships.md](spec-relationships.md). |
 | `verification-status` | string or absent | auto | One of the five values in [Verification status](#verification-status-and-the-trusted-base). |
 | `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`. A member of T whose statement rests on a project `sorry` has none. |
 | `status-origin` | string or absent | auto | `"kernel-taint"` on an atom that reads `"verified"` because the walk found a reachable project `sorry`, a member of T with a tainted statement included. See [Re-deriving statuses](#re-deriving-statuses). |
@@ -291,27 +295,14 @@ carries no `classification` object and no `source.class` field.
 
 ### Specs and primary-spec
 
-`specs` lists the theorem atoms whose `type-dependencies` include this atom. A constant that a
-theorem uses only in its proof is not something the theorem specifies. One exception exists. If a
-`@[primary_spec]` theorem's statement mentions no specifiable constant, probe-lean reads the
-theorem's `dependencies` instead. If that array names exactly one specifiable constant, the tag
-attaches to it. With several, the tag attaches to nothing. Generated theorems are excluded. A
-generated theorem tagged `@[primary_spec]` is the exception.
-
-`primary-spec` picks one theorem from `specs`, by this precedence:
-
-1. a theorem tagged `@[primary_spec]`.
-2. a theorem with a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`), only
-   when exactly one theorem in `specs` has one.
-3. the theorem named exactly `<def>_spec`, where `<def>` is the atom's own name.
-4. the only theorem in `specs`.
-
-If several `@[primary_spec]` theorems target one atom, the tie-break is arbitrary and `extract`
-prints a warning on stderr. The other tagged theorems stay in `specs` with `is-primary-spec: true`.
-Signals 2 to 4 pick a theorem without tagging it, so the winner's own `is-primary-spec` can be
-`false`. A tagged non-theorem reads `true`. A tagged theorem that the inference attaches to no
-target (issue #104) also reads `true`. To find a target's tagged candidates, intersect its `specs`
-with this flag.
+Only a spec target has `specs` and `primary-spec`. A spec target is a data `def`, `abbrev`,
+`instance`, `opaque` or `axiom`: a constant that is not a proof, a predicate or a type former
+(a type alias such as `abbrev Score : Type := Nat`). `specs` lists
+the theorems whose statement (`type-dependencies`) names the target. Generated theorems are
+excluded unless they carry `@[primary_spec]`. `primary-spec` picks one of them: a
+`@[primary_spec]` tag, then a known framework attribute, then the `<def>_spec` name, then the only
+spec. [spec-relationships.md](spec-relationships.md) states the rules, the edge cases and the
+reasons for each decision.
 
 ## Verification status and the trusted base
 
@@ -411,7 +402,7 @@ external constant reached only through an auxiliary is not listed anywhere, beca
 `by omega` reaches about 50 `Lean.Omega.*` constants.
 
 `type-dependencies` never grows, so type-driven spec selection is unaffected. One fallback reads
-`dependencies`: a `@[primary_spec]` theorem whose statement names no specifiable constant. A
+`dependencies`: a `@[primary_spec]` theorem whose statement names no spec target. A
 folded edge can add a second candidate there and detach the tag.
 
 Folding recovers edges, not nodes. It does not bear on `verification-status`, which the kernel walk

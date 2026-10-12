@@ -242,6 +242,14 @@ structure Atom where
   codomainIsProp : Bool := false
   /-- Final application arg of the result type is `Bool`. -/
   codomainLastArgIsBool : Bool := false
+  /-- The type of the constant is a proposition: every theorem, and a `def`, `abbrev`,
+  `opaque`, `instance` or `axiom` whose type `Meta.isProp` accepts (or cannot decide).
+  `false` for every other kind, which is never checked. Set by `buildAtoms`, read by
+  `isSpecTarget`. Not serialized. -/
+  isProof : Bool := false
+  /-- Result type is a `Sort` other than `Prop`: a type former (`codomainIsTypeOf`).
+  Read by `isSpecTarget`. Not serialized. -/
+  codomainIsType : Bool := false
   deriving Repr, BEq, Inhabited
 
 instance : Lean.ToJson Atom where

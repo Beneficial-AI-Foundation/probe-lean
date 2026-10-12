@@ -35,6 +35,7 @@ The tree does not keep completed specs. Git history and the PR keep them.
 - When commands, flags, installation steps or walkthroughs change, update docs/usage.md.
 - When the output format, fields or envelope structure change, update docs/schema.md.
 - When the status logic, the trust rules or the cross-checks change, update docs/verification-status.md.
+- When the rules for spec targets, spec sources or primary-spec change, update docs/spec-relationships.md.
 - Include usage examples and option descriptions
 - Update docs before committing
 
@@ -115,4 +116,4 @@ Do **not** hardcode version strings anywhere else. Use `ProbeLean.version` (or `
 - `ProbeLean/Attrs.lean`: shared tag attributes (`@[primary_spec]`, `@[externally_verified]` and four classification tags that probe-lean emits in `attributes` but does not interpret).
 - `ProbeLean/Version.lean`: the version constant, generated from `lakefile.toml`.
 
-[docs/schema.md](docs/schema.md) defines every output field, including `dependencies`, `specs` and the `codomain-*` facts. [docs/verification-status.md](docs/verification-status.md) describes how the walk decides `verification-status`.
+[docs/schema.md](docs/schema.md) defines every output field, including `dependencies`, `specs` and the `codomain-*` facts. [docs/verification-status.md](docs/verification-status.md) describes how the walk decides `verification-status`. [docs/spec-relationships.md](docs/spec-relationships.md) states which atoms receive `specs` and `primary-spec`.
