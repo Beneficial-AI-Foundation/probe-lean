@@ -689,6 +689,27 @@ def testComputeSpecsGeneratedExclusion (result : TestResult) : IO TestResult := 
   result ← test "tagged generated theorem re-enters specs" (match defTagged with
     | some a => a.specs.contains "probe:Test.copy.spec.mvcgen_spec"
     | none => false) result
+
+  IO.println ""
+  IO.println "Testing @[primary_spec] on a Prop-valued projection is ignored..."
+  let taggedProj : Atom := { specThm with
+    name := "probe:Test.Copy.eq"
+    displayName := "Copy.eq"
+    kind := .projection
+    attributes := #[]
+    isLeanGenerated := true
+    isHidden := true
+    isProof := true
+    isPrimarySpec := true
+  }
+  let projResult := computeSpecs #[defAtom, specThm, taggedProj]
+  let defProj := projResult.find? fun a => a.name == "probe:Test.copy"
+  result ← test "tagged Prop projection is not a spec source" (match defProj with
+    | some a => a.specs == #["probe:Test.copy.spec"]
+    | none => false) result
+  result ← test "tagged Prop projection is not the primary spec" (match defProj with
+    | some a => a.primarySpec == some "probe:Test.copy.spec"
+    | none => false) result
   return result
 
 def testAtomsOutputJson (result : TestResult) : IO TestResult := do
@@ -4986,6 +5007,9 @@ run_cmd do
   let extDef := mkTestDefn `TaintEnv.ext (.sort .zero)
   let extExt := mkMerged `TaintEnv.ext #[(`A.FunsExternal, extDef), (`B.TypesExternal, extDef)]
   let extPlain := mkMerged `TaintEnv.ext #[(`A.FunsExternal, extDef), (`B.Funs, extDef)]
+  -- A kernel theorem whose name is a Prop-valued projection: its kind is `projection`
+  -- (#115), but it is a proof, so rule 3 does not trust it.
+  let projExt := mkMerged ``AuxFoldEnv.Bundle.pos #[(`A.FunsExternal, thmSorried)]
   -- A tagged theorem that is also merged: the tag vouches for one body only.
   let trustMerged := computeTrustBase env consts tagged
     (Std.HashMap.ofList [(`TaintEnv.evSorried, thmThm)])
@@ -5016,6 +5040,9 @@ run_cmd do
       mergedTrustedReason env extExt == some "external"),
     ("merged defs where one owner is not External: not trusted",
       (mergedTrustedReason env extPlain).isNone),
+    ("merged Prop projection in an External module is a proof: not trusted",
+      getDeclKind env ``AuxFoldEnv.Bundle.pos thmSorried == .projection &&
+      (mergedTrustedReason env projExt).isNone),
     ("computeTrustBase: a tagged theorem that is merged loses rule-2 trust",
       trustMerged[`TaintEnv.evSorried]? == none && trustMerged[`TaintEnv.trustAx]? == some "axiom"),
     ("childrenOverride: the merged clean theorem becomes a direct carrier and is tainted",

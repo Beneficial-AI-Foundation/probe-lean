@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - The projection of a Prop-valued structure field or class parent now has kind `projection`, not `theorem` (#115). Lean compiles such a projection as a theorem, and `getDeclKind` checked `env.isProjectionFn` only for definitions. The atom is now hidden and `is-lean-generated` like other projections. It is no longer a spec source, so it leaves the `specs` of the data definitions that its statement names. Its `verification-status` does not change.
+- Rule 3 (`*External` modules) now decides whether a constant is a proof from its kernel declaration, not from its `kind`. So a Prop-valued projection is still a proof, also for a merged declaration. A `@[primary_spec]` tag on a Prop-valued projection has no effect.
 
 ## [0.18.0] - 2026-10-10
 

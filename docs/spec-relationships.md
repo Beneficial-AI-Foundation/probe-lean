@@ -86,6 +86,7 @@ exception: the tag is a human decision about that theorem.
 
 The projection of a Prop-valued field or class parent is not a spec source either. Lean compiles
 it as a theorem, but its kind is `projection` (#115). Its statement only restates the field.
+A `@[primary_spec]` tag on such a projection has no effect.
 
 One exception reads the proof. If a `@[primary_spec]` theorem's statement names no spec target,
 probe-lean reads the theorem's `dependencies` instead. If that array names exactly one spec

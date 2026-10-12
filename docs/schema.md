@@ -183,6 +183,9 @@ native declaration taxonomy:
 | Proof | `proof` | No separate kind. The proof is the body of a `theorem`. |
 | Type definition | none | `class`, `structure`, `inductive`, `quot` |
 
+`kind` is the form of the declaration, not a code or proof classification. A
+Prop-valued projection (`Bundle.pos`) and a `def` whose type is a proposition are proofs.
+
 This table maps kinds only. The atoms that can receive `specs` are a smaller set, see
 [spec-relationships.md](spec-relationships.md). For example, a `projection` is never a spec
 target.

@@ -351,6 +351,10 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect :
   check fs "admittedFact has no trusted-reason" (reasonOf data "probe:admittedFact").isNone
   expect "probe:externalPred" "trusted"
   check fs "externalPred trusted-reason is external" (reasonOf data "probe:externalPred" == some "external")
+  -- …and a Prop-valued projection, whose kind is `projection` (issue #115).
+  check fs "ExtBundle.val trusted-reason is external" (reasonOf data "probe:ExtBundle.val" == some "external")
+  check fs "ExtBundle.pos has no trusted-reason" (reasonOf data "probe:ExtBundle.pos").isNone
+  check fs "ExtBundle.pos is not trusted" (statusOf data "probe:ExtBundle.pos" != some "trusted")
   -- The range-less carrier: not an atom, but its caller is tainted.
   check fs "noRangeMid is not an atom" (data.getObjVal? "probe:noRangeMid").toOption.isNone
   expect "probe:viaNoRange" "verified"
@@ -494,9 +498,16 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
   -- The trusted base itself: every rule's entries with reason and module, and the
   -- statement of each rule-3 model.
   let trusted := sectionUnder allLines (fun l => l.endsWith " trusted constant(s) (T):")
-  check fs "T header counts the summary's trusted constants"
-    (allLines.contains "13 trusted constant(s) (T):")
-  check fs "T lists exactly 13 constants" (trusted.size == 13)
+  check fs "T header counts the listed constants"
+    (allLines.contains s!"{trusted.size} trusted constant(s) (T):")
+  -- `ExtBundle`'s generated constants (recursor, `noConfusion`, ...) are trusted by
+  -- rule 3, and their number depends on the Lean version, so they are counted apart.
+  let (extBundle, others) := trusted.partition (·.startsWith "  ExtBundle")
+  check fs "T lists exactly 13 constants besides ExtBundle's" (others.size == 13)
+  check fs "T: ExtBundle and its data field are trusted, its Prop field is not"
+    (extBundle.contains "  ExtBundle [external] Demo.FunsExternal : Type" &&
+     extBundle.contains "  ExtBundle.val [external] Demo.FunsExternal : ExtBundle → Nat" &&
+     !extBundle.any (·.startsWith "  ExtBundle.pos "))
   check fs "T: rule-2 entries carry their reason and module"
     (trusted.contains "  vouched [externally_verified] Demo.Trust" &&
      trusted.contains "  laterVouched [externally_verified] Demo.Trust" &&

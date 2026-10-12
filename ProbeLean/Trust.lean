@@ -63,9 +63,9 @@ def isCompanionName : Name → Bool
        no longer feeds trust.
     3. a non-proof in a `*External` module: Aeneas's trust-base convention for
        hand-written models of external functions and types. `isProof` is true for every
-       `theorem` and for any other declaration whose type is a proposition (`def
-       admitted : False := sorry`, an `opaque` of Prop type). Those carry proofs and get
-       their normal status.
+       kernel theorem (a `theorem` or a Prop-valued projection) and for any other
+       declaration whose type is a proposition (`def admitted : False := sorry`, an
+       `opaque` of Prop type). Those carry proofs and get their normal status.
 
     Returns the `trusted-reason` string, or `none` when the declaration is not
     trusted. -/
