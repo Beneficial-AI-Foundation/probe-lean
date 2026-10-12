@@ -412,7 +412,9 @@ direct edge to it:
 The fold then lists the callees of the body.
 So no array lists the generated `.mutual` name, and `extract` prints no "not found in atom map"
 warning for it. Any other `X.mutual` stays listed: a hand-written one, and also a range-less one
-that metaprogramming added. If the latter is not an atom, the warning still flags it. This rule does not change
+that metaprogramming added. If the latter is not an atom, the warning still flags it. Lean
+records no body for a block whose functions have a proposition as type. For such a block the
+direct edge to `f.mutual` stays, and the warning is still printed. This rule does not change
 the invariant above, which is about the fold. When `tools/audit/compare-extract.py` compares
 output from before and after 0.18.2, it reports these removed edges.
 

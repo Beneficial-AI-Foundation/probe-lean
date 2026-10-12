@@ -7,7 +7,8 @@ Run from this directory, after
     probe-lean check-axioms . >check-axioms.out
     probe-lean extract . --module Merge.Good -o .verilib/module-Good.json
     probe-lean extract . --module Merge.Bad -o .verilib/module-Bad.json
-    probe-lean extract . --module Merge.FixAdd -o .verilib/module-FixAdd.json
+    probe-lean extract . --module Merge.FixAdd -o .verilib/module-FixAdd.json \
+        2>.verilib/module-FixAdd.stderr
     probe-lean extract . --module Merge.FixRestate -o .verilib/module-FixRestate.json
     python3 check.py
 
@@ -125,6 +126,10 @@ def main():
           "(no partial_fixpoint block made it)",
           fix in add_caller.get("term-dependencies", [])
           and fix in add_caller.get("dependencies", []))
+    with open(".verilib/module-FixAdd.stderr") as fh:
+        add_stderr = fh.read().splitlines()
+    check("--module Merge.FixAdd: the dangling edge to Merge.Fix.mutual is reported",
+          any(l.startswith(f'Warning: dependency "{fix}" not found in atom map') for l in add_stderr))
 
     print("Extract stderr")
     check("the merged declarations are reported",

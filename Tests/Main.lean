@@ -4173,6 +4173,14 @@ partial_fixpoint
 /-- A hand-written `.mutual` name: it has a range, so it stays an atom and an edge. -/
 def User.«mutual» : Option Nat := pfHelper 2
 
+-- A proposition-valued fixpoint: Lean creates `pfProof.mutual` but records no
+-- equation info for it, so the edge stays (conservative).
+def pfProof (n fixed : Nat) : True :=
+  if n == fixed then True.intro else pfProof (n - 1) fixed
+partial_fixpoint monotonicity by
+  intro _ _ _ _
+  exact Lean.Order.PartialOrder.rel_refl
+
 end AuxFoldEnv
 
 open Lean Elab Command Term in
@@ -4222,6 +4230,10 @@ run_cmd do
     ("a range-less .mutual theorem with a value but no fixpoint entry is not a generated body",
       (declRangeExt.find? env `AuxFoldEnv.Thm.mutual).isNone &&
         !body `AuxFoldEnv.Thm.mutual),
+    ("a proposition-valued fixpoint body has no equation info, so its edge stays",
+      (env.find? `AuxFoldEnv.pfProof.mutual).isSome &&
+        (declRangeExt.find? env `AuxFoldEnv.pfProof.mutual).isNone &&
+        !body `AuxFoldEnv.pfProof.mutual),
     ("a .mutual name not in the environment is not a generated body",
       !body `AuxFoldEnv.missing.mutual),
     ("a range-less value-bearing name without the suffix is not a generated body",
@@ -4245,7 +4257,7 @@ def testGeneratedFixpointBody (result : TestResult) : IO TestResult := do
   IO.println ""
   IO.println "Testing isGeneratedFixpointBody against a real environment..."
   result ← test "fixpoint environment checks were generated"
-    (fixpointEnvChecks.size == 13) result
+    (fixpointEnvChecks.size == 14) result
   for (name, ok) in fixpointEnvChecks do
     result ← test name ok result
   return result

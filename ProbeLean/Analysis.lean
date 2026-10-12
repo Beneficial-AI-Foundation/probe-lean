@@ -1037,7 +1037,9 @@ The test asks Lean for provenance: Lean names the body `f.mutual` after the firs
 function `f` of the block, and records it as `declNameNonRec` in the
 `partial_fixpoint` equation info of `f`. A range-less `X.mutual` that
 metaprogramming added has no such entry and stays an edge, and so does a
-hand-written one. If the entry is missing, the edge stays.
+hand-written one. If the entry is missing, the edge stays. Lean records no entry
+for a block whose functions are theorems or have a proposition as type, so the
+direct edge to such a body stays and dangles.
 
 The emitted test covers a name that several project modules declare:
 `mergedDeclInfo` can emit the atom from a module other than the owner.
