@@ -337,8 +337,9 @@ The trusted base, one shared rule set (`ProbeLean/Trust.lean`) in precedence ord
 2. `"externally_verified"`: the declaration is in the `externally_verified` attribute's tag set,
    read from the environment however the tag was attached. Nothing that merely shares a tagged
    declaration's source range is in the set.
-3. `"external"`: a non-proof (not a theorem, and not Prop-typed) in a module whose name ends with
-   `External`, trusted as a model whatever its type.
+3. `"external"`: a non-proof in a module whose name ends with `External`, trusted as a model
+   whatever its type. A non-proof is neither a kernel theorem (a `theorem` or a Prop-valued
+   projection, which reads `kind: "projection"`) nor Prop-typed.
 
 Trust excuses a declaration's proof, not its statement. The walk follows the type of a trusted
 declaration and not its value. For a trusted inductive type or structure, it also follows the
