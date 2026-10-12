@@ -106,11 +106,12 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
 def specTargetKinds : List DeclKind := [.def, .abbrev, .instance, .opaque, .axiom]
 
 /-- A spec target is a constant with computational behavior that a theorem can describe:
-    its kind is in `specTargetKinds`, and it is a data constant, neither a proof
-    (`isProof`) nor a predicate (`codomainIsProp`). Types, projections, proofs and
-    predicates are never targets. -/
+    its kind is in `specTargetKinds`, and it is a data constant: not a proof
+    (`isProof`), not a predicate (`codomainIsProp`) and not a type former
+    (`codomainIsType`). Types, type aliases, projections, proofs and predicates are
+    never targets. -/
 def isSpecTarget (a : Atom) : Bool :=
-  specTargetKinds.contains a.kind && !a.isProof && !a.codomainIsProp
+  specTargetKinds.contains a.kind && !a.isProof && !a.codomainIsProp && !a.codomainIsType
 
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
     list of every spec-target **type** dependency (`isSpecTarget`). Also propagate `primarySpec`

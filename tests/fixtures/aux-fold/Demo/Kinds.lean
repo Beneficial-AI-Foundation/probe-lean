@@ -67,3 +67,17 @@ def isPosFive : IsPos 5 := ⟨by decide⟩
 attribute [instance] isPosFive
 
 theorem isPosFive_eq : isPosFive = ⟨by decide⟩ := rfl
+
+/-- A type alias: a type former, not a spec target. -/
+abbrev Score : Type := Nat
+theorem score_zero : (0 : Score) = (0 : Nat) := rfl
+
+/-- A type family: a type former, not a spec target. -/
+def Grid (n : Nat) : Type := Fin n → Nat
+theorem grid_zero_eq : Grid 0 = (Fin 0 → Nat) := rfl
+
+/-- Known limitation: the predicate test reads the syntax, so a predicate whose result
+    type is an alias of `Prop` stays a spec target. `AuxFoldCheck.lean` records it. -/
+abbrev Proposition : Type := Prop
+def HiddenPredicate (n : Nat) : Proposition := n > 0
+theorem HiddenPredicate_spec (n : Nat) : HiddenPredicate n ↔ n > 0 := Iff.rfl

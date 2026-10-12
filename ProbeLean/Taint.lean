@@ -295,7 +295,7 @@ def externalRule3Candidates (env : Environment) (consts : Array (Name × Constan
     (`withCurrHeartbeats`), so one pathological statement cannot starve the rest.
 
     Returns the proposition-typed names (failures included) and the failures, so each
-    caller prints its own warning (`propTypedNames`, `Atomize.buildAtoms`). -/
+    caller prints its own warning (`propTypedNames`, `specProofNames`). -/
 def propTypedNamesWithFailures (env : Environment) (cands : Array (Name × ConstantInfo))
     : IO (Std.HashSet Name × Array Name) := do
   if cands.isEmpty then return ({}, #[])

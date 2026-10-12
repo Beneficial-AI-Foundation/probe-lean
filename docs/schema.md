@@ -296,7 +296,8 @@ carries no `classification` object and no `source.class` field.
 ### Specs and primary-spec
 
 Only a spec target has `specs` and `primary-spec`. A spec target is a data `def`, `abbrev`,
-`instance`, `opaque` or `axiom`: a constant that is neither a proof nor a predicate. `specs` lists
+`instance`, `opaque` or `axiom`: a constant that is not a proof, a predicate or a type former
+(a type alias such as `abbrev Score : Type := Nat`). `specs` lists
 the theorems whose statement (`type-dependencies`) names the target. Generated theorems are
 excluded unless they carry `@[primary_spec]`. `primary-spec` picks one of them: a
 `@[primary_spec]` tag, then a known framework attribute, then the `<def>_spec` name, then the only

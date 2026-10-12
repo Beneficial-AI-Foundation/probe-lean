@@ -1169,6 +1169,14 @@ def testCodomainFacts (result : TestResult) : IO TestResult := do
   result ← test "codomainIsPropOf ∀ x, Sort 0 (strips binders)" (codomainIsPropOf forallProp == true) result
   result ← test "codomainIsPropOf ProbComp Bool is false" (codomainIsPropOf probCompBool == false) result
   result ← test "codomainIsPropOf ENNReal is false" (codomainIsPropOf ennreal == false) result
+  -- codomainIsTypeOf: a `Sort` other than `Prop`, through binders
+  let typeSort := Lean.Expr.sort (Lean.Level.succ Lean.Level.zero)
+  let forallType := Lean.Expr.forallE `x nat typeSort Lean.BinderInfo.default
+  result ← test "codomainIsTypeOf Type" (codomainIsTypeOf typeSort) result
+  result ← test "codomainIsTypeOf ∀ x, Type (strips binders)" (codomainIsTypeOf forallType) result
+  result ← test "codomainIsTypeOf Sort u" (codomainIsTypeOf (Lean.Expr.sort (Lean.Level.param `u))) result
+  result ← test "codomainIsTypeOf Prop and Nat are false"
+    (!codomainIsTypeOf propSort && !codomainIsTypeOf nat) result
 
   -- codomainHeadOf: qualified name preserved, through binders, `Sort 0` → none
   let qualified := Lean.Expr.const `SecureMessaging.CKA.Defs.CKAScheme []
@@ -5163,6 +5171,45 @@ run_cmd do
   elabCommand (← `(def $(mkIdent `projEnvChecks) : Array (String × Bool) :=
     #[$items,*]))
 
+/-! The spec proof test (`specProofNames`) on a constant whose type `Meta.isProp` cannot
+decide. `addDeclCore (doCheck := false)` adds it without the kernel check, so its type
+names a constant that does not exist. -/
+open Lean Elab Command in
+run_cmd do
+  let badTy := mkConst `No.Such.Const
+  let bad : Declaration := .defnDecl
+    { name := `SpecEnv.badTy, levelParams := [], type := badTy, value := badTy,
+      hints := .opaque, safety := .safe }
+  let env ← match (← getEnv).addDeclCore 0 bad none (doCheck := false) with
+    | .ok e => pure e
+    | .error _ => throwError "could not add SpecEnv.badTy"
+  let info (n : Name) (kind : DeclKind) : DeclInfo :=
+    { name := n, displayName := n.toString, moduleName := .anonymous, kind,
+      dependencies := #[], typeDependencies := #[], termDependencies := #[], sourceInfo := none }
+  let props ← specProofNames env
+    #[info `SpecEnv.badTy .def, info ``Nat.add .def, info ``Nat.le_refl .theorem]
+  let warning := formatSpecProofWarning `SpecEnv.badTy
+  let checks : Array (String × Bool) := #[
+    ("specProofNames: an undecided type counts as a proof", props.contains `SpecEnv.badTy),
+    ("specProofNames: a data def is not a proof", !props.contains ``Nat.add),
+    ("specProofNames: a theorem is not checked", !props.contains ``Nat.le_refl),
+    ("formatSpecProofWarning names the constant and says it is not a spec target",
+      (warning.splitOn "SpecEnv.badTy").length == 2 &&
+      (warning.splitOn "it is not a spec target").length == 2)]
+  let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
+  elabCommand (← `(def $(mkIdent `specEnvChecks) : Array (String × Bool) :=
+    #[$items,*]))
+
+/-- The environment-backed checks of `specProofNames` (the block above). -/
+def testSpecProofEnv (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing specProofNames against a real environment..."
+  result ← test "environment-backed spec proof checks were generated" (specEnvChecks.size == 4) result
+  for (name, ok) in specEnvChecks do
+    result ← test name ok result
+  return result
+
 /-- `usedConstants` on hand-built expressions, next to `getUsedConstants`. -/
 def testUsedConstants (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -5292,10 +5339,11 @@ def testProjectTaintEnv (result : TestResult) : IO TestResult := do
 
 /-- A test atom for the spec-target rule (issue #130). -/
 def mkTargetAtom (name : String) (kind : DeclKind) (isProof : Bool := false)
-    (codomainIsProp : Bool := false) (typeDeps : Array String := #[]) : Atom :=
+    (codomainIsProp : Bool := false) (typeDeps : Array String := #[])
+    (codomainIsType : Bool := false) : Atom :=
   { name, displayName := name, dependencies := typeDeps, typeDependencies := typeDeps,
     codeModule := "Test", codePath := "Test.lean", codeText := none, kind, isProof,
-    codomainIsProp }
+    codomainIsProp, codomainIsType }
 
 /-- `isSpecTarget` on each row of the Behavior table of issue #130: only a data `def`,
     `abbrev`, `instance`, `opaque` or `axiom` is a target. -/
@@ -5319,7 +5367,9 @@ def testIsSpecTarget (result : TestResult) : IO TestResult := do
     ("proof axiom", mkTargetAtom "ax" .axiom (isProof := true), false),
     ("proof def", mkTargetAtom "admitted" .def (isProof := true), false),
     ("predicate def", mkTargetAtom "IsValid" .def (codomainIsProp := true), false),
-    ("proof instance", mkTargetAtom "instIsPos5" .instance (isProof := true), false)]
+    ("proof instance", mkTargetAtom "instIsPos5" .instance (isProof := true), false),
+    ("type alias abbrev", mkTargetAtom "Score" .abbrev (codomainIsType := true), false),
+    ("type family def", mkTargetAtom "Grid" .def (codomainIsType := true), false)]
   for (label, atom, expected) in rows do
     result ← test s!"isSpecTarget: {label} -> {expected}" (isSpecTarget atom == expected) result
   return result
@@ -5332,7 +5382,8 @@ def testComputeSpecsTargetRule (result : TestResult) : IO TestResult := do
   IO.println "Testing computeSpecs target rule (issue #130)..."
   let nonTargets := [mkTargetAtom "S" .structure, mkTargetAtom "S.val" .projection,
     mkTargetAtom "pf" .def (isProof := true), mkTargetAtom "P" .def (codomainIsProp := true),
-    mkTargetAtom "instPos" .instance (isProof := true)]
+    mkTargetAtom "instPos" .instance (isProof := true),
+    mkTargetAtom "Score" .abbrev (codomainIsType := true)]
   let targets := [mkTargetAtom "d" .def, mkTargetAtom "ax" .axiom, mkTargetAtom "instAdd" .instance]
   let names := (nonTargets ++ targets).map (·.name)
   let thm := mkTargetAtom "t" .theorem (isProof := true) (typeDeps := names.toArray)
@@ -5374,6 +5425,7 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testComputeSpecsGeneratedExclusion result
   result ← testIsSpecTarget result
   result ← testComputeSpecsTargetRule result
+  result ← testSpecProofEnv result
   result ← testAtomsOutputJson result
   result ← testAtomSpecsJson result
   result ← testAtomLanguageField result

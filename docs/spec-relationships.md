@@ -16,7 +16,10 @@ about the function. The target's `specs` lists its sources. Its `primary-spec` n
 - Predicate: a constant that is not a proof and whose result type, after all binders, is `Prop`.
   This is the `codomain-is-prop` fact. Examples: `def IsValid (x : T) : Prop`,
   `def P : Prop := True`.
-- Data constant: a constant that is neither a proof nor a predicate.
+- Type former: a constant that is not a proof and whose result type, after all binders, is
+  `Sort u` with `u` other than zero, for example `Type`. Examples: `abbrev Score : Type := Nat`,
+  `def Grid (n : Nat) : Type := Fin n → Nat`.
+- Data constant: a constant that is neither a proof, nor a predicate, nor a type former.
 - Generated theorem: a theorem atom flagged `is-lean-generated` or `is-aeneas-generated`. See
   [schema.md](schema.md), section "Generated-code hiding".
 
@@ -29,8 +32,8 @@ properties:
 2. It is a data constant.
 
 No other atom is a spec target, so no other atom has `specs` or `primary-spec`. This excludes
-types (`structure`, `class`, `inductive`, `quot`), projections, theorems, every proof and every
-predicate.
+types (`structure`, `class`, `inductive`, `quot`), projections, theorems, every proof, every
+predicate and every type former.
 
 | Atom | Kind | Target |
 |------|------|--------|
@@ -42,6 +45,8 @@ predicate.
 | `axiom ax : 0 < 1` | `axiom` (proof) | no |
 | `def admitted : False := sorry` | `def` (proof) | no |
 | `def IsValid (x : T) : Prop` | `def` (predicate) | no |
+| `abbrev Score : Type := Nat` | `abbrev` (type former) | no |
+| `def Grid (n : Nat) : Type := Fin n → Nat` | `def` (type former) | no |
 
 Decisions (issue #130):
 
@@ -52,10 +57,20 @@ Decisions (issue #130):
 - Projections and types are not targets. Their specs are dropped, not moved to another atom (for
   example, from `Bundle.val` to a constructor). The theorems that name only a projection are
   mostly structure lemmas such as `ext`.
+- Type formers are not targets. A type alias plays the role of a structure: theorems mention it
+  because they are about its values. In curve25519-dalek-lean-verify, 10 type formers received
+  specs before this rule, for example `Edwards.CurveField` (275), `FieldElement51` (219) and
+  `Montgomery.CurveField` (126). The type family `window.LookupTable` lost its 4 specs too.
 - If `Meta.isProp` cannot decide a constant's type (an elaboration error, a heartbeat or
   recursion limit), `extract` prints a warning on stderr and treats the constant as a proof, so
   it is not a target. This fails closed, like the proof test of the External-module trust rule
   ([verification-status.md](verification-status.md)).
+
+Known limitation: the predicate and type-former tests read the syntax of the result type. They
+do not unfold aliases. So a constant whose result type is an alias of `Prop` stays a target, for
+example `def HiddenPredicate (n : Nat) : Proposition` with `abbrev Proposition : Type := Prop`, or
+a constant of type `Set α`. An alias of `Type` stays a target too. The `aux-fold` fixture records
+the `HiddenPredicate` case.
 
 ## Spec sources
 
