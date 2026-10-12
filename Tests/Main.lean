@@ -1177,6 +1177,13 @@ def testCodomainFacts (result : TestResult) : IO TestResult := do
   result ← test "codomainIsTypeOf Sort u" (codomainIsTypeOf (Lean.Expr.sort (Lean.Level.param `u))) result
   result ← test "codomainIsTypeOf Prop and Nat are false"
     (!codomainIsTypeOf propSort && !codomainIsTypeOf nat) result
+  let u := Lean.Level.param `u
+  result ← test "codomainIsTypeOf Sort (max 1 u) and Sort (u+1)"
+    (codomainIsTypeOf (.sort (.max (.succ .zero) u)) && codomainIsTypeOf (.sort (.succ u))) result
+  -- A polymorphic data function `(α : Sort u) → α → α` returns a value, not a sort.
+  let polyId := Lean.Expr.forallE `α (.sort u)
+    (.forallE `a (.bvar 0) (.bvar 1) .default) .default
+  result ← test "codomainIsTypeOf (α : Sort u) → α → α is false" (!codomainIsTypeOf polyId) result
 
   -- codomainHeadOf: qualified name preserved, through binders, `Sort 0` → none
   let qualified := Lean.Expr.const `SecureMessaging.CKA.Defs.CKAScheme []
@@ -5173,15 +5180,17 @@ run_cmd do
 
 /-! The spec proof test (`specProofNames`) on a constant whose type `Meta.isProp` cannot
 decide. `debug.skipKernelTC` adds it without the kernel check, so its type names a
-constant that does not exist. -/
+constant that does not exist. `withoutModifyingEnv` removes it again, so no later block
+sees it. -/
 open Lean Elab Command in
 run_cmd do
   let badTy := mkConst `No.Such.Const
   let bad : Declaration := .defnDecl
     { name := `SpecEnv.badTy, levelParams := [], type := badTy, value := badTy,
       hints := .opaque, safety := .safe }
-  liftCoreM <| withOptions (·.setBool `debug.skipKernelTC true) <| addDecl bad
-  let env ← getEnv
+  let env ← withoutModifyingEnv do
+    liftCoreM <| withOptions (·.setBool `debug.skipKernelTC true) <| addDecl bad
+    getEnv
   let info (n : Name) (kind : DeclKind) : DeclInfo :=
     { name := n, displayName := n.toString, moduleName := .anonymous, kind,
       dependencies := #[], typeDependencies := #[], termDependencies := #[], sourceInfo := none }
@@ -5192,6 +5201,7 @@ run_cmd do
     ("specProofNames: an undecided type counts as a proof", props.contains `SpecEnv.badTy),
     ("specProofNames: a data def is not a proof", !props.contains ``Nat.add),
     ("specProofNames: a theorem is not checked", !props.contains ``Nat.le_refl),
+    ("the unchecked constant does not outlive the block", !(← getEnv).contains `SpecEnv.badTy),
     ("formatSpecProofWarning names the constant and says it is not a spec target",
       (warning.splitOn "SpecEnv.badTy").length == 2 &&
       (warning.splitOn "it is not a spec target").length == 2)]
@@ -5204,7 +5214,7 @@ def testSpecProofEnv (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
   IO.println "Testing specProofNames against a real environment..."
-  result ← test "environment-backed spec proof checks were generated" (specEnvChecks.size == 4) result
+  result ← test "environment-backed spec proof checks were generated" (specEnvChecks.size == 5) result
   for (name, ok) in specEnvChecks do
     result ← test name ok result
   return result
