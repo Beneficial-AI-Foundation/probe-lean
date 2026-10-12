@@ -4148,6 +4148,101 @@ def testFoldClassifierEnv (result : TestResult) : IO TestResult := do
     result ← test name ok result
   return result
 
+-- ============================================================
+-- Generated `partial_fixpoint` bodies (issue #135)
+-- ============================================================
+
+namespace AuxFoldEnv
+
+def pfHelper (n : Nat) : Option Nat := some n
+
+-- A mutual pair: Lean compiles both bodies into `pfEv.mutual`.
+mutual
+def pfEv (n : Nat) : Option Nat := if n == 0 then pfHelper 0 else pfOd (n - 1)
+partial_fixpoint
+def pfOd (n : Nat) : Option Nat := if n == 0 then pfHelper 1 else pfEv (n - 1)
+partial_fixpoint
+end
+
+-- A single function whose fixed parameter is not a prefix: Lean creates
+-- `pfLoop.mutual`.
+def pfLoop (n : Nat) (fixed : Nat) : Option Nat :=
+  if n == 0 then pfHelper fixed else pfLoop (n - 1) fixed
+partial_fixpoint
+
+/-- A hand-written `.mutual` name: it has a range, so it stays an atom and an edge. -/
+def User.«mutual» : Option Nat := pfHelper 2
+
+end AuxFoldEnv
+
+open Lean Elab Command Term in
+run_cmd do
+  -- A range-less `.mutual` axiom: no value, so not a generated body.
+  liftCoreM <| addDecl <| .axiomDecl
+    { name := `AuxFoldEnv.Ax.mutual, levelParams := [], type := mkConst ``Nat,
+      isUnsafe := false }
+  let env ← getEnv
+  let inProject : Name → Bool := fun n => (`AuxFoldEnv).isPrefixOf n
+  let notEmitted : Name → Bool := fun _ => false
+  let body := isGeneratedFixpointBody env inProject notEmitted
+  let walk := FoldWalk.ofEnv env inProject
+  let closure (n : Name) : Array Name := (foldedDepsFrom walk n).run' {}
+  -- `foldAtomDeps` gets the raw lists in the `DeclInfo` and the lists that
+  -- `partitionDeps` filtered separately. The direct `pfEv.mutual` edge is gone
+  -- from the filtered list, and the fold must still add the callee.
+  let auxCache : AuxDepCache ← IO.mkRef {}
+  let evInfo : DeclInfo :=
+    { name := `AuxFoldEnv.pfEv, displayName := "pfEv",
+      moduleName := `Tests.Main, kind := .def,
+      dependencies := #[`AuxFoldEnv.pfEv.mutual, ``Nat, ``Option],
+      typeDependencies := #[``Nat, ``Option],
+      termDependencies := #[`AuxFoldEnv.pfEv.mutual], sourceInfo := none }
+  let (evUnion, _, evTerm) ← foldAtomDeps env inProject auxCache evInfo #[] #[]
+  let isMutual (n : Name) : Bool := match privateToUserName n with
+    | .str _ "mutual" => true
+    | _ => false
+  let checks : Array (String × Bool) := #[
+    ("a range-less project pfEv.mutual is a generated fixpoint body",
+      body `AuxFoldEnv.pfEv.mutual),
+    ("a non-prefix single fixpoint body pfLoop.mutual is a generated body",
+      body `AuxFoldEnv.pfLoop.mutual),
+    ("a .mutual name outside the project is not a generated body",
+      !isGeneratedFixpointBody env (fun _ => false) notEmitted `AuxFoldEnv.pfEv.mutual),
+    ("an emitted .mutual name (merged declaration) is not a generated body",
+      !isGeneratedFixpointBody env inProject (· == `AuxFoldEnv.pfEv.mutual)
+        `AuxFoldEnv.pfEv.mutual),
+    ("a hand-written User.mutual with a range is not a generated body",
+      !body `AuxFoldEnv.User.mutual),
+    ("a range-less .mutual axiom (no value) is not a generated body",
+      !body `AuxFoldEnv.Ax.mutual),
+    ("a .mutual name not in the environment is not a generated body",
+      !body `AuxFoldEnv.missing.mutual),
+    ("a range-less value-bearing name without the suffix is not a generated body",
+      (env.find? `AuxFoldEnv.noRangeOpaque).isSome &&
+        (declRangeExt.find? env `AuxFoldEnv.noRangeOpaque).isNone &&
+        !body `AuxFoldEnv.noRangeOpaque),
+    ("pfEv.mutual is foldable",
+      classifyFoldCandidate env inProject `AuxFoldEnv.pfEv.mutual == .foldable),
+    ("the closure of pfEv.mutual contains pfHelper",
+      (closure `AuxFoldEnv.pfEv.mutual).contains `AuxFoldEnv.pfHelper),
+    ("foldAtomDeps adds pfHelper for a dropped pfEv.mutual edge",
+      evTerm.contains `AuxFoldEnv.pfHelper),
+    ("foldAtomDeps lists no .mutual name",
+      !(evUnion.any isMutual) && !(evTerm.any isMutual))]
+  let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
+  elabCommand (← `(def $(mkIdent `fixpointEnvChecks) : Array (String × Bool) :=
+    #[$items,*]))
+
+def testGeneratedFixpointBody (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing isGeneratedFixpointBody against a real environment..."
+  result ← test "fixpoint environment checks were generated"
+    (fixpointEnvChecks.size == 12) result
+  for (name, ok) in fixpointEnvChecks do
+    result ← test name ok result
+  return result
+
 /-- Bucket routing on fabricated graphs: every recovered edge lands in
 `term-dependencies`, including one found under an auxiliary the *type* named.
 `type-dependencies` is left exactly as `partitionDeps` produced it, so
@@ -5556,6 +5651,7 @@ def runSuiteD (result : TestResult) : IO TestResult := do
   result ← testFoldedDepsSharing result
   result ← testFoldBucketRouting result
   result ← testFoldClassifierEnv result
+  result ← testGeneratedFixpointBody result
   result ← testPrimarySpecFoldFallback result
   result ← testReachabilityBlocked result
   result ← testReachabilityScaling result
