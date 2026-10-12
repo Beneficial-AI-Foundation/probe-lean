@@ -242,8 +242,9 @@ structure Atom where
   codomainIsProp : Bool := false
   /-- Final application arg of the result type is `Bool`. -/
   codomainLastArgIsBool : Bool := false
-  /-- The type of the constant is a proposition: every theorem, and a `def`, `abbrev`,
-  `opaque`, `instance` or `axiom` whose type `Meta.isProp` accepts (or cannot decide).
+  /-- The type of the constant is a proposition: every kernel theorem (including a
+  Prop-valued projection), and a `def`, `abbrev`, `opaque`, `instance` or `axiom` whose
+  type `Meta.isProp` accepts (or cannot decide).
   `false` for every other kind, which is never checked. Set by `buildAtoms`, read by
   `isSpecTarget`. Not serialized. -/
   isProof : Bool := false

@@ -217,16 +217,18 @@ def isRealisedTheoremName (n : Name) : Bool :=
     environment does not say which body survived. A theorem/axiom pair is therefore
     not trusted: trusting the axiom version excuses the proof that the theorem version carries.
     `isProof` is the name's rule-3 input (`propTypedNames`). Every version has the same
-    statement, so the flag is shared. The importer merges only theorems and axioms
-    (`subsumesInfo`: theorem/theorem, theorem/axiom, axiom/axiom). So a version is
-    never a `def`, and the flag cannot change the verdict in practice. Returns `none`
+    statement, so the flag is shared. A version is a proof if it is a kernel theorem,
+    whatever its `kind`: the kind of a Prop-valued projection is `projection` (#115).
+    The importer merges only theorems and axioms (`subsumesInfo`: theorem/theorem,
+    theorem/axiom, axiom/axiom). So a version is never a `def`, and the flag cannot
+    change the verdict in practice. Returns `none`
     as soon as one version is untrusted, otherwise the first version's reason. The
     reasons are not compared. -/
 def mergedTrustedReason (env : Environment) (m : MergedDecl) (isProof : Bool := false)
     : Option String := do
   let reasons ← m.versions.mapM fun (owner, ci) =>
     let kind := getDeclKind env m.declName ci
-    trustedReason kind false owner (kind == .theorem || isProof)
+    trustedReason kind false owner (ci matches .thmInfo _ || isProof)
   reasons[0]?
 
 /-- The `externally_verified` tag set over P: what the environment stores for the
@@ -274,14 +276,13 @@ def computeAttributes (env : Environment) (projectPath : System.FilePath) (fileC
     attrs := attrs.insert name a
   return attrs
 
-/-- The constants rule 3 has to look at more closely: non-theorem, non-axiom
-    constants of `*External` modules (`propTypedNames`). -/
+/-- The constants rule 3 has to look at more closely: the constants of `*External`
+    modules that are not kernel theorems and not axioms (`propTypedNames`). -/
 def externalRule3Candidates (env : Environment) (consts : Array (Name × ConstantInfo))
     : Array (Name × ConstantInfo) :=
   let modNames := env.allImportedModuleNames
   consts.filter fun (name, info) =>
-    let kind := getDeclKind env name info
-    kind != .theorem && kind != .axiom &&
+    !(info matches .thmInfo _) && getDeclKind env name info != .axiom &&
       isExternalModule ((moduleNameOf modNames env name).getD .anonymous)
 
 /-- Of `cands`, those whose **type is a proposition** (`Meta.isProp` on the statement,
@@ -345,7 +346,7 @@ def computeTrustBase (env : Environment) (consts : Array (Name × ConstantInfo))
         let kind := getDeclKind env name info
         let moduleName := (moduleNameOf modNames env name).getD .anonymous
         trustedReason kind (tagged.contains name) moduleName
-          (kind == .theorem || propTyped.contains name)
+          (info matches .thmInfo _ || propTyped.contains name)
     if let some r := reason then
       trust := trust.insert name r
   return trust

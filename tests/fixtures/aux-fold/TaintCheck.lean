@@ -351,6 +351,12 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect :
   check fs "admittedFact has no trusted-reason" (reasonOf data "probe:admittedFact").isNone
   expect "probe:externalPred" "trusted"
   check fs "externalPred trusted-reason is external" (reasonOf data "probe:externalPred" == some "external")
+  -- …and a Prop-valued projection, whose kind is `projection` (issue #115).
+  check fs "ExtBundle.val trusted-reason is external" (reasonOf data "probe:ExtBundle.val" == some "external")
+  -- An exact status, so the check fails if the atom is missing.
+  expect "probe:ExtBundle.pos" "transitively-verified"
+  check fs "ExtBundle.pos has no trusted-reason"
+    ((data.getObjVal? "probe:ExtBundle.pos").toOption.isSome && (reasonOf data "probe:ExtBundle.pos").isNone)
   -- The range-less carrier: not an atom, but its caller is tainted.
   check fs "noRangeMid is not an atom" (data.getObjVal? "probe:noRangeMid").toOption.isNone
   expect "probe:viaNoRange" "verified"
@@ -429,6 +435,33 @@ def sectionUnder (lines : Array String) (header : String → Bool) : Array Strin
     else if inside then out := out.push l
   return out
 
+/-- The fields of a T line `  <name> [<reason>] <module>[ : <statement>]`: name, reason
+    and module, or `none` if the line has another shape. -/
+def trustedEntry (l : String) : Option (String × String × String) :=
+  match (l.splitOn " ").filter (· != "") with
+  | name :: reason :: module :: _ =>
+    if reason.startsWith "[" && reason.endsWith "]" then some (name, reason, module) else none
+  | _ => none
+
+/-- The `ExtBundle` entries of T. Rule 3 trusts `ExtBundle` and the constants Lean
+    generates for it (recursor, `noConfusion`, ...), and their number depends on the
+    Lean version. So the check counts them apart: exactly `ExtBundle` and the names
+    under `ExtBundle.`, trusted as `external` in `Demo.FunsExternal`. Every other
+    entry counts toward the fixed total. -/
+def checkExtBundleTrust (fs : Failures) (trusted : Array String) : IO Unit := do
+  let entries := trusted.filterMap trustedEntry
+  check fs "T: every line has the shape <name> [<reason>] <module>"
+    (entries.size == trusted.size)
+  let isExtBundle : String × String × String → Bool := fun (name, reason, module) =>
+    (name == "ExtBundle" || name.startsWith "ExtBundle.") &&
+      reason == "[external]" && module == "Demo.FunsExternal"
+  let (extBundle, others) := entries.partition isExtBundle
+  check fs "T lists exactly 13 constants besides ExtBundle's" (others.size == 13)
+  check fs "T: ExtBundle and its data field are trusted"
+    (extBundle.any (·.1 == "ExtBundle") && extBundle.any (·.1 == "ExtBundle.val"))
+  check fs "T: the Prop field ExtBundle.pos is not trusted"
+    (!entries.any (·.1 == "ExtBundle.pos"))
+
 /-- Statement taint (#119) in the `check-axioms` report: the demoted members of T are
     in the tainted list and keep their T line with the ` [statement tainted]` suffix. -/
 def checkStmtTaintReport (fs : Failures) (lines trusted : Array String) : IO Unit := do
@@ -494,9 +527,9 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
   -- The trusted base itself: every rule's entries with reason and module, and the
   -- statement of each rule-3 model.
   let trusted := sectionUnder allLines (fun l => l.endsWith " trusted constant(s) (T):")
-  check fs "T header counts the summary's trusted constants"
-    (allLines.contains "13 trusted constant(s) (T):")
-  check fs "T lists exactly 13 constants" (trusted.size == 13)
+  check fs "T header counts the listed constants"
+    (allLines.contains s!"{trusted.size} trusted constant(s) (T):")
+  checkExtBundleTrust fs trusted
   check fs "T: rule-2 entries carry their reason and module"
     (trusted.contains "  vouched [externally_verified] Demo.Trust" &&
      trusted.contains "  laterVouched [externally_verified] Demo.Trust" &&

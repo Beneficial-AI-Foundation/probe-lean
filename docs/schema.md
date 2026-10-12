@@ -162,7 +162,7 @@ construction, and `source.package` tells projects apart.
 | `def` | `def` | Computable definition |
 | `theorem` | `theorem` | Proven proposition (erased at runtime) |
 | `abbrev` | `abbrev` | Reducible definition |
-| `projection` | (auto) | Structure field or class method projection (`env.isProjectionFn`) |
+| `projection` | (auto) | Structure field or class method projection (`env.isProjectionFn`). This includes the projection of a Prop-valued field or class parent, which Lean compiles as a theorem. |
 | `class` | `class` | Type class |
 | `structure` | `structure` | Record type |
 | `inductive` | `inductive` | Inductive type |
@@ -182,6 +182,9 @@ native declaration taxonomy:
 | Specification | `spec` | `theorem`, `axiom` |
 | Proof | `proof` | No separate kind. The proof is the body of a `theorem`. |
 | Type definition | none | `class`, `structure`, `inductive`, `quot` |
+
+`kind` is the form of the declaration, not a code or proof classification. A
+Prop-valued projection (`Bundle.pos`) and a `def` whose type is a proposition are proofs.
 
 This table maps kinds only. The atoms that can receive `specs` are a smaller set, see
 [spec-relationships.md](spec-relationships.md). For example, a `projection` is never a spec
@@ -334,8 +337,9 @@ The trusted base, one shared rule set (`ProbeLean/Trust.lean`) in precedence ord
 2. `"externally_verified"`: the declaration is in the `externally_verified` attribute's tag set,
    read from the environment however the tag was attached. Nothing that merely shares a tagged
    declaration's source range is in the set.
-3. `"external"`: a non-proof (not a theorem, and not Prop-typed) in a module whose name ends with
-   `External`, trusted as a model whatever its type.
+3. `"external"`: a non-proof in a module whose name ends with `External`, trusted as a model
+   whatever its type. A non-proof is neither a kernel theorem (a `theorem` or a Prop-valued
+   projection, which reads `kind: "projection"`) nor Prop-typed.
 
 Trust excuses a declaration's proof, not its statement. The walk follows the type of a trusted
 declaration and not its value. For a trusted inductive type or structure, it also follows the

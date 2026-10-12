@@ -194,8 +194,9 @@ contain it, `extract` prints `Divergence(tag): …`. In the opposite case it pri
 
 ### Rule 3: `"external"`
 
-Theorems and any declaration whose type is a proposition (`def admitted : False := sorry`) get
-their normal status in a `*External` module. Every other declaration there is trusted as a model,
+Kernel theorems (a `theorem` or a Prop-valued projection, which reads `kind: "projection"`) and
+any declaration whose type is a proposition (`def admitted : False := sorry`) get their normal
+status in a `*External` module. Every other declaration there is trusted as a model,
 whatever its type. This includes a Prop-valued `def p : Prop`, and also `def e : Empty := sorry`
 or a subtype that carries a sorried proof field. No inhabitedness test is made.
 

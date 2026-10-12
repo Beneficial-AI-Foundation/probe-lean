@@ -42,6 +42,15 @@ class IsPos (n : Nat) : Prop where
 class PosNat (n : Nat) extends IsPos n where
   tag : Nat
 
+/-- A structure whose Prop field names a data def (issue #115). `Twice.eq` is a kernel
+    theorem, but its kind is `projection`, so it is not a spec source of `twice`. -/
+def twice (n : Nat) : Nat := n + n
+structure Twice where
+  n : Nat
+  eq : twice n = n + n
+
+theorem twice_zero : twice 0 = 0 := rfl
+
 /-- A data def: the only spec target in this section. -/
 def needsPos (n : Nat) [IsPos n] : Nat := n
 

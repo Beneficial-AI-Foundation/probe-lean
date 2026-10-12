@@ -468,7 +468,8 @@ private def buildAtoms (env : Environment) (projectPath : System.FilePath)
     let atom ← declInfoToAtom env projectPath selFilter crate pathCache auxCache
       (attrs.getD decl.name default).attributes decl
     let atom := { atom with
-      isProof := decl.kind == .theorem || propTyped.contains decl.name }
+      isProof := (env.find? decl.name).any (· matches .thmInfo _) ||
+        propTyped.contains decl.name }
     let isLeanGen := derivedNames.contains decl.name || decl.kind == .projection
     let isAeneasGen := companionNames.contains decl.name
     let atom :=

@@ -144,7 +144,7 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 Output on `tests/fixtures/aux-fold` (shortened, the full report has one line per listed constant):
 
 ```
-Project constants: 126 in 9 module(s) | trusted: 13 | direct sorry carriers: 16 | tainted: 31
+Project constants: 214 in 9 module(s) | trusted: 26 | direct sorry carriers: 16 | tainted: 31
 externally_verified tag set: 7 name(s) from externallyVerifiedAttr
 31 constant(s) rest on an unexcused project sorry:
   admittedFact [direct]
@@ -156,8 +156,9 @@ externally_verified tag set: 7 name(s) from externallyVerifiedAttr
   tacticUse._proof_1 [not emitted]
   viaNoRange
   ...
-13 trusted constant(s) (T):
+26 trusted constant(s) (T):
   Box [externally_verified] Demo.Trust
+  ExtBundle [external] Demo.FunsExternal : Type
   externalOp [external] Demo.FunsExternal : Nat
   externalPred [external] Demo.FunsExternal : Prop
   stmtAx [axiom] Demo.StmtTaint [statement tainted]

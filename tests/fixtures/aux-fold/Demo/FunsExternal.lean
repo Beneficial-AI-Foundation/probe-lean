@@ -21,3 +21,10 @@ def admittedFact : (0 : Nat) < 1 := by sorry
 /-- A Prop-*valued* definition — its type is `Prop`, which is not itself a
 proposition — is a model like any other: `trusted`. -/
 def externalPred : Prop := sorry
+
+/-- A model structure. Its type, constructor and data field are trusted by the module
+convention. The projection of its Prop field is a proof (Lean compiles it as a
+theorem, its kind is `projection`), so it gets its normal status (issue #115). -/
+structure ExtBundle where
+  val : Nat
+  pos : 0 < val

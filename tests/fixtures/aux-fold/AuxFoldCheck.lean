@@ -187,11 +187,25 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
     (statusOf data "probe:cleanUse" == some "transitively-verified")
   check fs "sorried_bound is unverified"
     (statusOf data "probe:sorried_bound" == some "unverified")
-  -- `kind` from imported extension entries (issue #111, `Demo/Kinds.lean`).
+  -- `kind` from imported extension entries (issue #111, `Demo/Kinds.lean`), and
+  -- Prop-valued projections, which Lean compiles as theorems (issue #115).
   for (atom, kind) in [("probe:Foo", "class"), ("probe:fooNat", "instance"),
       ("probe:instFooBool", "instance"), ("probe:instLike", "def"),
-      ("probe:fooUnit", "instance")] do
+      ("probe:fooUnit", "instance"), ("probe:Bundle.val", "projection"),
+      ("probe:Bundle.pos", "projection"), ("probe:PosNat.toIsPos", "projection"),
+      ("probe:IsPos.out", "projection"), ("probe:Twice.eq", "projection")] do
     check fs s!"{atom} has kind {kind}" (kindOf data atom == some kind)
+  for atom in ["probe:Bundle.pos", "probe:PosNat.toIsPos", "probe:IsPos.out",
+      "probe:Twice.eq"] do
+    check fs s!"{atom} is hidden and lean-generated"
+      (atomField data atom "is-hidden" == some (.bool true) &&
+        atomField data atom "is-lean-generated" == some (.bool true))
+  -- A Prop projection is not a spec source of the data def that its statement names.
+  -- `twice_zero` is the positive control: it shows that `twice` is a spec target.
+  check fs "Twice.eq names twice in its statement"
+    ((depsOf data "probe:Twice.eq" "type-dependencies").contains "probe:twice")
+  check fs "twice has specs [twice_zero], not Twice.eq"
+    (depsOf data "probe:twice" "specs" == #["probe:twice_zero"])
   -- Spec targets (issue #130, `Demo/Kinds.lean`): each atom below is named in a
   -- theorem's statement, but only the data def `needsPos` is a target.
   for atom in ["probe:Bundle", "probe:PosNat", "probe:Bundle.val", "probe:Bundle.pos",
