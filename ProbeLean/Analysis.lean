@@ -932,9 +932,12 @@ def stripLeadingDotSlash (path : String) : String :=
 --   arrays, never adds to the `*-external` arrays, and never changes the atom
 --   set.
 --
--- `partitionDeps` keeps its behaviour byte-for-byte; the fold runs after it and
--- appends. Consequently edges to emitted project axioms/inductives/structures
--- and direct external anchors cannot be lost — their routing is never consulted.
+-- The fold runs after `partitionDeps` and appends. Consequently edges to emitted
+-- project axioms/inductives/structures and direct external anchors cannot be
+-- lost — their routing is never consulted. `partitionDeps` drops one extra kind
+-- of edge before the fold: the direct edge to a generated `partial_fixpoint`
+-- body (`isGeneratedFixpointBody`), which is never an atom and whose callees
+-- the fold adds.
 -- ============================================================
 
 /-- How the auxiliary-fold pass treats one dependency occurrence. -/
@@ -971,8 +974,10 @@ inductive DepClass where
       "Not foldable" is different from "not an edge". But it is not "edge
       preserved" either, and the name filter decides which applies, not anything
       here. A direct reference that survives `isInternalName` stays in its project
-      or `*-external` bucket as always. `partitionDeps` drops a reference that the
-      name filter catches from all four arrays, also as always. The name filter
+      or `*-external` bucket as always, except the generated body of a
+      `partial_fixpoint` block (`isGeneratedFixpointBody`). `partitionDeps` drops
+      a reference that the name filter catches from all four arrays, also as
+      always. The name filter
       catches every structural-member suffix, the recursor suffixes included (a
       nested-inductive `Foo.rec_1` matches none). Constructors split on that same
       rule, not as a class: `Color.red` is kept, `Foo.mk` is not. -/
@@ -1022,6 +1027,32 @@ def classifyFoldCandidate (env : Environment) (isProjectMember : Name → Bool)
         | none   => .ignored
     else if isProj then .emitted
     else .ignored
+
+/-- A project constant that Lean generated as the body of a `partial_fixpoint`
+block (issue #135). Such a constant is never an atom, and `classifyFoldCandidate`
+makes it `.foldable`, so the fold adds its callees. `partitionDeps` drops the
+direct edge to it, which would otherwise dangle.
+
+The test asks Lean for provenance: Lean names the body `f.mutual` after the first
+function `f` of the block, and records it as `declNameNonRec` in the
+`partial_fixpoint` equation info of `f`. A range-less `X.mutual` that
+metaprogramming added has no such entry and stays an edge, and so does a
+hand-written one. If the entry is missing, the edge stays. Lean records no entry
+for a block whose functions are theorems or have a proposition as type, so the
+direct edge to such a body stays and dangles.
+
+The emitted test covers a name that several project modules declare:
+`mergedDeclInfo` can emit the atom from a module other than the owner.
+
+The suffix test matches the last name component, which a private prefix does not
+change, so it runs first and costs one comparison for most names. -/
+def isGeneratedFixpointBody (env : Environment) (isProjectMember : Name → Bool)
+    (isEmitted : Name → Bool) (n : Name) : Bool :=
+  match n with
+  | .str f "mutual" =>
+    isProjectMember n && !isEmitted n &&
+      (Elab.PartialFixpoint.eqnInfoExt.find? env f).any (·.declNameNonRec == n)
+  | _ => false
 
 /-- Cross-root state for the auxiliary-fold traversal.
 
@@ -1179,7 +1210,9 @@ occurrence and **appends** the targets to `proj`. The foldable occurrences are t
 internal names `partitionDeps` dropped, plus the project members it kept that are
 not emitted as atoms. Nothing is removed or rerouted. So a dangling direct edge to
 a non-emitted project name is kept *as well as* folded, and the
-missing-dependency warning still fires.
+missing-dependency warning still fires. The one exception is a generated
+`partial_fixpoint` body (`isGeneratedFixpointBody`): `partitionDeps` already
+dropped the direct edge to it, so only its folded callees appear.
 
 `host` is dropped from the folded targets (`H → aux → H` is not a self-loop the
 graph needs). Suppression is per-host and never enters the cache. -/
@@ -1311,10 +1344,11 @@ def declAttributes (env : Environment) (projectPath : System.FilePath) (fileCach
 /-- Convert a DeclInfo to an Atom. `attrs` is the declaration's attribute list from
     `declAttributes`, computed once by the caller (`Taint.computeAttributes`) for every
     source-visible constant of P: the tag audit needs them for non-emitted constants
-    too. -/
+    too. `emitted` is the name set of the declarations that this run emits as atoms
+    (`isGeneratedFixpointBody`). -/
 def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilter : ProjectFilter)
     (crate : String) (pathCache : ModulePathCache) (auxCache : AuxDepCache)
-    (attrs : Array String) (info : DeclInfo) : IO Atom := do
+    (emitted : NameSet) (attrs : Array String) (info : DeclInfo) : IO Atom := do
   let sourcePathStr ← match info.sourceInfo with
     | some _ => moduleSourcePathCached pathCache env projectPath info.moduleName
     | none => pure ""
@@ -1330,9 +1364,13 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
   -- `isInternalName` scans the name and the module lookup hashes it, and with
   -- proof terms included these lists run to tens of thousands of entries per
   -- project. Input order is preserved, so both outputs stay name-sorted (P14).
+  -- The direct edge to a generated `partial_fixpoint` body is dropped too: it is
+  -- never an atom, and the fold below adds its callees (issue #135).
   let partitionDeps (deps : Array Name) : Array Name × Array Name :=
     deps.foldl (init := (#[], #[])) fun (proj, ext) dep =>
-      if isInternalName dep then (proj, ext)
+      if isInternalName dep ||
+         isGeneratedFixpointBody env (projFilter.contains env) emitted.contains dep then
+        (proj, ext)
       else if projFilter.contains env dep then (proj.push dep, ext)
       else (proj, ext.push dep)
 

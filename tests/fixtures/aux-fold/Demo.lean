@@ -5,3 +5,4 @@ import Demo.NoRange
 import Demo.Exec
 import Demo.Kinds
 import Demo.StmtTaint
+import Demo.Fixpoint

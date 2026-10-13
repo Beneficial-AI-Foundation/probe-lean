@@ -75,6 +75,33 @@ def hidingAuxes (env : Environment) (host : Name) : Array Name :=
   | some ci => (usedConsts ci).filter fun d =>
       looksAuxiliary d && reachesViaAux env {} d
 
+/-- The last name component is `mutual`. -/
+def isMutualName (n : Name) : Bool := match n with
+  | .str _ "mutual" => true
+  | _ => false
+
+/-- Precondition for the generated `partial_fixpoint` bodies (issue #135,
+`Demo/Fixpoint.lean`). If Lean stops creating `.mutual` constants for these shapes,
+the output checks below pass without testing anything. -/
+def checkFixpointPrecondition (fs : Failures) (env : Environment) : IO Unit := do
+  IO.println "Precondition: partial_fixpoint wrappers reference a generated .mutual body"
+  for host in [`fpEv, `fpOd] do
+    let direct := (env.find? host).elim #[] usedConsts
+    check fs s!"{host} references fpEv.mutual" (direct.contains `fpEv.mutual)
+    check fs s!"{host} does not reference fpHelper directly" (!direct.contains `fpHelper)
+  for body in [`fpEv.mutual, `fpLoop.mutual] do
+    check fs s!"{body} exists with no declaration range"
+      ((env.find? body).isSome && (declRangeExt.find? env body).isNone)
+  let evBody := (env.find? `fpEv.mutual).elim #[] usedConsts
+  check fs "fpEv.mutual references fpHelper and fpOther"
+    (evBody.contains `fpHelper && evBody.contains `fpOther)
+  check fs "fpLoop references fpLoop.mutual"
+    ((env.find? `fpLoop).elim #[] usedConsts |>.contains `fpLoop.mutual)
+  check fs "the control fpLoop2 has no .mutual body"
+    ((env.find? `fpLoop2.mutual).isNone)
+  check fs "the hand-written Demo.User.mutual has a declaration range"
+    ((declRangeExt.find? env `Demo.User.mutual).isSome)
+
 def checkPrecondition (fs : Failures) : IO Unit := do
   initSearchPath (← findSysroot)
   let env ← importModules #[{ module := `Demo }] {} (level := OLeanLevel.private)
@@ -115,6 +142,7 @@ def checkPrecondition (fs : Failures) : IO Unit := do
       (direct.any looksAuxiliary)
     check fs "cleanUse's auxiliary does not reach sorried_bound"
       (!direct.any fun d => looksAuxiliary d && reachesViaAux env {} d)
+  checkFixpointPrecondition fs env
 
 /-- The extract artifact under `.verilib/probes/`, and only if there is exactly
 one. The filename embeds the git commit (`lean_demo_<sha>.json`), so a leftover
@@ -154,6 +182,41 @@ def depsOf (data : Json) (atom field : String) : Array String :=
     | .error _ => #[]
   | none => #[]
 
+/-- Output checks for the generated `partial_fixpoint` bodies (issue #135). -/
+def checkFixpointOutput (fs : Failures) (data : Json) : IO Unit := do
+  IO.println ""
+  IO.println "Extract output: generated .mutual bodies are folded, not listed"
+  for host in ["probe:fpEv", "probe:fpOd", "probe:fpLoop"] do
+    let term := depsOf data host "term-dependencies"
+    check fs s!"{host} lists fpHelper and fpOther in term-dependencies"
+      (term.contains "probe:fpHelper" && term.contains "probe:fpOther")
+  check fs "the control fpLoop2 lists fpHelper"
+    ((depsOf data "probe:fpLoop2" "term-dependencies").contains "probe:fpHelper")
+  let generated := ["probe:fpEv.mutual", "probe:fpLoop.mutual"]
+  let arrays := ["dependencies", "type-dependencies", "term-dependencies",
+    "type-dependencies-external", "term-dependencies-external"]
+  let .ok obj := data.getObj? | check fs "data is an object" false
+  for g in generated do
+    check fs s!"{g} is not an atom" (data.getObjVal? g).toOption.isNone
+  let mut listing : Array String := #[]
+  let mut unionOk := true
+  for ⟨atom, _⟩ in obj.toArray do
+    if arrays.any fun f => (depsOf data atom f).any generated.contains then
+      listing := listing.push atom
+    let union := depsOf data atom "type-dependencies" ++ depsOf data atom "term-dependencies"
+    let deps := depsOf data atom "dependencies"
+    if !(deps.all union.contains && union.all deps.contains) then unionOk := false
+  check fs s!"no atom lists a generated .mutual body (found in {listing})" listing.isEmpty
+  check fs "every atom's dependencies is the union of its type and term arrays" unionOk
+  check fs "fpEv_mutual_type has no .mutual name in type-dependencies"
+    (!(depsOf data "probe:fpEv_mutual_type" "type-dependencies").any (·.endsWith ".mutual"))
+  check fs "fpEv_mutual_type lists fpHelper in term-dependencies"
+    ((depsOf data "probe:fpEv_mutual_type" "term-dependencies").contains "probe:fpHelper")
+  check fs "the hand-written Demo.User.mutual is an atom"
+    (data.getObjVal? "probe:Demo.User.mutual").toBool
+  check fs "user_mutual_some lists Demo.User.mutual"
+    ((depsOf data "probe:user_mutual_some" "dependencies").contains "probe:Demo.User.mutual")
+
 def checkExtractOutput (fs : Failures) : IO Unit := do
   IO.println ""
   IO.println "Extract output: the recovered edge and its status consequence"
@@ -187,6 +250,7 @@ def checkExtractOutput (fs : Failures) : IO Unit := do
     (statusOf data "probe:cleanUse" == some "transitively-verified")
   check fs "sorried_bound is unverified"
     (statusOf data "probe:sorried_bound" == some "unverified")
+  checkFixpointOutput fs data
   -- `kind` from imported extension entries (issue #111, `Demo/Kinds.lean`), and
   -- Prop-valued projections, which Lean compiles as theorems (issue #115).
   for (atom, kind) in [("probe:Foo", "class"), ("probe:fooNat", "instance"),

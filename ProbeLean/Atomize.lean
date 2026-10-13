@@ -463,10 +463,11 @@ private def buildAtoms (env : Environment) (projectPath : System.FilePath)
   let companionNames := generatedCompanionTheoremNames decls
     (externalParentKind := fun n => (env.find? n).map (getDeclKind env n))
   let propTyped ← specProofNames env decls
+  let emitted := decls.foldl (init := ({} : NameSet)) fun s d => s.insert d.name
   let mut atoms : Array Atom := #[]
   for decl in decls do
     let atom ← declInfoToAtom env projectPath selFilter crate pathCache auxCache
-      (attrs.getD decl.name default).attributes decl
+      emitted (attrs.getD decl.name default).attributes decl
     let atom := { atom with
       isProof := (env.find? decl.name).any (· matches .thmInfo _) ||
         propTyped.contains decl.name }

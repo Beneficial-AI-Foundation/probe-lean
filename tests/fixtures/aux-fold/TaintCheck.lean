@@ -395,6 +395,13 @@ def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect :
     (lines.contains s!"Graph cross-check: {expectedGraphDivs} atom(s) where the emitted graph disagrees with the kernel walk")
   check fs "the full module set was imported (no fallback warning)"
     (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
+  -- Issue #135: a generated `partial_fixpoint` body is never listed, so it never
+  -- dangles. The range-less `noRangeMid` (the SPQR shape) still warns.
+  check fs "no atom-map warning for a generated .mutual body"
+    (!lines.any fun l => (l.splitOn "not found in atom map").length > 1 &&
+      ((l.splitOn "fpEv.mutual").length > 1 || (l.splitOn "fpLoop.mutual").length > 1))
+  check fs "the atom-map warning for noRangeMid is still printed"
+    (lines.any fun l => l.startsWith "Warning: dependency \"probe:noRangeMid\" not found in atom map")
   check fs "every atom was covered by the walk (no unknown-atom warning)"
     (!lines.any fun l => l.startsWith "Warning: atom ")
   check fs "no build-log divergence (log and kernel agree on the direct carriers; trusted hosts are moot)"

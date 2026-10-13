@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-10-12
+
+### Fixed
+
+- `extract` no longer lists the generated body of a `partial_fixpoint` block as a dependency (#135). Lean makes such a body for a mutual pair, and for a single function whose fixed parameters are not a prefix. The body is a constant `f.mutual` with no declaration range. That constant is never an atom, so the edge `f → f.mutual` dangled and `extract` printed a false "not found in atom map" warning. The direct edge is now dropped, and the fold still lists the callees of the body. `extract` asks Lean whether a `partial_fixpoint` block made the constant. Any other `X.mutual` stays listed. A block whose functions have a proposition as type keeps the edge, because Lean records no body for it. `verification-status` does not change.
+
 ## [0.18.1] - 2026-10-12
 
 ### Fixed
