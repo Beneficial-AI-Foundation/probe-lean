@@ -131,15 +131,17 @@ select_version() {
     done
 }
 
-try_prebuilt_download() {
+# Search the probe-lean releases for the asset of a Lean version and platform.
+# Sets ASSET_URL (empty if no release has the asset) and NEWEST_TAG (the tag of
+# the newest release, empty if unknown). Always returns 0.
+find_release_asset() {
     local version=$1
     local platform
     platform=$(detect_platform)
     local artifact="probe-lean-${version}-${platform}.tar.gz"
+    ASSET_URL=""
+    NEWEST_TAG=""
 
-    echo "Checking for pre-built binary: probe-lean-${version}-${platform}..."
-
-    # Search the releases for an artifact matching this Lean version + platform.
     # Releases are paginated newest-first; the watcher appends artifacts to the
     # latest release over time, and a version that failed to build on the newest
     # release can still have an asset on an older one, so walk the pages until
@@ -156,15 +158,22 @@ try_prebuilt_download() {
     # the end of the asset name, so the .sha256 sidecar is never matched.
     local artifact_re
     artifact_re=$(printf '%s' "$artifact" | sed 's/\./\\./g')
-    local download_url="" per_page=100 page=1 body trimmed
+    local per_page=100 page=1 body trimmed
     while [ "$page" -le 50 ]; do  # cap pages so we never loop unbounded
         body=$(curl -sL ${auth_header:+-H "$auth_header"} \
             "${releases_url}?per_page=${per_page}&page=${page}" 2>/dev/null) || break
-        download_url=$(printf '%s' "$body" \
+        # Page 1 lists the newest release first.
+        if [ "$page" -eq 1 ]; then
+            NEWEST_TAG=$(printf '%s' "$body" \
+                | grep -o '"tag_name": *"[^"]*"' \
+                | head -1 \
+                | sed 's/"tag_name": *"//;s/"//') || true
+        fi
+        ASSET_URL=$(printf '%s' "$body" \
             | grep -o "\"browser_download_url\": \"[^\"]*${artifact_re}\"" \
             | head -1 \
             | sed 's/"browser_download_url": "//;s/"//') || true
-        [ -n "$download_url" ] && break
+        [ -n "$ASSET_URL" ] && break
         # Page on while the body is a non-empty JSON array; stop on the empty last
         # page or on an error body (rate limit / auth) — falling back to source.
         trimmed=$(printf '%s' "$body" | tr -d '[:space:]')
@@ -178,7 +187,90 @@ try_prebuilt_download() {
                 break ;;
         esac
     done
+    return 0
+}
 
+# Print the release tag of a release asset URL, or nothing.
+#   .../releases/download/v0.9.4/probe-lean-....tar.gz -> v0.9.4
+release_tag_from_url() {
+    printf '%s\n' "$1" | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p'
+}
+
+# Return 0 if probe-lean version $1 is older than $2. Both are MAJOR.MINOR.PATCH
+# with an optional leading "v". Return 1 otherwise, also for an empty or
+# malformed version.
+version_older_than() {
+    awk -v a="$1" -v b="$2" '
+        function parse(v, out,   n) {
+            sub(/^v/, "", v)
+            if (v !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) return 0
+            n = split(v, out, ".")
+            return n == 3
+        }
+        BEGIN {
+            if (!parse(a, x) || !parse(b, y)) exit 1
+            for (i = 1; i <= 3; i++) {
+                if (x[i] + 0 < y[i] + 0) exit 0
+                if (x[i] + 0 > y[i] + 0) exit 1
+            }
+            exit 1
+        }'
+}
+
+# Print why the newest release can lack an asset for a Lean version.
+build_hint() {
+    echo "         The build for this Lean version failed, CI skipped it, or it did not run yet." >&2
+    echo "         Failed builds: https://github.com/${GITHUB_REPO}/issues?q=label%3Alean-build-failure" >&2
+}
+
+# Warn on stderr if the downloaded asset comes from a release older than the
+# newest release. Print nothing if either tag is unknown.
+stale_asset_warning() {
+    local lean=$1 asset_tag=$2 newest_tag=$3
+    version_older_than "$asset_tag" "$newest_tag" || return 0
+    echo "Warning: the newest probe-lean release ($newest_tag) has no asset for Lean $lean." >&2
+    echo "         Installing probe-lean from the older release $asset_tag, which lacks later fixes." >&2
+    build_hint
+}
+
+# Warn on stderr if the installed binary for a Lean version is older than the
+# newest release. $4 is 1 if the newest release has an asset for the Lean
+# version: then --force updates the binary.
+installed_binary_warning() {
+    local lean=$1 installed=$2 newest_tag=$3 has_asset=$4
+    version_older_than "$installed" "$newest_tag" || return 0
+    echo "Warning: the installed probe-lean-$lean is version $installed. The newest release is $newest_tag." >&2
+    if [ "$has_asset" = 1 ]; then
+        echo "         Rerun the installer with --force to update it." >&2
+    else
+        echo "         The newest release has no asset for Lean $lean." >&2
+        build_hint
+    fi
+}
+
+# Print the version of the installed binary for a Lean version, or nothing.
+installed_version() {
+    local bin=~/.local/bin/probe-lean-$1 out
+    if command -v timeout >/dev/null 2>&1; then
+        out=$(timeout 10 "$bin" --version 2>/dev/null) || return 0
+    else
+        out=$("$bin" --version 2>/dev/null) || return 0
+    fi
+    out=$(printf '%s' "$out" | tr -d '[:space:]')
+    if printf '%s' "$out" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        printf '%s\n' "$out"
+    fi
+}
+
+try_prebuilt_download() {
+    local version=$1
+    local platform
+    platform=$(detect_platform)
+
+    echo "Checking for pre-built binary: probe-lean-${version}-${platform}..."
+
+    find_release_asset "$version"
+    local download_url=$ASSET_URL
     if [ -z "$download_url" ]; then
         echo "No pre-built binary available, falling back to source build..."
         return 1
@@ -205,6 +297,7 @@ try_prebuilt_download() {
         cp -r "$tmpdir"/lib/ProbeLean* "$versioned_lib"/
     fi
 
+    stale_asset_warning "$version" "$(release_tag_from_url "$download_url")" "$NEWEST_TAG"
     return 0
 }
 
@@ -450,6 +543,14 @@ echo "Installing probe-lean for Lean $VERSION..."
 
 if [ "$FORCE" = false ] && [ -f ~/.local/bin/probe-lean-$VERSION ]; then
     echo "probe-lean-$VERSION is already installed."
+    # Warn if a newer probe-lean exists. A failed release search leaves the
+    # tags empty, so it prints nothing.
+    find_release_asset "$VERSION"
+    has_asset=0
+    if [ -n "$NEWEST_TAG" ] && [ "$(release_tag_from_url "$ASSET_URL")" = "$NEWEST_TAG" ]; then
+        has_asset=1
+    fi
+    installed_binary_warning "$VERSION" "$(installed_version "$VERSION")" "$NEWEST_TAG" "$has_asset"
     update_symlinks "$VERSION"
     echo "Symlinks updated."
 

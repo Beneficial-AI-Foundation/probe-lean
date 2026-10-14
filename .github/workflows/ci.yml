@@ -33,6 +33,9 @@ jobs:
       - name: Installer helper tests
         run: bash tests/test_install_helpers.sh
 
+      - name: Python installer helper tests
+        run: python3 tests/test_install_py.py
+
   test:
     name: Test
     runs-on: ubuntu-latest
