@@ -356,6 +356,19 @@ def main():
             spec_diff.append(f"{name}/specs: +{sorted(gained)} -{sorted(lost)}")
     notes.append(f"specs/primary-spec field changes: {len(spec_diff)}")
 
+    # --- assumptions (a note, not an invariant) -----------------------------
+    # The field is new in 0.19.0. An artifact without it reads as `[]`, so every
+    # non-empty set of the newer side shows as added names.
+    asm_diff = []
+    for name in common:
+        b = set(before[name].get("assumptions") or [])
+        a = set(after[name].get("assumptions") or [])
+        if a != b:
+            asm_diff.append(f"{name}: +{sorted(a - b)} -{sorted(b - a)}")
+    notes.append(f"assumptions changes: {len(asm_diff)}")
+    for line in asm_diff[:args.report]:
+        notes.append(f"  {line}")
+
     # --- oracle agreement ---------------------------------------------------
     if args.oracle:
         expected = defaultdict(set)

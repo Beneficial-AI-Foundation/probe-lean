@@ -18,6 +18,18 @@ predicts `transitively-verified`. Pass `--no-upgrade` for those. The
 `status-origin` equivalence holds in both modes: the marker distinguishes a tainted
 `verified` from a capped clean one.
 
+The `assumptions` field:
+
+    no --allow-missing: every atom with a status has an `assumptions` array of
+                        strings, sorted by string, without duplicates
+    --allow-missing:    no atom has the field (the set walk did not run)
+    no status:          no field
+    "unverified", or "verified" with status-origin "kernel-taint"
+                        =>  "sorryAx" in `assumptions`
+
+The last check holds in one direction only: a dependency `sorry` puts `sorryAx` in
+the set of a `transitively-verified` atom.
+
 Usage:
 
     tools/audit/check-status-consistency.py ARTIFACT.json check-axioms.out
@@ -97,13 +109,37 @@ def parse_report(path):
     return listed, problems
 
 
+def assumption_problems(name, atom, allow_missing):
+    """The `assumptions` checks of one atom (see the module docstring)."""
+    status = atom.get("verification-status")
+    present = "assumptions" in atom
+    value = atom.get("assumptions")
+    if status is None:
+        return [f"{name}: assumptions without a verification-status"] if present else []
+    if allow_missing:
+        return [f"{name}: assumptions present under --allow-missing"] if present else []
+    if not present:
+        return [f"{name}: no assumptions field"]
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        return [f"{name}: assumptions is {value!r}, not an array of strings"]
+    problems = []
+    if value != sorted(set(value)):
+        problems.append(f"{name}: assumptions not sorted by string or has duplicates")
+    tainted = status == "unverified" or (
+        status == "verified" and atom.get("status-origin") == "kernel-taint")
+    if tainted and "sorryAx" not in value:
+        problems.append(f"{name}: {status} from the walk but sorryAx not in assumptions")
+    return problems
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("artifact")
     ap.add_argument("report")
     ap.add_argument("--allow-missing", action="store_true",
-                    help="atoms without verification-status are not failures (--skip-verify)")
+                    help="artifact from --skip-verify: atoms without verification-status are "
+                         "not failures, and no atom may have an assumptions field")
     ap.add_argument("--no-upgrade", action="store_true",
                     help="artifact from --skip-enrich: clean atoms read verified")
     args = ap.parse_args()
@@ -122,6 +158,9 @@ def main():
             report_problems.append(f"{name}: status-origin is {origins[name]!r}, not a string")
 
     bad = list(report_problems)
+    for key, atom in sorted(data.items()):
+        name = key[len(PREFIX):] if key.startswith(PREFIX) else key
+        bad.extend(assumption_problems(name, atom, args.allow_missing))
     counts = {"unverified": 0, "verified": 0, "clean": 0, "trusted": 0, "missing": 0}
     for name, status in sorted(atoms.items()):
         if status is None:
