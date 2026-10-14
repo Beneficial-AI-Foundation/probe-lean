@@ -45,7 +45,7 @@ curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean
 
 The installer puts the binary in `~/.local/bin`. Add that directory to your `PATH`.
 
-The installer searches the GitHub releases from newest to oldest. It downloads the first release that has a binary for your Lean version and platform (`linux-x86_64` or `darwin-arm64`). For a Lean version that the current release does not cover, such as a superseded release candidate, this is an old probe-lean release. For example, `--lean-version v4.28.0-rc1` installs probe-lean 0.9.4. If no release has a matching binary or the download fails, the installer builds from source. For the installer flags and the list of built Lean versions, see [docs/usage.md](docs/usage.md), sections "Installer flags" and "Pre-built binary availability".
+The installer searches the GitHub releases from newest to oldest. It downloads the first release that has a binary for your Lean version and platform (`linux-x86_64` or `darwin-arm64`). If probe-lean failed to build on a Lean version for the current release, this is an older probe-lean release that has a binary for that version. If no release has a matching binary or the download fails, the installer builds from source. For the installer flags and the list of built Lean versions, see [docs/usage.md](docs/usage.md), sections "Installer flags" and "Pre-built binary availability".
 
 ### GitHub Actions
 
