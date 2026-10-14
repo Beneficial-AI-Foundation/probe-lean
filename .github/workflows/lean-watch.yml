@@ -107,7 +107,11 @@ jobs:
           - macos-latest
 
     steps:
+      # Build the source of the target release, as release.yml does, so that a
+      # backfilled asset matches the release it is attached to.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.compute.outputs.target }}
 
       - name: Detect platform
         id: platform
@@ -213,11 +217,11 @@ jobs:
           mkdir -p "$ARTIFACT/bin" "$ARTIFACT/lib"
           cp .lake/build/bin/probe-lean "$ARTIFACT/bin/"
           cp -r .lake/build/lib/lean/ProbeLean* "$ARTIFACT/lib/"
-          # Provenance: a watcher artifact is built from main, so record exactly
-          # which probe-lean revision produced it.
+          # Provenance: record the checked-out release source, not the workflow's
+          # own revision (github.sha is main).
           {
-            echo "probe-lean-commit=${{ github.sha }}"
-            echo "probe-lean-ref=${{ github.ref_name }}"
+            echo "probe-lean-commit=$(git rev-parse HEAD)"
+            echo "probe-lean-ref=$TARGET"
             echo "lean-version=${{ matrix.lean-version }}"
             echo "built-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "built-by=lean-watch"
@@ -237,8 +241,8 @@ jobs:
           # never appear without its sidecar). The sidecar may be --clobbered — it
           # is a deterministic hash, safe to replace, which also lets a retry after
           # a partial upload self-heal. The tarball is uploaded WITHOUT --clobber:
-          # a watcher build (from main) must never overwrite an existing artifact
-          # (e.g. one built from tagged source). A genuine upload/auth error — or a
+          # a watcher build must never overwrite an existing artifact (e.g. one
+          # that release.yml built). A genuine upload/auth error — or a
           # tarball that unexpectedly already exists — fails the job loudly rather
           # than being misreported as a build failure.
           gh release upload "$TARGET" "${ARTIFACT}.sha256" --repo "$GITHUB_REPOSITORY" --clobber
