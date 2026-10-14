@@ -457,6 +457,11 @@ structure UnifiedAtom where
       reachable `sorry` (`Transitive.applyTaintStatus`). The emitted graph does not
       always show the path, so a consumer must not re-derive a stronger status. -/
   statusOrigin : Option StatusOrigin := none
+  /-- The assumption set (`Taint.ProjectTaint.assumptions`): the axioms and trusted
+      constants the atom rests on, other than the standard axioms. Bare Lean names,
+      sorted by string. `none` when the atom has no status or the set walk did not
+      run (`--skip-verify`). -/
+  assumptions : Option (Array String) := none
   /-- Head constant of the result type, if any (neutral fact). -/
   codomainHead : Option String := none
   /-- Result type is `Sort 0` (a `Prop`). -/
@@ -506,9 +511,12 @@ instance : Lean.ToJson UnifiedAtom where
     let withStatusOrigin := match atom.statusOrigin with
       | some origin => withTrustedReason ++ [("status-origin", Lean.toJson origin)]
       | none => withTrustedReason
-    let withCodomainHead := match atom.codomainHead with
-      | some h => withStatusOrigin ++ [("codomain-head", Lean.toJson h)]
+    let withAssumptions := match atom.assumptions with
+      | some names => withStatusOrigin ++ [("assumptions", Lean.toJson names)]
       | none => withStatusOrigin
+    let withCodomainHead := match atom.codomainHead with
+      | some h => withAssumptions ++ [("codomain-head", Lean.toJson h)]
+      | none => withAssumptions
     let withCodomain := withCodomainHead ++ [
       ("codomain-is-prop", Lean.toJson atom.codomainIsProp),
       ("codomain-last-arg-is-bool", Lean.toJson atom.codomainLastArgIsBool)
@@ -547,10 +555,15 @@ instance : Lean.FromJson UnifiedAtom where
     let statusOrigin ← match json.getObjVal? "status-origin" with
       | .error _ => pure none
       | .ok v => some <$> Lean.fromJson? (α := StatusOrigin) v
+    -- Strict like `status-origin`: absent and present-but-invalid (`null` included)
+    -- must stay distinct, or a re-serialized atom silently loses the field.
+    let assumptions ← match json.getObjVal? "assumptions" with
+      | .error _ => pure none
+      | .ok v => some <$> Lean.fromJson? (α := Array String) v
     let codomainHead ← json.getObjValAs? (Option String) "codomain-head" <|> pure none
     let codomainIsProp ← json.getObjValAs? Bool "codomain-is-prop" <|> pure false
     let codomainLastArgIsBool ← json.getObjValAs? Bool "codomain-last-arg-is-bool" <|> pure false
-    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, statusOrigin, codomainHead, codomainIsProp, codomainLastArgIsBool }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, statusOrigin, assumptions, codomainHead, codomainIsProp, codomainLastArgIsBool }
 
 /-- Output format for unified atoms: an object keyed by atom name -/
 structure UnifiedAtomsOutput where

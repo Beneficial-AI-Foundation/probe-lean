@@ -5,7 +5,8 @@
   `importProjectEnvWithFallback` used by `extract`) and runs the same kernel taint
   pass (`Taint.computeProjectTaint`) that decides `verification-status`, then lists
   every project constant that rests on an unexcused project `sorry` — atoms and
-  non-atoms alike, followed by the trusted base T itself. Because the pass is shared,
+  non-atoms alike, followed by the trusted base T itself and the names in the
+  assumption sets of P. Because the pass is shared,
   the listed set is by construction the set `extract` refuses to mark
   `transitively-verified`.
 -/
@@ -38,7 +39,8 @@ def externalStatements (env : Environment) (names : Array Name) : IO (Std.HashMa
     `extract` publishes as atoms (the selected, source-visible declarations). The
     tainted list comes first, then T: every trusted constant with its
     `trusted-reason` and module, and the statement of each rule-3 entry. A member of T
-    whose statement is tainted is in both lists. The
+    whose statement is tainted is in both lists. The assumption section comes last
+    (`assumptionReportLines`). The
     soundness claim ("clean modulo T") rests on exactly those constants, and
     `extract` shows only the ones that are atoms. -/
 def printTaintReport (env : Environment) (pt : ProjectTaint) (emitted : Std.HashSet Name)
@@ -57,6 +59,8 @@ def printTaintReport (env : Environment) (pt : ProjectTaint) (emitted : Std.Hash
   for (n, reason) in trusted do
     IO.println (formatTrustedLine n reason ((moduleNameOf modNames env n).getD .anonymous) types[n]?
       (pt.taint.tainted.contains n))
+  for line in assumptionReportLines env pt do
+    IO.println line
 
 /-- Build, import, and report declarations that rest on an unexcused project `sorry`.
     Returns a process exit code. -/

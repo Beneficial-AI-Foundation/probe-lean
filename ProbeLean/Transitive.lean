@@ -32,10 +32,17 @@ def taintVerdict (pt : ProjectTaint) (n : Name) : Option (Option String × WebVe
     | some reason => (some reason, .trusted)
     | none => (none, .transitivelyVerified)
 
-/-- Stamp `verification-status`/`trusted-reason`/`status-origin` on every atom from
-    the taint pass, joined on `leanName`. `applyTaint := false` (`--skip-verify`)
-    stamps only the atoms that read `trusted` and leaves the rest without a status,
-    a member of T whose statement is tainted included.
+/-- The `assumptions` value of the constant `n`: its set from `pt.assumptions` as
+    bare names sorted by string, `[]` if the computed map has no entry, `none` if
+    the set walk did not run. -/
+def assumptionsOf (pt : ProjectTaint) (n : Name) : Option (Array String) :=
+  pt.assumptions.map fun m => ((m.getD n #[]).map toString).qsort (· < ·)
+
+/-- Stamp `verification-status`/`trusted-reason`/`status-origin`/`assumptions` on
+    every atom from the taint pass, joined on `leanName`. `applyTaint := false`
+    (`--skip-verify`) stamps only the atoms that read `trusted` and leaves the rest
+    without a status, a member of T whose statement is tainted included. No atom
+    gets `assumptions` then, a trusted one included.
     `upgrade := false` (`--skip-enrich`) caps clean atoms at `verified`. A tainted
     atom (`verified` from the walk, not from the cap) gets `status-origin:
     "kernel-taint"` in both modes. The emitted graph can lack the path to its
@@ -47,21 +54,24 @@ def applyTaintStatus (atoms : Array UnifiedAtom) (pt : ProjectTaint)
   let mut out : Array UnifiedAtom := Array.mkEmpty atoms.size
   let mut unknown : Array String := #[]
   for a in atoms do
+    let assumptions := if applyTaint then assumptionsOf pt a.leanName else none
     match taintVerdict pt a.leanName with
     | none =>
       unknown := unknown.push a.name
-      out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none }
+      out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none,
+                               assumptions := none }
     | some (reason, .trusted) =>
       out := out.push { a with verificationStatus := some .trusted, trustedReason := reason,
-                               statusOrigin := none }
+                               statusOrigin := none, assumptions }
     | some (_, status) =>
       if !applyTaint then
-        out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none }
+        out := out.push { a with verificationStatus := none, trustedReason := none, statusOrigin := none,
+                                 assumptions := none }
       else
         let origin := if status == .verified then some .kernelTaint else none
         let status := if status == .transitivelyVerified && !upgrade then .verified else status
         out := out.push { a with verificationStatus := some status, trustedReason := none,
-                                 statusOrigin := origin }
+                                 statusOrigin := origin, assumptions }
   return (out, unknown)
 
 /-- The graph-BFS input: the oracle's statuses with the upgrade undone, so the BFS
