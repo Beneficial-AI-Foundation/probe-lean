@@ -12,7 +12,7 @@ SCRIPT="$HERE/../../tools/lean-versions.sh"
 FIXTURE="$HERE/fixtures/releases.json"
 
 # Inject the lean4-cli tag list for every invocation so tests stay offline. The
-# fixture tags minors 4.28-4.31 (incl. patch v4.30.1) and only RCs for 4.32, but
+# fixture tags minors 4.27-4.31 (incl. patch v4.30.1) and only RCs for 4.32, but
 # nothing for 4.33/4.34. So v4.31.1 (patch on a tagged minor) is KEPT via its
 # minor's tag. v4.33.1 (untagged minor) and v4.31.0-rc1 (the only 4.31 tag is
 # the stable above it) reach the resolver and are dropped.
@@ -47,7 +47,8 @@ assert_fails() {
 echo "Testing version policy..."
 
 # Default floor (v4.28.0-rc1): every stable and RC at or above the floor, with
-# superseded RCs kept and each RC sorted below its own stable (rc10 > rc2).
+# superseded RCs kept. Each RC sorts below its own stable, and RC numbers sort
+# numerically (rc10 > rc2).
 DEFAULT_LIST=$'v4.28.0-rc1\nv4.28.0\nv4.29.0-rc4\nv4.29.0-rc8\nv4.29.0\nv4.30.0-rc2\nv4.30.0\nv4.30.1\nv4.31.0\nv4.31.1\nv4.32.0-rc2\nv4.32.0-rc10'
 assert_eq "default policy" \
     "$DEFAULT_LIST" \
@@ -107,11 +108,13 @@ assert_in "tagged patch v4.30.1 is kept" "v4.30.1"
 assert_out "stable on an untagged minor (v4.33.1) is dropped" "v4.33.1"
 assert_out "RC below its line's only tag (v4.31.0-rc1) is dropped" "v4.31.0-rc1"
 
-# Tags dropped before the resolver runs.
-assert_out "draft (v4.33.0) is dropped" "v4.33.0"
-assert_out "stable-shaped prerelease (v4.34.0) is dropped" "v4.34.0"
+# Tags that the policy drops before the resolver runs. Each one is on a minor
+# with a lean4-cli tag, so only the policy filter can drop it.
+assert_out "draft (v4.30.2) is dropped" "v4.30.2"
+assert_out "stable-shaped prerelease (v4.31.2) is dropped" "v4.31.2"
 assert_out "below-floor v4.27.0 is dropped" "v4.27.0"
 
+# The fixture lists v4.30.0 twice.
 assert_eq "no duplicate lines" "" \
     "$(printf '%s\n' "$default_out" | sort | uniq -d)"
 
