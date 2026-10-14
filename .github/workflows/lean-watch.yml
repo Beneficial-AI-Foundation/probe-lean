@@ -108,7 +108,10 @@ jobs:
 
     steps:
       # Build the source of the target release, as release.yml does, so that a
-      # backfilled asset matches the release it is attached to.
+      # backfilled asset matches the release it is attached to. Two effects:
+      # a fix on main for a new Lean version reaches the watcher only with the
+      # next release, and the build step runs the tag's resolve-cli-rev.sh while
+      # `compute` and `report` run main's. Keep the two resolvers compatible.
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.compute.outputs.target }}
