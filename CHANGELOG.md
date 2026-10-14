@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The installers (`tools/bash/install.sh` and `tools/python/install.py`) warn on stderr about an old probe-lean build (#144). One warning appears when the downloaded binary comes from an older release than the newest one, because the newest release has no binary for the Lean version. The other appears when the installed binary for the Lean version is older than the newest release and you do not set `--force`. The warnings name the releases. They tell you to rerun with `--force`, or they point to the `lean-build-failure` issue. The exit codes do not change.
+
 ### Changed
 
 - **The release workflows build every Lean release and release candidate from `v4.28.0-rc1` on** (#142). Before, they built only stables and the latest RC of a line without a stable. A superseded RC then had its only binary on an old probe-lean release, and the installers installed that old release (0.9.4 for `v4.28.0-rc1`). Versions without a compatible `lean4-cli` tag are still skipped.

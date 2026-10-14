@@ -49,7 +49,7 @@ probe-lean --version
 |------|-------------|
 | `--from-project <path>` | Detect the Lean version from the project's `lean-toolchain`. If `<path>` has no top-level `lean-toolchain`, the installer searches below it (excluding `.lake`) and uses the toolchain it finds. When the Lean package is in a subfolder (for example `cedar-spec/cedar-lean`), you can point at the monorepo root. If the toolchain files disagree on the version, the installer lists them and stops. Use `--lean-version` in that case. |
 | `--lean-version <ver>` | Explicit Lean version (for example `v4.28.0`). Same as the positional `VERSION` argument. |
-| `--force` | Reinstall an installed version. |
+| `--force` | Reinstall an installed version. Without it, the installer keeps the installed binary and warns if the newest release has a newer build. |
 | `-h`, `--help` | Show the help message. |
 
 ### Toolchain version matching
@@ -73,6 +73,19 @@ A build attempt is not a promise. A Lean version has one of three outcomes:
 The daily workflow lists failed builds in an open issue with the label `lean-build-failure`. That issue does not list skipped versions.
 
 A GitHub Actions matrix holds at most 256 jobs, which is 128 Lean versions on two platforms. If the list grows past 128 versions, the release workflows stop with an error. To fix this, raise `LEAN_VERSION_FLOOR` in `tools/lean-versions.sh`.
+
+The installers warn on stderr about an old probe-lean build. The warnings do not stop the installer and do not change its exit code.
+
+- If the downloaded binary comes from an older release than the newest release, the installer names both releases and the reason that the newest release has no binary.
+- If a binary for the Lean version is already installed and you do not set `--force`, the installer compares its version with the newest release. If the newest release has a binary for the Lean version, the warning tells you to rerun with `--force`. Otherwise the warning gives the reason that the newest release has no binary.
+- If the release search fails, for example because of the rate limit, the installer prints no version warning.
+
+For example, a rerun without `--force` over probe-lean 0.9.4 for Lean `v4.28.0-rc1` prints:
+
+```text
+Warning: the installed probe-lean-v4.28.0-rc1 is version 0.9.4. The newest release is v0.19.0.
+         Rerun the installer with --force to update it.
+```
 
 To raise the GitHub API rate limit during the release search, set `GH_TOKEN` or `GITHUB_TOKEN`.
 
