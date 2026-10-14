@@ -257,16 +257,28 @@ axiom:
 As(c) = own(c) ∪ As(stmt(c)) ∪ As(outside(c)) ∪ (As(proof(c)) \ {sorryAx}) ∪ ({c} if sorryAx ∈ As(proof(c)))
 ```
 
-`own(c)` is `{c}` if any version of `c` is an axiom (see above), else `{}`. `stmt(c)` is the statement the status walk follows: the type, and the constructors of an
-inductive. `outside(c)` is the edges of the versions outside P (see above). It is not excused,
-so a project axiom merged with a dependency theorem that uses `sorry` lists `sorryAx`. `proof(c)`
-is the constants of the value of a `def`, `theorem` or `opaque`, the union over the project
-versions for a merged name. Other kinds have no proof edges. So the leaves of a
-set are axioms and the trusted constants that cut off a `sorry`. A caller of a vouched lemma lists
-the lemma, not `sorryAx`. If a vouched lemma has a full proof through another vouched lemma that
-has a `sorry`, both the lemma and the axioms of the other lemma's statement flow through. A value
-can name the constants of its statement (a type argument, an `rfl` term), so a member of T whose
-statement rests on a `sorry` can list its own name next to `sorryAx`.
+The last two terms replace `sorryAx` with `c`. A `sorry` in the proof of a trusted constant is
+excused, and its callers list the constant that they trust instead. Other axioms of the proof flow
+through. If the proof is complete, `c` is not in the set, because trusting it costs nothing. For a
+lemma `add_spec` in T:
+
+| Proof of `add_spec` | `As(add_spec)` |
+|---|---|
+| `sorry` | `{add_spec}` |
+| `native_decide`, no `sorry` | `{add_spec._native.native_decide.ax_1_1}` |
+| complete, no axioms | `{}` |
+
+`own(c)` adds `c` for another reason: it is `{c}` if any version of `c` is an axiom (see above),
+whatever the proof contains, else `{}`. `stmt(c)` is the statement the status walk follows: the
+type, and the constructors of an inductive. `outside(c)` is the edges of the versions outside P (see
+above). It is not excused, so a project axiom merged with a dependency theorem that uses `sorry`
+lists `sorryAx`. `proof(c)` is the constants of the value of a `def`, `theorem` or `opaque`, the
+union over the project versions for a merged name. Other kinds have no proof edges. So the leaves of
+a set are axioms and the trusted constants that cut off a `sorry`. If a vouched lemma has a full
+proof through another vouched lemma that has a `sorry`, both the lemma and the axioms of the other
+lemma's statement flow through. A value can name the constants of its statement (a type argument, an
+`rfl` term), so a member of T whose statement rests on a `sorry` can list its own name next to
+`sorryAx`.
 
 The graph has cycles, for example an inductive and its constructors. `As` is the least fixpoint
 of the rules. The rules are monotone, so this fixpoint is unique and does not depend on the visit
