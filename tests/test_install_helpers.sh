@@ -237,6 +237,125 @@ unset LEAN_CLI_TAGS_FILE
 rm -f "$DIFF_TAGS"
 
 echo ""
+echo "=== Testing release_tag_from_url ==="
+
+assert_eq "tag from download URL" "v0.9.4" \
+    "$(release_tag_from_url "https://github.com/o/r/releases/download/v0.9.4/probe-lean-v4.28.0-rc1-linux-x86_64.tar.gz")"
+assert_eq "no tag in URL" "" "$(release_tag_from_url "https://example.com/probe-lean.tar.gz")"
+assert_eq "empty URL" "" "$(release_tag_from_url "")"
+
+echo ""
+echo "=== Testing version_older_than ==="
+
+older_case() { if version_older_than "$1" "$2"; then echo yes; else echo no; fi; }
+assert_eq "0.9.4 < v0.18.2" "yes" "$(older_case 0.9.4 v0.18.2)"
+assert_eq "multi-digit: 0.9.6 < 0.18.2" "yes" "$(older_case 0.9.6 0.18.2)"
+assert_eq "v-prefixed both" "yes" "$(older_case v0.9.4 v0.18.2)"
+assert_eq "major wins" "yes" "$(older_case 0.99.99 1.0.0)"
+assert_eq "equal" "no" "$(older_case 0.18.2 v0.18.2)"
+assert_eq "newer" "no" "$(older_case 0.19.0 v0.18.2)"
+assert_eq "empty first" "no" "$(older_case "" v0.18.2)"
+assert_eq "empty second" "no" "$(older_case 0.9.4 "")"
+assert_eq "malformed" "no" "$(older_case 0.9 v0.18.2)"
+
+echo ""
+echo "=== Testing stale_asset_warning ==="
+
+OUT=$(stale_asset_warning v4.28.0-rc1 v0.9.4 v0.18.2 2>&1 >/dev/null)
+assert_eq "older asset warns" "Warning: the newest probe-lean release (v0.18.2) has no asset for Lean v4.28.0-rc1." \
+    "$(printf '%s\n' "$OUT" | head -1)"
+case "$OUT" in *"issues?q=label%3Alean-build-failure"*) R=yes ;; *) R=no ;; esac
+assert_eq "older asset warning has the build hint" "yes" "$R"
+assert_eq "older asset prints nothing on stdout" "" "$(stale_asset_warning v4.28.0-rc1 v0.9.4 v0.18.2 2>/dev/null)"
+assert_eq "same tag prints nothing" "" "$(stale_asset_warning v4.28.0 v0.18.2 v0.18.2 2>&1)"
+assert_eq "empty newest tag prints nothing" "" "$(stale_asset_warning v4.28.0 v0.9.4 "" 2>&1)"
+assert_eq "empty asset tag prints nothing" "" "$(stale_asset_warning v4.28.0 "" v0.18.2 2>&1)"
+
+echo ""
+echo "=== Testing installed_binary_warning ==="
+
+OUT=$(installed_binary_warning v4.28.0 0.9.6 v0.18.2 1 2>&1 >/dev/null)
+assert_eq "older binary, newest has asset: first line" \
+    "Warning: the installed probe-lean-v4.28.0 is version 0.9.6. The newest release is v0.18.2." \
+    "$(printf '%s\n' "$OUT" | head -1)"
+case "$OUT" in *"--force"*) R=yes ;; *) R=no ;; esac
+assert_eq "older binary, newest has asset: --force hint" "yes" "$R"
+case "$OUT" in *"lean-build-failure"*) R=yes ;; *) R=no ;; esac
+assert_eq "older binary, newest has asset: no build hint" "no" "$R"
+OUT=$(installed_binary_warning v4.28.0-rc1 0.9.4 v0.18.2 0 2>&1 >/dev/null)
+case "$OUT" in *"issues?q=label%3Alean-build-failure"*) R=yes ;; *) R=no ;; esac
+assert_eq "older binary, no asset: build hint" "yes" "$R"
+case "$OUT" in *"--force"*) R=yes ;; *) R=no ;; esac
+assert_eq "older binary, no asset: no --force hint" "no" "$R"
+assert_eq "equal version prints nothing" "" "$(installed_binary_warning v4.28.0 0.18.2 v0.18.2 1 2>&1)"
+assert_eq "newer version prints nothing" "" "$(installed_binary_warning v4.28.0 0.19.0 v0.18.2 1 2>&1)"
+assert_eq "empty version prints nothing" "" "$(installed_binary_warning v4.28.0 "" v0.18.2 1 2>&1)"
+assert_eq "empty newest tag prints nothing" "" "$(installed_binary_warning v4.28.0 0.9.6 "" 1 2>&1)"
+
+echo ""
+echo "=== Testing find_release_asset (fake curl) ==="
+
+# The fake curl serves "$FAKE_PAGES/page<N>.json" for the page=<N> query, and
+# "[]" when the file does not exist.
+FAKE_PAGES=$(mktemp -d)
+curl() {
+    local arg page=""
+    for arg in "$@"; do
+        case "$arg" in *"page="*) page=$(printf '%s' "$arg" | sed 's/.*[?&]page=\([0-9]*\).*/\1/') ;; esac
+    done
+    if [ -f "$FAKE_PAGES/page$page.json" ]; then cat "$FAKE_PAGES/page$page.json"; else echo "[]"; fi
+}
+PLAT=$(detect_platform)
+release_json() {  # <tag> [lean-version...]: one release object with assets
+    local tag=$1 v sep=""
+    shift
+    printf '{\n    "tag_name": "%s",\n    "assets": [' "$tag"
+    for v in "$@"; do
+        printf '%s\n      {"browser_download_url": "https://github.com/o/r/releases/download/%s/probe-lean-%s-%s.tar.gz"}' \
+            "$sep" "$tag" "$v" "$PLAT"
+        sep=","
+    done
+    printf '\n    ]\n  }'
+}
+
+printf '[\n  %s,\n  %s\n]\n' "$(release_json v0.18.2 v4.28.0)" "$(release_json v0.18.1 v4.28.0)" > "$FAKE_PAGES/page1.json"
+printf '[\n  %s\n]\n' "$(release_json v0.9.4 v4.28.0-rc1 v4.28.0)" > "$FAKE_PAGES/page2.json"
+
+find_release_asset v4.28.0
+assert_eq "asset on newest: tag" "v0.18.2" "$(release_tag_from_url "$ASSET_URL")"
+assert_eq "asset on newest: NEWEST_TAG" "v0.18.2" "$NEWEST_TAG"
+
+find_release_asset v4.28.0-rc1
+assert_eq "asset only on page 2: tag" "v0.9.4" "$(release_tag_from_url "$ASSET_URL")"
+assert_eq "asset only on page 2: NEWEST_TAG from page 1" "v0.18.2" "$NEWEST_TAG"
+
+find_release_asset v4.99.0
+assert_eq "no asset: ASSET_URL empty" "" "$ASSET_URL"
+assert_eq "no asset: NEWEST_TAG still set" "v0.18.2" "$NEWEST_TAG"
+
+# A failure after page 1 keeps NEWEST_TAG: page 1 holds the newest release, so
+# the installed-binary warning stays correct. It names the build failure, not
+# --force, because the newest release has no asset for the version.
+printf '{"message": "API rate limit exceeded"}\n' > "$FAKE_PAGES/page2.json"
+find_release_asset v4.28.0-rc1 2>/dev/null
+assert_eq "error on page 2: ASSET_URL empty" "" "$ASSET_URL"
+assert_eq "error on page 2: NEWEST_TAG from page 1" "v0.18.2" "$NEWEST_TAG"
+OUT=$(installed_binary_warning v4.28.0-rc1 0.9.4 "$NEWEST_TAG" 0 2>&1 >/dev/null)
+case "$OUT" in *"issues?q=label%3Alean-build-failure"*) R=yes ;; *) R=no ;; esac
+assert_eq "error on page 2: warning has the build hint" "yes" "$R"
+case "$OUT" in *"--force"*) R=yes ;; *) R=no ;; esac
+assert_eq "error on page 2: no --force hint" "no" "$R"
+
+rm -f "$FAKE_PAGES/page2.json"
+printf '{"message": "API rate limit exceeded"}\n' > "$FAKE_PAGES/page1.json"
+find_release_asset v4.28.0 2>/dev/null
+assert_eq "error body: ASSET_URL empty" "" "$ASSET_URL"
+assert_eq "error body: NEWEST_TAG empty" "" "$NEWEST_TAG"
+
+unset -f curl
+rm -rf "$FAKE_PAGES"
+
+echo ""
 echo "=== Testing platform detection ==="
 
 PLATFORM=$(detect_platform)

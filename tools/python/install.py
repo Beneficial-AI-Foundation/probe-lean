@@ -18,6 +18,7 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 import httpx
 
@@ -106,51 +107,125 @@ def select_version(versions: list[str]) -> str:
         print("Invalid choice, try again.")
 
 
-def try_prebuilt_download(version: str) -> bool:
-    """Attempt to download a pre-built binary. Returns True on success."""
-    plat = detect_platform()
-    artifact_name = f"probe-lean-{version}-{plat}.tar.gz"
+def find_release_asset(version: str) -> tuple[Optional[str], Optional[str]]:
+    """Search the probe-lean releases for the asset of a Lean version and platform.
 
-    print(f"Checking for pre-built binary: probe-lean-{version}-{plat}...")
+    Returns (asset_url, newest_tag). asset_url is None if no release has the
+    asset. newest_tag is the tag of the newest release, None if unknown.
+    """
+    artifact_name = f"probe-lean-{version}-{detect_platform()}.tar.gz"
 
-    # Search the releases for an artifact matching this Lean version + platform.
     # Releases are paginated newest-first; the watcher appends artifacts to the
     # latest release over time, and a version that failed to build on the newest
     # release can still have an asset on an older one, so walk the pages until
     # found or exhausted. An optional token avoids the low
     # unauthenticated rate limit.
+    releases_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+    headers = {}
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    newest_tag = None
+    per_page = 100
+    for page in range(1, 51):  # cap pages so we never loop unbounded
+        resp = httpx.get(
+            releases_url, params={"per_page": per_page, "page": page}, headers=headers
+        )
+        resp.raise_for_status()
+        releases = resp.json()
+        if not isinstance(releases, list):
+            # A rate-limit / error response is a JSON object, not a list.
+            msg = releases.get("message") if isinstance(releases, dict) else releases
+            print(f"GitHub API did not return a release list ({msg}); set GH_TOKEN to raise the rate limit.")
+            break
+        if not releases:
+            break
+        # Page 1 lists the newest release first.
+        if page == 1:
+            newest_tag = releases[0].get("tag_name")
+        for release in releases:
+            for asset in release.get("assets", []):
+                if asset["name"] == artifact_name:
+                    return asset["browser_download_url"], newest_tag
+        if len(releases) < per_page:
+            break
+    return None, newest_tag
+
+
+def release_tag_from_url(url: Optional[str]) -> Optional[str]:
+    """.../releases/download/v0.9.4/probe-lean-....tar.gz -> v0.9.4, else None."""
+    m = re.search(r"/releases/download/([^/]+)/", url or "")
+    return m.group(1) if m else None
+
+
+def _parse_version(v: Optional[str]) -> Optional[tuple[int, int, int]]:
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", v or "")
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+def version_older_than(a: Optional[str], b: Optional[str]) -> bool:
+    """True if probe-lean version a is older than b (MAJOR.MINOR.PATCH, optional
+    leading "v"). False otherwise, also for an empty or malformed version."""
+    pa, pb = _parse_version(a), _parse_version(b)
+    return pa is not None and pb is not None and pa < pb
+
+
+def _warn(line: str):
+    # Flush stdout first, so the warning keeps its place in piped output.
+    sys.stdout.flush()
+    print(line, file=sys.stderr)
+
+
+def _build_hint():
+    """Print why the newest release can lack an asset for a Lean version."""
+    _warn("         The build for this Lean version failed, CI skipped it, or it did not run yet.")
+    _warn(f"         Failed builds: https://github.com/{GITHUB_REPO}/issues?q=label%3Alean-build-failure")
+
+
+def stale_asset_warning(lean: str, asset_tag: Optional[str], newest_tag: Optional[str]):
+    """Warn on stderr if the downloaded asset comes from a release older than the
+    newest release. Print nothing if either tag is unknown."""
+    if not version_older_than(asset_tag, newest_tag):
+        return
+    _warn(f"Warning: the newest probe-lean release ({newest_tag}) has no asset for Lean {lean}.")
+    _warn(f"         Installing probe-lean from the older release {asset_tag}, which lacks later fixes.")
+    _build_hint()
+
+
+def installed_binary_warning(lean: str, installed: Optional[str], newest_tag: Optional[str], has_asset: bool):
+    """Warn on stderr if the installed binary for a Lean version is older than the
+    newest release. If the newest release has an asset for the Lean version,
+    --force updates the binary."""
+    if not version_older_than(installed, newest_tag):
+        return
+    _warn(f"Warning: the installed probe-lean-{lean} is version {installed}. The newest release is {newest_tag}.")
+    if has_asset:
+        _warn("         Rerun the installer with --force to update it.")
+    else:
+        _warn(f"         The newest release has no asset for Lean {lean}.")
+        _build_hint()
+
+
+def installed_version(lean: str) -> Optional[str]:
+    """The version of the installed binary for a Lean version, or None."""
+    binary = Path.home() / ".local" / "bin" / f"probe-lean-{lean}"
     try:
-        releases_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
-        headers = {}
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        out = subprocess.run(
+            [str(binary), "--version"], capture_output=True, text=True, timeout=10
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out if re.fullmatch(r"\d+\.\d+\.\d+", out) else None
 
-        download_url = None
-        per_page = 100
-        for page in range(1, 51):  # cap pages so we never loop unbounded
-            resp = httpx.get(
-                releases_url, params={"per_page": per_page, "page": page}, headers=headers
-            )
-            resp.raise_for_status()
-            releases = resp.json()
-            if not isinstance(releases, list):
-                # A rate-limit / error response is a JSON object, not a list.
-                msg = releases.get("message") if isinstance(releases, dict) else releases
-                print(f"GitHub API did not return a release list ({msg}); set GH_TOKEN to raise the rate limit.")
-                break
-            if not releases:
-                break
-            for release in releases:
-                for asset in release.get("assets", []):
-                    if asset["name"] == artifact_name:
-                        download_url = asset["browser_download_url"]
-                        break
-                if download_url:
-                    break
-            if download_url or len(releases) < per_page:
-                break
 
+def try_prebuilt_download(version: str) -> bool:
+    """Attempt to download a pre-built binary. Returns True on success."""
+    plat = detect_platform()
+    print(f"Checking for pre-built binary: probe-lean-{version}-{plat}...")
+
+    try:
+        download_url, newest_tag = find_release_asset(version)
         if not download_url:
             print("No pre-built binary available, falling back to source build...")
             return False
@@ -192,7 +267,8 @@ def try_prebuilt_download(version: str) -> bool:
                             shutil.copytree(item, dest)
                         else:
                             shutil.copy2(item, dest)
-            return True
+        stale_asset_warning(version, release_tag_from_url(download_url), newest_tag)
+        return True
     except Exception as e:
         print(f"Pre-built lookup/download failed ({e}); falling back to source build...")
         return False
@@ -382,6 +458,14 @@ def main():
     versioned_path = local_bin / f"probe-lean-{version}"
     if not args.force and versioned_path.exists():
         print(f"probe-lean-{version} is already installed.")
+        # Warn if a newer probe-lean exists. A failed release search gives no
+        # tags, so it prints nothing.
+        try:
+            asset_url, newest_tag = find_release_asset(version)
+        except Exception:
+            asset_url, newest_tag = None, None
+        has_asset = newest_tag is not None and release_tag_from_url(asset_url) == newest_tag
+        installed_binary_warning(version, installed_version(version), newest_tag, has_asset)
         update_symlinks(version)
         print("Symlinks updated.")
         path_dirs = os.environ.get("PATH", "").split(os.pathsep)
