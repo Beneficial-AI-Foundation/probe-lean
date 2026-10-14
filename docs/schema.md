@@ -65,7 +65,8 @@ other atoms that the arrays name. Keys appear in descending order at every level
       "codomain-head": "Nat",
       "code-text": { "lines-start": 10, "lines-end": 12 },
       "code-path": "ArkLib/SumCheck/HashExternal.lean",
-      "code-module": "ArkLib.SumCheck.HashExternal"
+      "code-module": "ArkLib.SumCheck.HashExternal",
+      "assumptions": []
     },
     "probe:ArkLib.SumCheck.Protocol.Verifier.check": {
       "verification-status": "verified",
@@ -89,7 +90,8 @@ other atoms that the arrays name. Keys appear in descending order at every level
       "codomain-head": "Fin",
       "code-text": { "lines-start": 70, "lines-end": 72 },
       "code-path": "ArkLib/SumCheck/Protocol.lean",
-      "code-module": "ArkLib.SumCheck.Protocol"
+      "code-module": "ArkLib.SumCheck.Protocol",
+      "assumptions": ["sorryAx"]
     },
     "probe:ArkLib.SumCheck.Protocol.Prover.prove": {
       "verification-status": "transitively-verified",
@@ -122,7 +124,8 @@ other atoms that the arrays name. Keys appear in descending order at every level
       "codomain-head": "ArkLib.SumCheck.Protocol.Prover.State",
       "code-text": { "lines-start": 42, "lines-end": 67 },
       "code-path": "ArkLib/SumCheck/Protocol.lean",
-      "code-module": "ArkLib.SumCheck.Protocol"
+      "code-module": "ArkLib.SumCheck.Protocol",
+      "assumptions": []
     }
   }
 }
@@ -223,6 +226,7 @@ where the value comes from: auto (computed from the environment), config
 | `verification-status` | string or absent | auto | One of the five values in [Verification status](#verification-status-and-the-trusted-base). |
 | `trusted-reason` | string or absent | auto | Only when `verification-status` is `"trusted"`: `"axiom"`, `"externally_verified"` or `"external"`. A member of T whose statement rests on a project `sorry` has none. |
 | `status-origin` | string or absent | auto | `"kernel-taint"` on an atom that reads `"verified"` because the walk found a reachable project `sorry`, a member of T with a tainted statement included. See [Re-deriving statuses](#re-deriving-statuses). |
+| `assumptions` | array or absent | auto | The axioms and trusted constants that the atom rests on, other than `propext`, `Classical.choice` and `Quot.sound`. Present on every atom with a status, absent under `--skip-verify`. See [Assumptions](#assumptions). |
 | `codomain-head` | string or absent | auto | Head constant of the result type after stripping `∀`/`→` binders, if it is a constant. |
 | `codomain-is-prop` | bool | auto | The result type is `Sort 0`. |
 | `codomain-last-arg-is-bool` | bool | auto | The final application argument of the result type is `Bool`. |
@@ -311,7 +315,8 @@ reasons for each decision.
 
 A kernel walk decides `verification-status`. The build log and the emitted graph do not.
 `sorry` elaborates to the `sorryAx` axiom. The walk follows the constant graph of every constant of
-every built project module (the set P), atoms or not. It stops at two boundaries:
+every built project module (the set P, see
+[Notation](verification-status.md#notation)), atoms or not. It stops at two boundaries:
 
 - the project boundary. Lean and every dependency package in `lake-manifest.json` are trusted
   wholesale.
@@ -328,7 +333,7 @@ every built project module (the set P), atoms or not. It stops at two boundaries
 
 Under `--skip-enrich`, atoms that are clean modulo T read `"verified"`, and
 `"transitively-verified"` never appears. Under `--skip-verify`, only the atoms that read
-`"trusted"` get a status, and no atom gets `status-origin`. An atom whose name is not in P gets no status, and
+`"trusted"` get a status, and no atom gets `status-origin` or `assumptions`. An atom whose name is not in P gets no status, and
 `extract` prints a warning.
 
 The trusted base, one shared rule set (`ProbeLean/Trust.lean`) in precedence order:
@@ -372,6 +377,39 @@ A consumer must never promote a marked atom. It must also not promote an atom th
 atom through non-trusted dependencies. An unmarked `"verified"` atom is clean modulo T and reads
 `"verified"` only because of the `--skip-enrich` cap, so a consumer can promote it. Extracts older
 than probe-lean 0.16.0 have no marker and must be re-extracted, not re-enriched.
+
+### Assumptions
+
+`assumptions` is the assumption set of the atom: every axiom and trusted constant that it rests
+on, other than the standard axioms `propext`, `Classical.choice` and `Quot.sound`. If the proof of
+a trusted constant uses `sorry`, the set lists that constant instead of `sorryAx`. The rules are
+in [verification-status.md](verification-status.md#assumption-sets).
+
+```json
+{ "verification-status": "transitively-verified",
+  "assumptions": ["Foo.t._native.native_decide.ax_1_1"] }
+{ "verification-status": "transitively-verified",
+  "assumptions": ["Foo.vouched_lemma"] }
+{ "verification-status": "transitively-verified",
+  "assumptions": [] }
+```
+
+- Format: bare Lean names (`Name.toString`), without the `probe:` prefix, because most names
+  are not atoms. Private names keep their `_private.<module>.0.` prefix. The array is sorted by
+  string and has no duplicates.
+- Presence: the field is on every atom that has a `verification-status`, also under
+  `--skip-enrich`. An empty set gives `[]`. Under `--skip-verify` no atom has the field, a
+  `"trusted"` atom included. An atom without a status never has it.
+- Relation to the status: the field does not change `verification-status`. An atom that reads
+  `"unverified"`, or `"verified"` with `"status-origin": "kernel-taint"`, always has `"sorryAx"`
+  in its set. The converse does not hold. A `sorry` in a dependency package puts `"sorryAx"` in
+  the set of a `"transitively-verified"` atom, because the status walk does not search
+  dependency proofs. An axiom such as `axiom bad : False` leaves its callers
+  `"transitively-verified"`, and only this field names it.
+- Atom lookup: if a name has an atom, the code-name of that atom is built from the name (see
+  [Code-name format](#code-name-format)). Most names have no atom, for example generated axioms
+  and dependency constants. Two private names that differ only in their module map to the same
+  code-name.
 
 ## Auxiliary-dependency folding
 

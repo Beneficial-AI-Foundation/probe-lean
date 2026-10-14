@@ -1,4 +1,4 @@
-{"tool": {"version": "0.18.2", "name": "probe-lean", "command": "extract"},
+{"tool": {"version": "0.19.0", "name": "probe-lean", "command": "extract"},
  "timestamp": "2026-01-01T00:00:00Z",
  "source":
  {"repo": "https://github.com/Beneficial-AI-Foundation/probe-lean",
@@ -31,7 +31,8 @@
    "codomain-head": "Eq",
    "code-text": {"lines-start": 42, "lines-end": 44},
    "code-path": "ExampleProject/Core.lean",
-   "code-module": "ExampleProject.Core"},
+   "code-module": "ExampleProject.Core",
+   "assumptions": ["sorryAx"]},
   "probe:ExampleProject.unproved":
   {"verification-status": "unverified",
    "type-dependencies": ["probe:ExampleProject.helper"],
@@ -53,7 +54,8 @@
    "codomain-head": "Eq",
    "code-text": {"lines-start": 36, "lines-end": 38},
    "code-path": "ExampleProject/Core.lean",
-   "code-module": "ExampleProject.Core"},
+   "code-module": "ExampleProject.Core",
+   "assumptions": ["sorryAx"]},
   "probe:ExampleProject.helper_correct":
   {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.helper"],
@@ -76,7 +78,8 @@
    "code-text": {"lines-start": 30, "lines-end": 32},
    "code-path": "ExampleProject/Core.lean",
    "code-module": "ExampleProject.Core",
-   "attributes": ["primary_spec"]},
+   "attributes": ["primary_spec"],
+   "assumptions": []},
   "probe:ExampleProject.helper_bounds":
   {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.helper"],
@@ -99,7 +102,8 @@
    "code-text": {"lines-start": 24, "lines-end": 26},
    "code-path": "ExampleProject/Core.lean",
    "code-module": "ExampleProject.Core",
-   "attributes": ["primary_spec"]},
+   "attributes": ["primary_spec"],
+   "assumptions": []},
   "probe:ExampleProject.helper":
   {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.Config"],
@@ -125,7 +129,8 @@
    "codomain-head": "Nat",
    "code-text": {"lines-start": 18, "lines-end": 20},
    "code-path": "ExampleProject/Core.lean",
-   "code-module": "ExampleProject.Core"},
+   "code-module": "ExampleProject.Core",
+   "assumptions": []},
   "probe:ExampleProject.external_helper":
   {"verification-status": "trusted",
    "type-dependencies": [],
@@ -148,7 +153,8 @@
    "codomain-head": "Nat",
    "code-text": {"lines-start": 3, "lines-end": 5},
    "code-path": "ExampleProject/CoreExternal.lean",
-   "code-module": "ExampleProject.CoreExternal"},
+   "code-module": "ExampleProject.CoreExternal",
+   "assumptions": []},
   "probe:ExampleProject.axiomatic_truth":
   {"verification-status": "trusted",
    "type-dependencies": [],
@@ -170,7 +176,8 @@
    "codomain-is-prop": true,
    "code-text": {"lines-start": 12, "lines-end": 14},
    "code-path": "ExampleProject/Core.lean",
-   "code-module": "ExampleProject.Core"},
+   "code-module": "ExampleProject.Core",
+   "assumptions": ["ExampleProject.axiomatic_truth"]},
   "probe:ExampleProject.Config.limit":
   {"verification-status": "transitively-verified",
    "type-dependencies": ["probe:ExampleProject.Config"],
@@ -192,7 +199,8 @@
    "codomain-head": "Nat",
    "code-text": {"lines-start": 9, "lines-end": 11},
    "code-path": "ExampleProject/Core.lean",
-   "code-module": "ExampleProject.Core"},
+   "code-module": "ExampleProject.Core",
+   "assumptions": []},
   "probe:ExampleProject.Config":
   {"verification-status": "transitively-verified",
    "type-dependencies": [],
@@ -214,4 +222,5 @@
    "codomain-head": "Type",
    "code-text": {"lines-start": 5, "lines-end": 7},
    "code-path": "ExampleProject/Core.lean",
-   "code-module": "ExampleProject.Core"}}}
+   "code-module": "ExampleProject.Core",
+   "assumptions": []}}}

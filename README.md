@@ -75,7 +75,7 @@ The default output file is `<target-project>/.verilib/probes/lean_<pkg>_<ver>.js
 |---------|-------------|
 | `extract` | Build a project, extract atoms with dependencies, specs and `verification-status`. |
 | `viewify` | Filter `extract` output into molecules for the web UI (`.verilib/views/molecules_all.json`). |
-| `check-axioms` | List every project constant that rests on an unexcused project `sorry`, with the same kernel walk as `extract`. |
+| `check-axioms` | List every project constant that rests on an unexcused project `sorry`, with the same kernel walk as `extract`, then the trusted base and the names in the assumption sets. |
 
 For all flags and examples, see [docs/usage.md](docs/usage.md), section "Commands".
 
@@ -87,6 +87,7 @@ For all flags and examples, see [docs/usage.md](docs/usage.md), section "Command
 4. Filter: apply the flags from `.verilib/probes/config.json` and mark generated code as hidden. See [docs/schema.md](docs/schema.md).
 5. Specs: compute `specs` and `primary-spec` from the `type-dependencies` of theorems. Only data `def`, `abbrev`, `instance`, `opaque` and `axiom` atoms receive them. Types, type aliases, projections, proofs and predicates do not. See [docs/spec-relationships.md](docs/spec-relationships.md).
 6. Status: a kernel walk decides `verification-status`. Direct `sorry` carriers read `"unverified"`. An atom that rests on an unexcused `sorry` below it reads `"verified"` with `"status-origin": "kernel-taint"`. Clean atoms read `"transitively-verified"`, or `"verified"` with no marker under `--skip-enrich`. Axioms and externally verified declarations read `"trusted"`, unless their statement rests on a project `sorry`. See [docs/verification-status.md](docs/verification-status.md).
+   A second walk computes `assumptions` for every atom with a status: the axioms and trusted constants that its proof rests on, other than `propext`, `Classical.choice` and `Quot.sound`. The status looks only for `sorry`. A theorem that rests on `axiom bad : False` or on a `native_decide` axiom reads `"transitively-verified"`, and only `assumptions` names the axiom. See [docs/schema.md](docs/schema.md), section "Assumptions".
 7. Write: wrap the atoms in the Schema 3.0 envelope with the git commit, package information and a timestamp.
 
 ## Documentation

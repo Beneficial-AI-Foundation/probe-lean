@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-13
+
+### Added
+
+- **The `assumptions` atom field** (#139). Every atom with a `verification-status` lists the axioms and trusted constants that its proof rests on, other than `propext`, `Classical.choice` and `Quot.sound`. The names are bare Lean names, sorted by string. Before, a theorem that rested on `axiom bad : False`, on a `native_decide` axiom or on a vouched `sorry` read `transitively-verified`, and no field showed what it trusted. `verification-status` does not change.
+  - Trust excuses only `sorry`. If the proof of a trusted constant reaches `sorryAx`, its name enters the set in place of `sorryAx`. Axioms in its proof flow through to its callers.
+  - The walk also enters dependency packages. A dependency axiom is listed, and a dependency `sorry` shows up as `sorryAx` on a `transitively-verified` atom.
+  - For a name that several imported modules declare, the walk follows every version, not only the one that Lean kept. A name with an axiom version is in its own set. Without this, two dependency modules that swap an axiom and a theorem would leave a proof of `False` with an empty set.
+  - Under `--skip-verify`, no atom has the field, and the walk does not run.
+  - The walk added 4 to 6 s (11 to 15%) to a 34 to 42 s `extract` of PrimeNumberTheoremAnd, and about 2.5% to its peak memory. On curve25519-dalek-lean-verify it added about 2.5 s (25 to 30%) to a 9 s `extract`, and about 1.5% to its peak memory. The ranges come from two sets of 3 runs each.
+- `check-axioms` ends with the names of the assumption sets over P: one `<name> [<category>] <count>` line each, and a summary line with the number of names per category (`sorry`, `bv_decide`, `native_decide`, `universe-typed`, `project axiom`, `dependency axiom`, `trusted`).
+- `tools/audit/check-status-consistency.py` checks the field: present and sorted on every atom with a status, absent on the others, and `sorryAx` in it on every tainted atom. With `--allow-missing` (`--skip-verify` artifacts), an atom with the field is a failure. `tools/audit/compare-extract.py` reports the changes of the field as a note.
+
 ## [0.18.2] - 2026-10-12
 
 ### Fixed
