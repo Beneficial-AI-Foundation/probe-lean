@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The release workflows build every Lean release and release candidate from `v4.28.0-rc1` on** (#142). Before, they built only stables and the latest RC of a line without a stable. A superseded RC then had its only binary on an old probe-lean release, and the installers installed that old release (0.9.4 for `v4.28.0-rc1`). Versions without a compatible `lean4-cli` tag are still skipped.
+- The Lean watcher builds the source of the release it attaches binaries to, not `main`. BUILDINFO records that commit and tag.
+- The release workflows stop with an error above 128 Lean versions, the GitHub matrix limit on two platforms.
+
+### Removed
+
+- `tools/lean-version-extras.txt` and the `LEAN_VERSION_EXTRAS_FILE` variable. The new policy covers the versions the file pinned.
+
 ## [0.19.0] - 2026-10-13
 
 ### Added

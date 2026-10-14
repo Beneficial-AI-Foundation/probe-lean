@@ -19,7 +19,7 @@ jobs:
 
   # Offline fixture-driven suites for the release tooling. The release build
   # matrix (and with it every published binary) is derived by these scripts, so
-  # a broken version policy or pinned-extras entry must fail CI before auto-tag
+  # a broken version policy must fail CI before auto-tag
   # can cut a release from the commit.
   shell-tests:
     name: Shell tests

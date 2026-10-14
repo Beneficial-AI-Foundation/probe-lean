@@ -60,17 +60,19 @@ Each Lean version gets its own binary, `~/.local/bin/probe-lean-<version>`, so s
 
 ### Pre-built binary availability
 
-The release workflows publish binaries for `linux-x86_64` and `darwin-arm64`. They cover these Lean versions:
+The release workflows publish binaries for `linux-x86_64` and `darwin-arm64`. CI tries to build every Lean release and release candidate from `v4.28.0-rc1` on. Each version also needs a compatible tag in [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli).
 
-- every stable release from `v4.28.0-rc1` on
-- the latest release candidate of each line that has no stable release
-- each version pinned in [`tools/lean-version-extras.txt`](../tools/lean-version-extras.txt)
+`lean4-cli` does not tag every patch release, so probe-lean builds against the highest tag in the same `major.minor` line. For example, Lean `v4.32.2` builds against `lean4-cli v4.32.0`. If a Lean `major.minor` line has no `lean4-cli` tag yet, the release workflows skip its versions. A daily workflow adds binaries for new Lean versions to the newest probe-lean release. It builds the source of that release, so a fix for a new Lean version gets a binary only with the next release.
 
-Each version also needs a compatible tag in [`leanprover/lean4-cli`](https://github.com/leanprover/lean4-cli).
+A build attempt is not a promise. A Lean version has one of three outcomes:
 
-`lean4-cli` does not tag every patch release, so probe-lean builds against the highest tag in the same `major.minor` line. For example, Lean `v4.32.2` builds against `lean4-cli v4.32.0`. If a Lean `major.minor` line has no `lean4-cli` tag yet, the release workflows skip its versions. A daily workflow adds binaries for new Lean versions.
+- The build passes. The newest probe-lean release has the binary.
+- The build fails. If an older release has a binary for that version, the installer installs that older probe-lean. Otherwise it builds from source.
+- The version has no compatible `lean4-cli` tag. CI skips it.
 
-A superseded release candidate that is not pinned is not rebuilt. The installer then finds it only on an old probe-lean release, and installs that old probe-lean version. To get the current probe-lean for such a toolchain, add the version to `tools/lean-version-extras.txt`.
+The daily workflow lists failed builds in an open issue with the label `lean-build-failure`. That issue does not list skipped versions.
+
+A GitHub Actions matrix holds at most 256 jobs, which is 128 Lean versions on two platforms. If the list grows past 128 versions, the release workflows stop with an error. To fix this, raise `LEAN_VERSION_FLOOR` in `tools/lean-versions.sh`.
 
 To raise the GitHub API rate limit during the release search, set `GH_TOKEN` or `GITHUB_TOKEN`.
 

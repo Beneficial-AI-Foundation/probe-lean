@@ -5,14 +5,14 @@
 # Policy:
 #   - Consider non-draft releases whose tag is v<MAJOR>.<MINOR>.<PATCH> or
 #     v<MAJOR>.<MINOR>.<PATCH>-rc<N>, at or above the floor (LEAN_VERSION_FLOOR).
-#   - Output every *stable* tag (no -rc) >= floor, plus the *latest* RC of any
-#     version line that has not yet shipped a stable release.
-#   - Plus every version pinned in tools/lean-version-extras.txt (superseded
-#     RCs that tracked target projects still use). Pins are checked-in
-#     configuration, so every failure is a hard error — malformed or
-#     non-canonical spelling, below the floor, not a published (non-draft)
-#     leanprover/lean4 release, or no compatible lean4-cli tag. A pin can
-#     therefore never silently vanish from the matrix.
+#   - Output every such tag, stable or RC. A superseded RC stays in the list:
+#     Mathlib cuts its releases against RC toolchains, so target projects sit
+#     on an RC long after its stable ships, and the installers would otherwise
+#     find its asset only on an old probe-lean release.
+#   - Skip a stable-shaped tag (no -rc) that GitHub marks as a prerelease.
+#   - Drop a version with no compatible lean4-cli tag (see below).
+#   - The list grows with every RC. The release workflows stop above 128
+#     versions (the 256-job matrix limit on two platforms). Raise the floor then.
 #   - RCs sort numerically (rc10 > rc2) and below their own stable
 #     (v4.29.0-rc8 < v4.29.0).
 #
@@ -49,9 +49,6 @@ Environment:
   LEAN_RELEASES_FILE     Same as --releases-file
   LEAN_CLI_TAGS_FILE     Read leanprover/lean4-cli tags from PATH instead of git
                          (one tag per line; used by tests)
-  LEAN_VERSION_EXTRAS_FILE  Read pinned extra versions from PATH instead of the
-                         checked-in tools/lean-version-extras.txt (one version
-                         per line, # comments; /dev/null disables extras)
   GH_TOKEN / GITHUB_TOKEN  Auth for the GitHub API (avoids rate limits)
 EOF
 }
@@ -70,25 +67,6 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-
-# Resolve the pinned-extras list: an explicit LEAN_VERSION_EXTRAS_FILE must be
-# readable (so a typo'd path fails loudly; /dev/null disables extras), while the
-# checked-in default may simply be absent. Comments are stripped and lines
-# trimmed — but only at the edges, so garbled entries like "v4. 29.0" stay
-# garbled and fail validation in apply_policy, where the version parser lives.
-read_extras() {
-    local file="${LEAN_VERSION_EXTRAS_FILE:-}"
-    if [ -n "$file" ]; then
-        if [ ! -r "$file" ]; then
-            echo "Error: extras file not found: $file" >&2
-            return 1
-        fi
-    else
-        file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lean-version-extras.txt"
-        [ -r "$file" ] || return 0
-    fi
-    sed 's/#.*//; s/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' "$file"
-}
 
 fetch_releases() {
     if [ -n "$RELEASES_FILE" ]; then
@@ -174,60 +152,15 @@ apply_policy() {
         }
         {
             tag = $1; pre = $2
-            # Pinned extras (from tools/lean-version-extras.txt) bypass the
-            # stable/latest-RC policy: they exist precisely to keep superseded
-            # RCs shipping. They are checked-in configuration, so every bad
-            # entry is a hard error, not a silent skip. Extras lines arrive
-            # after all release lines (the caller appends them), so seen[] is
-            # complete by the time the membership check runs.
-            if (pre == "extra") {
-                if (parse(tag) == 0) {
-                    print "Error: invalid version in the extras list: " tag > "/dev/stderr"
-                    exit 5
-                }
-                # Require the canonical spelling: an alias like v04.29.0 would
-                # get the right sort key but dodge dedup and name a tag that
-                # does not exist.
-                canon = "v" P["maj"] "." P["min"] "." P["pat"] (P["isrc"] ? "-rc" P["rc"] : "")
-                if (tag != canon) {
-                    print "Error: non-canonical version in the extras list: " tag " (write it as " canon ")" > "/dev/stderr"
-                    exit 5
-                }
-                if (key() < floorkey) {
-                    print "Error: extras entry " tag " is below the version floor (" floor ")" > "/dev/stderr"
-                    exit 5
-                }
-                if (!(tag in seen)) {
-                    print "Error: extras entry " tag " is not a published leanprover/lean4 release" > "/dev/stderr"
-                    exit 5
-                }
-                keyOf[tag] = key()
-                emit[tag] = 1
-                next
-            }
             if (parse(tag) == 0) next                       # malformed tag
-            seen[tag] = 1                                   # published (non-draft) release
             # Skip a stable-shaped tag (no -rc) that GitHub flags as a prerelease:
             # treat it as not-yet-released rather than emitting it as stable. RCs
             # carry the -rc suffix (isrc==1) and are unaffected by this guard.
             if (pre == "true" && P["isrc"] == 0) next
-            isrc = P["isrc"]; line = P["maj"] "." P["min"] "." P["pat"]; k = key()
+            k = key()
             if (k < floorkey) next                           # below floor
-            keyOf[tag] = k
-            if (isrc == 0) {
-                stable[line] = 1
-                emit[tag] = 1
-            } else if (k > bestRcKey[line]) {                # latest rc for the line
-                bestRcKey[line] = k
-                bestRcTag[line] = tag
-            }
-        }
-        END {
-            for (line in bestRcTag) {
-                if (!(line in stable)) emit[bestRcTag[line]] = 1
-            }
             # Emit "key\ttag" so the caller can sort by key then strip it.
-            for (tag in emit) print keyOf[tag] "\t" tag
+            print k "\t" tag
         }
     '
 }
@@ -260,30 +193,17 @@ if [ "$(printf '%s' "$releases_json" | jq -r 'type' 2>/dev/null)" != "array" ]; 
     exit 1
 fi
 
-if ! extras="$(read_extras)"; then
-    echo "Error: could not read the pinned-extras list." >&2
-    exit 1
-fi
-
-# Extract the release lines in their own guarded step: inside a brace group a
-# failing `extract` would not fail the group (the extras branch after it sets
-# the group's status), and a partially-parsed release list plus the pins would
-# pass downstream as a plausible-looking matrix.
+# Extract the release lines in their own guarded step, so that a parse failure
+# stops the script instead of passing a partial list downstream as a
+# plausible-looking matrix.
 if ! derived="$(printf '%s' "$releases_json" | extract)"; then
     echo "Error: failed to parse the Lean releases JSON." >&2
     exit 1
 fi
 
-# Extras join the derived tags as "<tag>\textra" lines — appended AFTER the
-# release lines so apply_policy's membership check sees every release first —
-# and share the same parser, sort key, and dedup map instead of a duplicated
-# code path.
-if ! selected="$({
-        if [ -n "$derived" ]; then printf '%s\n' "$derived"; fi
-        if [ -n "$extras" ]; then
-            printf '%s\n' "$extras" | awk '{print $0 "\textra"}'
-        fi
-    } | apply_policy | sort -u | cut -f2)"; then
+# sort -u orders by key and removes a tag listed twice by the API. An empty
+# derived list gives one empty line, which apply_policy skips.
+if ! selected="$(printf '%s\n' "$derived" | apply_policy | sort -u | cut -f2)"; then
     echo "Error: failed to compute the supported version list." >&2
     exit 1
 fi
@@ -316,15 +236,7 @@ selected="$(printf '%s\n' "$selected" | while IFS= read -r v; do
     LEAN_CLI_TAGS_FILE="$cli_tags_file" "$resolver" "$v" >/dev/null || rc=$?
     case "$rc" in
         0) printf '%s\n' "$v" ;;   # a compatible lean4-cli tag exists -> keep
-        1)                          # no compatible tag -> drop this version;
-            # a *pinned* version, though, is a promise to ship an asset — a
-            # silent drop would let a release go green without it, so fail
-            # loudly and make the pinner remove or fix the entry.
-            if printf '%s\n' "$extras" | grep -qx "$v"; then
-                echo "Error: pinned extra $v has no compatible lean4-cli tag;" >&2
-                echo "       remove it from tools/lean-version-extras.txt or wait for the tag." >&2
-                exit 1
-            fi ;;
+        1) ;;                       # no compatible tag -> drop this version
         *) echo "Error: could not resolve a lean4-cli tag for $v" >&2; exit 1 ;;
     esac
 done)"

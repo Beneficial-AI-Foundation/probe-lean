@@ -141,8 +141,9 @@ try_prebuilt_download() {
 
     # Search the releases for an artifact matching this Lean version + platform.
     # Releases are paginated newest-first; the watcher appends artifacts to the
-    # latest release over time and superseded RCs live only on older releases, so
-    # walk the pages until found or exhausted. An optional token avoids the low
+    # latest release over time, and a version that failed to build on the newest
+    # release can still have an asset on an older one, so walk the pages until
+    # found or exhausted. An optional token avoids the low
     # unauthenticated rate limit.
     local releases_url="https://api.github.com/repos/${GITHUB_REPO}/releases"
     local auth_header=""
