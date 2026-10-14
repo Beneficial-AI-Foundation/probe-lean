@@ -199,10 +199,9 @@ if ! derived="$(printf '%s' "$releases_json" | extract)"; then
     exit 1
 fi
 
-# sort -u orders by key and removes a tag listed twice by the API.
-if ! selected="$({
-        if [ -n "$derived" ]; then printf '%s\n' "$derived"; fi
-    } | apply_policy | sort -u | cut -f2)"; then
+# sort -u orders by key and removes a tag listed twice by the API. An empty
+# derived list gives one empty line, which apply_policy skips.
+if ! selected="$(printf '%s\n' "$derived" | apply_policy | sort -u | cut -f2)"; then
     echo "Error: failed to compute the supported version list." >&2
     exit 1
 fi
