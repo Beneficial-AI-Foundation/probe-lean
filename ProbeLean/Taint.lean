@@ -88,6 +88,17 @@ structure ProjectTaint where
   pSize : Nat
   /-- Number of project modules imported. -/
   moduleCount : Nat
+  /-- The assumption set of every constant of P whose set is not empty
+      (`AxiomCheck.assumptionSets`), each sorted by `Name.quickLt`. `none`: the set
+      walk did not run. -/
+  assumptions : Option (Std.HashMap Name (Array Name)) := none
+  /-- The largest DFS depth of the set walk. 0 when it did not run. -/
+  assumptionDepth : Nat := 0
+  /-- The number of nodes the set walk visited. 0 when it did not run. -/
+  assumptionNodes : Nat := 0
+  /-- The names with an axiom among the versions that the imported modules declare
+    (`axiomVersionNames`, `duplicateVersions`). -/
+  axiomVersions : Std.HashSet Name := {}
 
 /-- The out-edges of a merged declaration: the union of `constInfoChildren` over
     every version the imported modules declare. The environment's lookup map holds
@@ -161,6 +172,43 @@ def classifyHeaderVersions (mods : Array HeaderModule) (ownedByProject : Name �
   return (merged.qsort (fun a b => a.declName.toString < b.declName.toString),
           cross.qsort (fun a b => a.declName.toString < b.declName.toString))
 
+/-- Every imported module as a `HeaderModule`, with `pFilter` deciding which are the
+    project's. -/
+def headerModules (env : Environment) (pFilter : ProjectFilter) : Array HeaderModule :=
+  let names := env.header.moduleNames
+  env.header.moduleData.mapIdx fun i d =>
+    (names[i]?.getD .anonymous, pFilter.moduleIdxs.contains i, d.constNames, d.constants)
+
+/-- Pure core of the set walk's view of duplicate declarations. For every name that two
+    or more imported modules declare, project or not: the edges (`constInfoChildren`) of
+    its versions outside P, and whether any version is an axiom. The importer keeps one
+    version per name, so without this a dropped version is invisible. Two dependency
+    modules that swap an axiom and a theorem (`axiom a`, `theorem b := a` in one,
+    `axiom b`, `theorem a := b` in the other) leave two theorems that only call each
+    other, and every axiom would vanish. `headerMerges` reads project names only.
+
+    Returns the extra edges (names with a version outside P) and the names with an axiom
+    version. One set insert per imported constant finds the duplicates. -/
+def duplicateVersions (mods : Array HeaderModule)
+    : Std.HashMap Name (Array Name) × Std.HashSet Name := Id.run do
+  let mut seen : Std.HashSet Name := {}
+  let mut dups : Std.HashSet Name := {}
+  for (_, _, constNames, _) in mods do
+    for n in constNames do
+      let (present, seen') := seen.containsThenInsert n
+      seen := seen'
+      if present then dups := dups.insert n
+  if dups.isEmpty then return ({}, {})
+  let mut edges : Std.HashMap Name (Array Name) := {}
+  let mut axioms : Std.HashSet Name := {}
+  for (_, isProject, constNames, constants) in mods do
+    for n in constNames, ci in constants do
+      if !dups.contains n then continue
+      if ci matches .axiomInfo _ then axioms := axioms.insert n
+      if !isProject then
+        edges := edges.alter n fun e? => some (e?.getD #[] ++ constInfoChildren ci)
+  return (edges, axioms)
+
 /-- The merged and cross-boundary declarations of an imported environment, read from
     `env.header.moduleData`. `finalizeImport` collapses only the constant *lookup map*:
     a later body that subsumes the earlier one replaces it, while `const2ModIdx` keeps
@@ -172,12 +220,7 @@ def classifyHeaderVersions (mods : Array HeaderModule) (ownedByProject : Name �
     `ProjectFilter.contains` is the ownership test. -/
 def headerMerges (env : Environment) (pFilter : ProjectFilter)
     : Array MergedDecl × Array MergedDecl :=
-  let data := env.header.moduleData
-  let names := env.header.moduleNames
-  let mods : Array HeaderModule := (Array.range data.size).map fun i =>
-    let d := data[i]!
-    (names[i]?.getD .anonymous, pFilter.moduleIdxs.contains i, d.constNames, d.constants)
-  classifyHeaderVersions mods (pFilter.contains env)
+  classifyHeaderVersions (headerModules env pFilter) (pFilter.contains env)
 
 /-- The root components of the imported modules that are not the project's
     (`moduleNames` indexed like `pFilter.moduleIdxs`): Lean's own libraries and every
@@ -402,6 +445,45 @@ def runProjectTaint (env : Environment) (pFilter : ProjectFilter)
   projectTaint env (fun n => pFilter.contains env n || crossSet.contains n) trust.contains
     (consts.map (·.1)) (childrenOverride := mergedChildrenMap merged)
 
+/-- The proof edges of the merged trusted names (`assumptionNode`'s
+    `proofOverride`): the union of `proofInfoChildren` over the project versions. Every
+    merged trusted name gets an entry, an empty one if no version has a value. So the
+    proof edges never hold the value of a version outside P, such as a dependency
+    theorem merged with a project axiom. The set walk follows such a version through
+    `duplicateVersions`, without the trust excuse. -/
+def mergedProofMap (merged : Array MergedDecl) (trust : Std.HashMap Name String)
+    : Std.HashMap Name (Array Name) :=
+  merged.foldl (init := {}) fun acc m =>
+    if !trust.contains m.declName then acc
+    else
+      let (edges, _) := m.versions.foldl (init := ((#[] : Array Name), ({} : Std.HashSet Name)))
+        fun acc (_, ci) => (proofInfoChildren ci).foldl (init := acc) fun (out, seen) c =>
+          let (present, seen) := seen.containsThenInsert c
+          (if present then out else out.push c, seen)
+      acc.insert m.declName edges
+
+/-- The merged names with an axiom among their project versions. Such a name enters
+    its own assumption set even if the environment kept a theorem version. The
+    versions outside P come from `duplicateVersions`. -/
+def axiomVersionNames (merged : Array MergedDecl) : Std.HashSet Name :=
+  merged.foldl (init := {}) fun acc m =>
+    if m.versions.any (·.2 matches .axiomInfo _) then acc.insert m.declName else acc
+
+/-- The set walk over P, with the same project test, trust set, roots and edges as
+    `runProjectTaint`. -/
+def runAssumptionSets (env : Environment) (pFilter : ProjectFilter)
+    (consts : Array (Name × ConstantInfo)) (trust : Std.HashMap Name String)
+    (merged : Array MergedDecl) (crossNames : Array Name) (taint : TaintResult)
+    (axiomVersions : Std.HashSet Name) (extraEdges : Std.HashMap Name (Array Name))
+    : SetWalkResult :=
+  let crossSet := Std.HashSet.ofArray crossNames
+  assumptionSets
+    { env, isProject := fun n => pFilter.contains env n || crossSet.contains n,
+      trusted := trust.contains, childrenOf := taint.childrenOf,
+      proofOverride := mergedProofMap merged trust, axiomVersion := axiomVersions.contains,
+      extraEdges }
+    (consts.map (·.1))
+
 /-- P, T and the walk in one call. Returns the attribute map too, so the atom builder
     does not scan the sources a second time. The merged and cross-boundary declarations
     come from the environment header (`headerMerges`). A cross-boundary name that the
@@ -411,6 +493,7 @@ def runProjectTaint (env : Environment) (pFilter : ProjectFilter)
 def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
     (pFilter : ProjectFilter) (fileCache : FileCache) (pathCache : ModulePathCache)
     (consts : Array (Name × ConstantInfo)) (moduleCount : Nat)
+    (computeAssumptions : Bool := true)
     : IO (ProjectTaint × Std.HashMap Name DeclAttrs) := do
   let (merged, cross) := headerMerges env pFilter
   let mergedAll := merged ++ cross
@@ -435,10 +518,20 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
   let realised := (mergedRealised ++ crossRealised).qsort fun a b => a.toString < b.toString
   let roots := dependencyRoots env.header.moduleNames pFilter
   let mergedVersions := mergedAll.foldl (init := {}) fun acc m => acc.insert m.declName m.versions
+  let (extraEdges, dupAxioms) :=
+    if computeAssumptions then duplicateVersions (headerModules env pFilter) else ({}, {})
+  let axiomVersions := dupAxioms.insertMany (axiomVersionNames mergedAll)
+  let (assumptions, assumptionDepth, assumptionNodes) :=
+    if computeAssumptions then
+      let w := runAssumptionSets env pFilter consts trust mergedAll crossNames
+        taint axiomVersions extraEdges
+      (some w.sets, w.maxDepth, w.visited)
+    else (none, 0, 0)
   return ({ trust, taint, constants, merged := mergedHand, mergedVersions,
             crossWalked := crossHand, realised,
             tagSet, scanOnlyTags, tagOnly, generatedAxioms, dependencyRoots := roots,
-            pSize := consts.size, moduleCount },
+            pSize := consts.size, moduleCount, assumptions, assumptionDepth, assumptionNodes,
+            axiomVersions },
           attrs)
 
 /-- Printed when the import of the full project module set fails. The modules left
@@ -555,6 +648,124 @@ def formatTrustedLine (n : Name) (reason : String) (module : Name) (type : Optio
     (statementTainted : Bool := false) : String :=
   s!"  {n} [{reason}] {module}" ++ (match type with | some t => s!" : {t}" | none => "") ++
     (if statementTainted then " [statement tainted]" else "")
+
+/-- Whether a type, after its `∀` binders, is `verifyBVExpr … = true` or
+    `verifyCert … = true`: the statement of a `bv_decide` axiom. -/
+def isBvDecideType : Expr → Bool
+  | .forallE _ _ b _ => isBvDecideType b
+  | .mdata _ b => isBvDecideType b
+  | e =>
+    e.isAppOfArity ``Eq 3 && e.appArg!.isConstOf ``Bool.true &&
+      (e.appFn!.appArg!.isAppOf ``Std.Tactic.BVDecide.Reflect.verifyBVExpr ||
+        e.appFn!.appArg!.isAppOf ``Std.Tactic.BVDecide.Reflect.verifyCert)
+
+/-- Whether a name component is `ax_<n>` with optional `_<n>` parts (`ax_1`, `ax_1_1`). -/
+def isNativeAxiomComponent (s : String) : Bool :=
+  match s.toList with
+  | 'a' :: 'x' :: '_' :: rest =>
+    -- digit groups separated by single `_`: no empty group at either end or between
+    !rest.isEmpty && rest.all (fun c => c.isDigit || c == '_') &&
+      rest.head? != some '_' && rest.getLast? != some '_' &&
+      !(rest.zip rest.tail).any fun (a, b) => a == '_' && b == '_'
+  | _ => false
+
+/-- Whether a name ends in `_native.<tactic>.ax_<n>`: the axiom that `native_decide`,
+    `decide +native` or `bv_decide` adds from Lean 4.31 on. -/
+def isNativeAxiomName : Name → Bool
+  | .str (.str (.str _ "_native") _) ax => isNativeAxiomComponent ax
+  | _ => false
+
+/-- The axioms that compiled code rests on before Lean 4.31. -/
+def compilerAxioms : Array Name := #[``Lean.ofReduceBool, ``Lean.ofReduceNat, ``Lean.trustCompiler]
+
+/-- The category of a name in an assumption set, for `check-axioms`. -/
+inductive AssumptionCategory where
+  | sorry
+  | bvDecide
+  | nativeDecide
+  | universeTyped
+  | projectAxiom
+  | dependencyAxiom
+  /-- A member of T that is not an axiom, with its `trusted-reason`. -/
+  | trusted (reason : String)
+  /-- A name that no rule matches. The set walk does not produce one. -/
+  | unknown
+  deriving BEq, Repr, Inhabited
+
+/-- The name of the category's group in the summary line: `trusted (<reason>)` counts
+    under `trusted`. -/
+def AssumptionCategory.group : AssumptionCategory → String
+  | .sorry => "sorry"
+  | .bvDecide => "bv_decide"
+  | .nativeDecide => "native_decide"
+  | .universeTyped => "universe-typed"
+  | .projectAxiom => "project axiom"
+  | .dependencyAxiom => "dependency axiom"
+  | .trusted _ => "trusted"
+  | .unknown => "unknown"
+
+instance : ToString AssumptionCategory where
+  toString
+    | .trusted r => s!"trusted ({r})"
+    | c => c.group
+
+/-- The category of a name in an assumption set. The first match wins: `sorry`,
+    `bv_decide` (by the axiom's type), `native_decide` (by the name), `universe-typed`,
+    `project axiom` or `dependency axiom` (an axiom, or a merged name with an axiom
+    version), `trusted (<reason>)`. -/
+def assumptionCategory (env : Environment) (isProject : Name → Bool)
+    (trust : Std.HashMap Name String) (axiomVersion : Name → Bool) (n : Name) :
+    AssumptionCategory :=
+  let byOwner : AssumptionCategory := if isProject n then .projectAxiom else .dependencyAxiom
+  if n == sorryAxiomName then .sorry
+  else match env.find? n with
+    | some (.axiomInfo v) =>
+      if isBvDecideType v.type then .bvDecide
+      else if isNativeAxiomName n || compilerAxioms.contains n then .nativeDecide
+      else if isUniverseTypedType v.type then .universeTyped
+      else byOwner
+    | _ =>
+      if axiomVersion n then byOwner
+      else match trust[n]? with
+        | some r => .trusted r
+        | none => .unknown
+
+/-- The groups of the `check-axioms` summary line, in its order. `unknown` is not one. -/
+def assumptionCategoryOrder : Array String :=
+  #["sorry", "bv_decide", "native_decide", "universe-typed", "project axiom",
+    "dependency axiom", "trusted"]
+
+/-- Header of the `check-axioms` assumption section. -/
+def formatAssumptionsHeader (n : Nat) : String :=
+  s!"{n} assumption name(s) in the sets of project constants:"
+
+/-- A line of the assumption section: the name, its category and the number of
+    constants of P whose set holds it. -/
+def formatAssumptionLine (n : Name) (category : AssumptionCategory) (count : Nat) : String :=
+  s!"  {n} [{category}] {count}"
+
+/-- The summary line: the number of names per group, every group in
+    `assumptionCategoryOrder`, zeros included. -/
+def formatAssumptionCategoryCounts (categories : Array AssumptionCategory) : String :=
+  let parts := assumptionCategoryOrder.map fun k =>
+    s!"{k} {(categories.filter (·.group == k)).size}"
+  "Assumptions by category: " ++ " | ".intercalate parts.toList
+
+/-- The `check-axioms` assumption section: the header, one line per name that is in
+    the set of some constant of P (emitted or not), sorted by string, and the summary
+    line. The count of a name is the number of constants of P whose set holds it. -/
+def assumptionReportLines (env : Environment) (pt : ProjectTaint) : Array String := Id.run do
+  let mut counts : Std.HashMap Name Nat := {}
+  for (_, names) in pt.assumptions.getD {} do
+    for n in names do
+      counts := counts.insert n (counts.getD n 0 + 1)
+  let sorted := counts.toArray.qsort fun a b => a.1.toString < b.1.toString
+  let categories := sorted.map fun (n, _) =>
+    assumptionCategory env pt.constants.contains pt.trust pt.axiomVersions.contains n
+  let mut lines := #[formatAssumptionsHeader sorted.size]
+  for (n, count) in sorted, category in categories do
+    lines := lines.push (formatAssumptionLine n category count)
+  return lines.push (formatAssumptionCategoryCounts categories)
 
 /-- Print the dependency-boundary, merged-declaration, cross-boundary,
     realised-theorem, tag-audit and generated-axiom diagnostics to stderr. -/
