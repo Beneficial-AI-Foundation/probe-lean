@@ -333,6 +333,19 @@ find_release_asset v4.99.0
 assert_eq "no asset: ASSET_URL empty" "" "$ASSET_URL"
 assert_eq "no asset: NEWEST_TAG still set" "v0.18.2" "$NEWEST_TAG"
 
+# A failure after page 1 keeps NEWEST_TAG: page 1 holds the newest release, so
+# the installed-binary warning stays correct. It names the build failure, not
+# --force, because the newest release has no asset for the version.
+printf '{"message": "API rate limit exceeded"}\n' > "$FAKE_PAGES/page2.json"
+find_release_asset v4.28.0-rc1 2>/dev/null
+assert_eq "error on page 2: ASSET_URL empty" "" "$ASSET_URL"
+assert_eq "error on page 2: NEWEST_TAG from page 1" "v0.18.2" "$NEWEST_TAG"
+OUT=$(installed_binary_warning v4.28.0-rc1 0.9.4 "$NEWEST_TAG" 0 2>&1 >/dev/null)
+case "$OUT" in *"issues?q=label%3Alean-build-failure"*) R=yes ;; *) R=no ;; esac
+assert_eq "error on page 2: warning has the build hint" "yes" "$R"
+case "$OUT" in *"--force"*) R=yes ;; *) R=no ;; esac
+assert_eq "error on page 2: no --force hint" "no" "$R"
+
 rm -f "$FAKE_PAGES/page2.json"
 printf '{"message": "API rate limit exceeded"}\n' > "$FAKE_PAGES/page1.json"
 find_release_asset v4.28.0 2>/dev/null

@@ -49,7 +49,7 @@ probe-lean --version
 |------|-------------|
 | `--from-project <path>` | Detect the Lean version from the project's `lean-toolchain`. If `<path>` has no top-level `lean-toolchain`, the installer searches below it (excluding `.lake`) and uses the toolchain it finds. When the Lean package is in a subfolder (for example `cedar-spec/cedar-lean`), you can point at the monorepo root. If the toolchain files disagree on the version, the installer lists them and stops. Use `--lean-version` in that case. |
 | `--lean-version <ver>` | Explicit Lean version (for example `v4.28.0`). Same as the positional `VERSION` argument. |
-| `--force` | Reinstall an installed version. Without it, the installer keeps the installed binary and warns if the newest release has a newer build. |
+| `--force` | Reinstall an installed version. Without it, the installer keeps the installed binary. If the newest release has a newer build, the installer warns. |
 | `-h`, `--help` | Show the help message. |
 
 ### Toolchain version matching
@@ -76,9 +76,9 @@ A GitHub Actions matrix holds at most 256 jobs, which is 128 Lean versions on tw
 
 The installers warn on stderr about an old probe-lean build. The warnings do not stop the installer and do not change its exit code.
 
-- If the downloaded binary comes from an older release than the newest release, the installer names both releases and the reason that the newest release has no binary.
-- If a binary for the Lean version is already installed and you do not set `--force`, the installer compares its version with the newest release. If the newest release has a binary for the Lean version, the warning tells you to rerun with `--force`. Otherwise the warning gives the reason that the newest release has no binary.
-- If the release search fails, for example because of the rate limit, the installer prints no version warning.
+- The downloaded binary can come from an older release than the newest release. Then the installer names both releases. It also gives the reason that the newest release has no binary.
+- A binary for the Lean version can already be installed. If you do not set `--force`, the installer compares its version with the newest release. If the newest release has a binary for the Lean version, the warning tells you to rerun with `--force`. Otherwise the warning gives the reason that the newest release has no binary.
+- If the release search cannot read the newest release, for example because of the rate limit, the installer prints no version warning. The newest release is on the first page of the release list. If a later page fails, the bash installer still warns, because the warning needs only the newest release. An HTTP error status on any page stops the Python installer search, and the Python installer then prints no warning.
 
 For example, a rerun without `--force` over probe-lean 0.9.4 for Lean `v4.28.0-rc1` prints:
 
