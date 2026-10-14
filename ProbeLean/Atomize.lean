@@ -508,6 +508,7 @@ private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
     join key for `applyTaintStatus`. -/
 def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
     (crate : String) (nixMode : Option NixMode := none) (orphans : Array Name := #[])
+    (computeAssumptions : Bool := true)
     : IO (Except String (Array Atom × ProjectTaint)) := do
   let (env, imported) ← match ← importProjectEnvWithFallback projectPath all selected
       nixMode orphans with
@@ -522,7 +523,7 @@ def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array 
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (moduleCount := imported.size)
+    (moduleCount := imported.size) (computeAssumptions := computeAssumptions)
   let decls := getProjectDeclsFrom env consts selFilter pt.mergedVersions
   IO.println s!"Found {decls.size} declarations"
   IO.println (formatTaintSummary pt)

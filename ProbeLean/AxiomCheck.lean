@@ -17,6 +17,13 @@
   The reachability core is generic over a `children` function, so its memo/cycle
   handling is unit-testable with a fabricated graph (see `Tests`); the `Environment`
   is only a thin `constChildren` adapter.
+
+  The module holds a second walk, the set walk (`assumptionSets`). It computes the
+  assumption set of every project constant: the axioms and trusted constants it
+  rests on, other than the standard axioms. It reuses the edges of the taint walk
+  over P and enters dependency constants too. Its core (`assumptionSetsWith`) is
+  generic over a `node` function in the same way, and `assumptionNode` is its
+  `Environment` adapter.
 -/
 import Lean
 
@@ -251,6 +258,10 @@ structure TaintResult where
       (`statementChildren`). A vouched lemma (trusted, `sorry` in the proof only) is
       therefore not a direct carrier. -/
   direct : Std.HashSet Name
+  /-- The walk edges of every root: `statementChildren` for a trusted root, the
+      override or `constChildren` for the others. The set walk reads them, so the
+      edges over P are computed once. -/
+  childrenOf : Std.HashMap Name (Array Name) := {}
 
 /-- The walk `extract` and `check-axioms` share. `roots` is P, the project's
     constants. Children outside P are blocked: dependency packages are trusted
@@ -286,6 +297,319 @@ def projectTaint (env : Environment) (isProject trusted : Name → Bool)
   let tainted := reachingNames children blocked sorryAxiomName roots
   let direct := roots.foldl (init := ({} : Std.HashSet Name)) fun acc r =>
     if (children r).contains sorryAxiomName then acc.insert r else acc
-  { tainted, direct }
+  { tainted, direct, childrenOf }
+
+/-! ### Assumption sets
+
+`As(c)`: the axioms and trusted project constants that `c` rests on, other than
+the standard axioms. The definition is in `docs/verification-status.md`. -/
+
+/-- Lean's three standard axioms S. They never enter an assumption set. -/
+def standardAxioms : Array Name := #[``propext, ``Classical.choice, ``Quot.sound]
+
+/-- Whether a type, after its `∀` binders, is a `Sort` (an axiom such as `T : Type`). -/
+def isUniverseTypedType : Expr → Bool
+  | .forallE _ _ b _ => isUniverseTypedType b
+  | .mdata _ b => isUniverseTypedType b
+  | .sort _ => true
+  | _ => false
+
+/-- The union of two arrays sorted by `Name.quickLt` without duplicates, in the same
+    order. Returns an input unchanged when the other is empty, so the many empty
+    sets of a walk share one array. -/
+def unionSorted (a b : Array Name) : Array Name := Id.run do
+  if a.isEmpty then return b
+  if b.isEmpty then return a
+  let mut out : Array Name := Array.mkEmpty (a.size + b.size)
+  let mut i := 0
+  let mut j := 0
+  repeat
+    if hi : i < a.size then
+      if hj : j < b.size then
+        let x := a[i]
+        let y := b[j]
+        if x == y then
+          out := out.push x; i := i + 1; j := j + 1
+        else if Name.quickLt x y then
+          out := out.push x; i := i + 1
+        else
+          out := out.push y; j := j + 1
+      else
+        return out ++ a.extract i a.size
+    else
+      return out ++ b.extract j b.size
+  return out
+
+/-- The constants of a constant's value: the proof edges of a trusted constant.
+    Only `def`, `theorem` and `opaque` have a value. The type is not included,
+    because the statement edges cover it. -/
+def proofInfoChildren : ConstantInfo → Array Name
+  | .defnInfo v   => usedConstants v.value
+  | .thmInfo v    => usedConstants v.value
+  | .opaqueInfo v => usedConstants v.value
+  | _ => #[]
+
+/-- `proofInfoChildren` of the constant the environment holds under `c`. -/
+def proofChildren (env : Environment) (c : Name) : Array Name :=
+  match env.find? c with
+  | some ci => proofInfoChildren ci
+  | none => #[]
+
+/-- How the set walk treats one constant. `own` holds the names the node adds
+    itself (its own name for an axiom, or for a merged name with an axiom version). -/
+inductive SetNode where
+  /-- `As = own`. No children. -/
+  | leaf (own : Array Name)
+  /-- `As = own ∪ ⋃ As(children)`. -/
+  | inner (own : Array Name) (children : Array Name)
+  /-- A trusted constant: `As = own ∪ ⋃ As(stmt) ∪ (⋃ As(proof) \ {sorryAx})`, plus
+      `self` if `sorryAx ∈ ⋃ As(proof)`. Trust excuses only `sorry`. -/
+  | trusted (self : Name) (own stmt proof : Array Name)
+  deriving Inhabited
+
+/-- The out-edges of a node in the set walk. -/
+def SetNode.children : SetNode → Array Name
+  | .leaf _ => #[]
+  | .inner _ cs => cs
+  | .trusted _ _ stmt proof => stmt ++ proof
+
+/-- `own` united with `val ch` for every child, sorted by `Name.quickLt` without
+    duplicates. `own` and every child set must be sorted by `Name.quickLt` without
+    duplicates already, as every `SetNode` set is. An empty or single set is shared,
+    not copied. -/
+def unionChildren (val : Name → Array Name) (own : Array Name) (cs : Array Name) : Array Name :=
+  Id.run do
+    -- With at most one non-empty child set, merge pairwise. With more, collect the
+    -- distinct names in a hash set and sort once: a pairwise fold copies the growing
+    -- array once per child (quadratic over many distinct axioms), and sorting the
+    -- concatenation is quadratic when children share names (`Array.qsort` on many
+    -- equal elements).
+    let mut sets : Array (Array Name) := #[]
+    for ch in cs do
+      let s := val ch
+      unless s.isEmpty do sets := sets.push s
+    if sets.size ≤ 1 then
+      return unionSorted own (sets.getD 0 #[])
+    let mut seen : Std.HashSet Name := Std.HashSet.ofArray own
+    let mut out := own
+    for s in sets do
+      for n in s do
+        let (present, seen') := seen.containsThenInsert n
+        seen := seen'
+        unless present do out := out.push n
+    return out.qsort Name.quickLt
+
+/-- `As` of a node, given `As` of its children. -/
+def SetNode.eval (val : Name → Array Name) : SetNode → Array Name
+  | .leaf own => own
+  | .inner own cs => unionChildren val own cs
+  | .trusted self own stmt proof =>
+    let s := unionChildren val own stmt
+    let p := unionChildren val #[] proof
+    if p.contains sorryAxiomName then
+      unionSorted (unionSorted s (p.filter (· != sorryAxiomName))) #[self]
+    else unionSorted s p
+
+/-- The sets of one strongly connected component, added to `memo`. Every child of a
+    member is a member or finished in `memo`. A single member without a self-loop
+    is evaluated once. Otherwise every member starts at its `own` names, and all
+    members are evaluated again until no set changes: the least fixpoint. The
+    equations are monotone, so the sets only grow and a size test finds a change.
+    Each member keeps its own set. -/
+def solveComponent (memo : Std.HashMap Name (Array Name)) (members : Array (Name × SetNode))
+    : Std.HashMap Name (Array Name) := Id.run do
+  if let #[(c, n)] := members then
+    if !n.children.contains c then
+      let s := n.eval (memo.getD · #[])
+      return memo.insert c s
+  let mut cur : Std.HashMap Name (Array Name) := members.foldl (init := {}) fun m (c, n) =>
+    m.insert c (n.eval fun _ => #[])
+  let mut changed := true
+  while changed do
+    changed := false
+    for (c, n) in members do
+      let s := n.eval fun ch => match cur[ch]? with
+        | some s => s
+        | none => memo.getD ch #[]
+      if s.size != (cur.getD c #[]).size then
+        cur := cur.insert c s
+        changed := true
+  let mut memo := memo
+  for (c, _) in members do
+    memo := memo.insert c (cur.getD c #[])
+  return memo
+
+/-- Pop the component of `c` off the Tarjan stack, solve it and drop its members from
+    `onStack`. Everything above `c` on the stack belongs to `c`'s component. -/
+private def popComponent (c : Name) (memo : Std.HashMap Name (Array Name))
+    (onStack : Std.HashMap Name Nat) (stack : Array (Name × SetNode))
+    : Std.HashMap Name (Array Name) × Std.HashMap Name Nat × Array (Name × SetNode) := Id.run do
+  let mut stack := stack
+  let mut onStack := onStack
+  let mut members : Array (Name × SetNode) := #[]
+  let mut go := true
+  while go do
+    match stack.back? with
+    | none => go := false
+    | some (top, n) =>
+      stack := stack.pop
+      onStack := onStack.erase top
+      members := members.push (top, n)
+      if top == c then go := false
+  return (solveComponent memo members, onStack, stack)
+
+/-- An open node of the set walk's DFS: the node, its out-edges, the position of the
+    next child to visit, its DFS index and its lowlink. -/
+structure SetFrame where
+  name     : Name
+  node     : SetNode
+  children : Array Name
+  pos      : Nat := 0
+  idx      : Nat
+  low      : Nat
+  deriving Inhabited
+
+/-- The result of the set walk. -/
+structure SetWalkResult where
+  /-- The non-empty sets of the roots, each sorted by `Name.quickLt`. -/
+  sets : Std.HashMap Name (Array Name)
+  /-- The largest DFS depth. A root has depth 1. -/
+  maxDepth : Nat
+  /-- The number of nodes the walk visited (`node` calls). -/
+  visited : Nat
+
+/-- `As(r)` for every root: Tarjan's DFS over `node`'s edges. An SCC root solves its
+    component (`solveComponent`). Unlike `reachingNames`, the walk does not give one
+    answer to the whole component. One memo covers all roots. It holds every finished
+    node, empty sets included, so no clean subgraph is expanded twice. -/
+def assumptionSetsWith (node : Name → SetNode) (roots : Array Name) : SetWalkResult := Id.run do
+  -- An explicit stack of frames, not recursion: the walk enters dependency proofs, and a
+  -- recursive DFS overflowed the stack on a chain of 100 000 nodes.
+  let mut memo : Std.HashMap Name (Array Name) := {}
+  let mut onStack : Std.HashMap Name Nat := {}
+  let mut stack : Array (Name × SetNode) := #[]
+  let mut frames : Array SetFrame := #[]
+  let mut next := 0
+  let mut maxDepth := 0
+  let mut expanded := 0
+  for r in roots do
+    -- `todo`: a child of the top frame (or the root) still to open.
+    let mut todo : Option Name := some r
+    while todo.isSome || !frames.isEmpty do
+      if let some c := todo then
+        todo := none
+        if memo.contains c then continue
+        if let some j := onStack[c]? then
+          frames := frames.modify (frames.size - 1) fun f => { f with low := min f.low j }
+          continue
+        let n := node c
+        expanded := expanded + 1
+        maxDepth := max maxDepth (frames.size + 1)
+        if let .leaf own := n then
+          memo := memo.insert c own
+        else
+          onStack := onStack.insert c next
+          stack := stack.push (c, n)
+          frames := frames.push
+            { name := c, node := n, children := n.children, idx := next, low := next }
+          next := next + 1
+      else
+        -- Pop the top frame and push it back updated: with the frame out of the
+        -- array, the update reuses its memory instead of copying it per edge.
+        let some f := frames.back? | continue
+        frames := frames.pop
+        if h : f.pos < f.children.size then
+          todo := some f.children[f.pos]
+          frames := frames.push { f with pos := f.pos + 1 }
+        else if f.low == f.idx then
+          (memo, onStack, stack) := popComponent f.name memo onStack stack
+        else
+          frames := frames.modify (frames.size - 1) fun p => { p with low := min p.low f.low }
+  let mut sets : Std.HashMap Name (Array Name) := {}
+  for r in roots do
+    if let some s := memo[r]? then
+      unless s.isEmpty do sets := sets.insert r s
+  return { sets, maxDepth, visited := expanded }
+
+/-- Which rule of the assumption-set definition applies to a constant. -/
+inductive AssumptionNodeKind where
+  | sorry | standard | axiom | outside | trusted | project
+  deriving BEq, Repr, Inhabited
+
+/-- The tests of a constant that decide its rule in the set walk. -/
+structure NodeFacts where
+  isSorry : Bool := false
+  isStandard : Bool := false
+  isAxiom : Bool := false
+  isProject : Bool := false
+  isTrusted : Bool := false
+
+/-- The rule for a constant. The first match wins: `sorryAx`, a standard axiom outside
+    P, any other axiom, a constant outside P, a trusted constant, any other constant of
+    P. The test for P comes before the trust test, so the trust rules never apply
+    outside P. -/
+def nodeKind (f : NodeFacts) : AssumptionNodeKind :=
+  if f.isSorry then .sorry
+  else if f.isStandard && !f.isProject then .standard
+  else if f.isAxiom then .axiom
+  else if !f.isProject then .outside
+  else if f.isTrusted then .trusted
+  else .project
+
+/-- The inputs of the set walk over an environment. `isProject` and `trusted` are
+    those of the taint walk. -/
+structure SetWalkContext where
+  env : Environment
+  isProject : Name → Bool
+  trusted : Name → Bool
+  /-- `TaintResult.childrenOf`: the walk edges of an untrusted project name and the
+      statement edges of a trusted one. -/
+  childrenOf : Std.HashMap Name (Array Name) := {}
+  /-- The proof edges of a merged trusted name. A key with an empty array stays empty. -/
+  proofOverride : Std.HashMap Name (Array Name) := {}
+  /-- A name with an axiom among the versions that the imported modules declare. It
+      adds itself to its own set. -/
+  axiomVersion : Name → Bool := fun _ => false
+  /-- For a name that a module outside P declares too, the edges of those versions.
+      The walk follows them always, also for a trusted name: trust rules do not apply
+      outside P. So a version that the importer dropped cannot hide an axiom. -/
+  extraEdges : Std.HashMap Name (Array Name) := {}
+
+/-- The environment adapter of the set walk: the node of the constant `c`. -/
+def assumptionNode (ctx : SetWalkContext) (c : Name) : SetNode :=
+  let ci? := ctx.env.find? c
+  let own : Array Name := if ctx.axiomVersion c then #[c] else #[]
+  let withExtra (cs : Array Name) : Array Name := match ctx.extraEdges[c]? with
+    | some e => cs ++ e
+    | none => cs
+  let facts : NodeFacts :=
+    { isSorry := c == sorryAxiomName, isStandard := standardAxioms.contains c,
+      isAxiom := ci? matches some (.axiomInfo _), isProject := ctx.isProject c,
+      isTrusted := ctx.trusted c }
+  match nodeKind facts, ci? with
+  | .sorry, _ => .leaf #[c]
+  | .standard, _ => .leaf #[]
+  | .axiom, some ci => .inner #[c] (withExtra (usedConstants ci.type))
+  | .axiom, none => .inner #[c] (withExtra #[])
+  | .outside, some ci => .inner own (withExtra (constInfoChildren ci))
+  | .outside, none => .leaf #[]
+  | .trusted, _ =>
+    -- `match`, not `getD`: the default argument of `getD` is evaluated eagerly, which
+    -- would compute the edges of every project constant a second time.
+    let stmt := match ctx.childrenOf[c]? with
+      | some cs => cs
+      | none => statementChildren ctx.env c
+    let proof := match ctx.proofOverride[c]? with
+      | some p => p
+      | none => proofChildren ctx.env c
+    .trusted c own (withExtra stmt) proof
+  | .project, _ =>
+    match ctx.childrenOf[c]? with
+    | some cs => .inner own (withExtra cs)
+    | none => .inner own (withExtra (constChildren ctx.env c))
+
+/-- `As(r)` for every root over the environment (`assumptionNode`). -/
+def assumptionSets (ctx : SetWalkContext) (roots : Array Name) : SetWalkResult :=
+  assumptionSetsWith (assumptionNode ctx) roots
 
 end ProbeLean

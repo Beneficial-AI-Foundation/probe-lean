@@ -424,7 +424,8 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let crate := loadRelevantCrate userConfig
 
   let (atoms, pt) ← match ← runAnalysisViaLakeEnv config.projectPath prepared.allModules
-      prepared.selectedModules crate prepared.nixMode prepared.orphans with
+      prepared.selectedModules crate prepared.nixMode prepared.orphans
+      (computeAssumptions := !config.skipVerify) with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"
       return 1

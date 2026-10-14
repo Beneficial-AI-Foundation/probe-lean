@@ -1,0 +1,16 @@
+name = "asm"
+defaultTargets = ["Asm"]
+
+# The `assumptions` fixture. `Asm` covers every row of the Behavior tables of the
+# assumption-set spec. The `dep` path dependency supplies the dependency rows (an
+# axiom, a `sorry`, an `@[externally_verified]` theorem with `sorry`, a `DepExternal`
+# def with `sorry`), the three axiom/theorem merges across the project boundary
+# (`h1`, `h2`, `h3`) and the dependency/dependency duplicates (`Dep.SwapA`, `Dep.SwapB`,
+# `Dep.DupA`, `Dep.DupB`). `check.py` holds the expected sets.
+[[require]]
+name = "dep"
+path = "dep"
+
+[[lean_lib]]
+name = "Asm"
+globs = ["Asm.+"]

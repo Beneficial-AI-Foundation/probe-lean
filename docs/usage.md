@@ -91,7 +91,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`). |
 | `--module <PREFIX>` | `-m` | Filter to a module prefix. The kernel walk still imports every built project module, so a narrow selection is not faster than a full run. |
 | `--library <LIBS>` | `-l` | Comma-separated library names to build and restrict analysis to. probe-lean keeps the modules whose names start with one of these library roots. Without the flag, the build uses `defaultTargets` from `lakefile.toml` (or all `[[lean_lib]]` entries), and all built modules are analyzed. The detected targets are not a module filter, because `defaultTargets` can name a `lean_exe` and a library can declare custom `roots`. |
-| `--skip-verify` | | Omit `verification-status`. Trusted atoms keep it (`"trusted"`). |
+| `--skip-verify` | | Omit `verification-status` and `assumptions`. Trusted atoms keep their status (`"trusted"`). |
 | `--from-file <FILE>` | | Use existing build output for the build-log cross-check instead of the captured `lake build` output. |
 | `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`). The graph cross-check does not run. |
 
@@ -116,7 +116,9 @@ Lean and every package in `lake-manifest.json` are trusted as a whole. This incl
 
 [verification-status.md](verification-status.md) explains how the walk decides and what each stderr line means, including the section "Coverage of P". [schema.md](schema.md), section "Verification status and the trusted base", defines the status values. An atom that reads `"verified"` because a project `sorry` is reachable from it carries `"status-origin": "kernel-taint"`. A tool that recomputes statuses from the dependency arrays must not promote such an atom or its callers (see [schema.md](schema.md), section "Re-deriving statuses").
 
-To check an artifact against the `check-axioms` report in both directions, run `tools/audit/check-status-consistency.py .verilib/probes/lean_*.json check-axioms.out`. See [tools/audit/README.md](../tools/audit/README.md).
+Every atom with a status also has `assumptions`: the axioms and trusted constants that its proof rests on, other than `propext`, `Classical.choice` and `Quot.sound`. The field does not change the status. An atom that rests on `axiom bad : False` or on a `native_decide` axiom reads `"transitively-verified"`, and only `assumptions` names the axiom. [schema.md](schema.md), section "Assumptions", defines the field.
+
+To check an artifact against the `check-axioms` report in both directions, run `tools/audit/check-status-consistency.py .verilib/probes/lean_*.json check-axioms.out`. For a `--skip-verify` artifact, add `--allow-missing`: the script then accepts atoms without a status and requires that no atom has `assumptions`. See [tools/audit/README.md](../tools/audit/README.md).
 
 #### Module-system and stale oleans
 
@@ -168,9 +170,38 @@ externally_verified tag set: 7 name(s) from externallyVerifiedAttr
 
 `[direct]` means the constant's own type or value names `sorryAx`. For a trusted constant only its type counts. `[not emitted]` means the constant is not an atom. The listed atoms are exactly those that `extract` marks `"verified"` or `"unverified"`. No `"transitively-verified"` atom appears here.
 
-The trusted base T follows as `<name> [<trusted-reason>] <module>`. A rule-3 (`external`) model also shows its statement. ` [statement tainted]` marks a member of T whose statement rests on a project `sorry`: it is also in the tainted list, and its atom does not read `"trusted"`. Use this list to review what the "clean modulo T" claim rests on. `extract` shows only the trusted constants that are atoms. Both commands also print a `Note(axiom): ...` line for generated project axioms, such as those from `native_decide`. [verification-status.md](verification-status.md), section "Kernel dependencies, not executable bodies", explains why they stay trusted.
+The trusted base T (see [Notation](verification-status.md#notation)) follows as `<name> [<trusted-reason>] <module>`. A rule-3 (`external`) model also shows its statement. ` [statement tainted]` marks a member of T whose statement rests on a project `sorry`: it is also in the tainted list, and its atom does not read `"trusted"`. Use this list to review what the "clean modulo T" claim rests on. `extract` shows only the trusted constants that are atoms. Both commands also print a `Note(axiom): ...` line for generated project axioms, such as those from `native_decide`. [verification-status.md](verification-status.md), section "Kernel dependencies, not executable bodies", explains why they stay trusted.
 
-The walk is memoized and stops at the project boundary and at the proofs of the trusted base. It takes about a second on a 230-module project that depends on Mathlib. `-m` and `-l` do not make it smaller.
+The report ends with the names in the assumption sets of P (see [Notation](verification-status.md#notation)), one line each, sorted by name. Each line gives the category and the number of constants of P (atoms or not) whose set holds the name. The last line counts the names per category, every category in this order, zeros included. On `tests/fixtures/assumptions` with Lean 4.33:
+
+```
+21 assumption name(s) in the sets of project constants:
+  BadBox.casesOn [trusted (external)] 1
+  BadBox.recOn [trusted (external)] 1
+  T [universe-typed] 44
+  add_spec [trusted (externally_verified)] 3
+  bad [project axiom] 3
+  bv._native.bv_decide.ax_1_5 [bv_decide] 2
+  d [dependency axiom] 1
+  dn._native.decide.ax_1_1 [native_decide] 2
+  ...
+  sorryAx [sorry] 43
+  ...
+Assumptions by category: sorry 1 | bv_decide 1 | native_decide 2 | universe-typed 1 | project axiom 5 | dependency axiom 3 | trusted 8
+```
+
+The first matching category applies:
+
+| Category | Names |
+|----------|-------|
+| `sorry` | `sorryAx`. |
+| `bv_decide` | An axiom whose type is `Std.Tactic.BVDecide.Reflect.verifyBVExpr … = true` or `Std.Tactic.BVDecide.Reflect.verifyCert … = true`. |
+| `native_decide` | An axiom whose name ends in `_native.<tactic>.ax_<n>` (optionally followed by more `_<n>` parts), for any tactic, so `decide +native` too. Also `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, which compiled code rests on before Lean 4.31. |
+| `universe-typed` | An axiom whose type, after its `∀` binders, is a `Sort`, such as `axiom T : Type`. |
+| `project axiom`, `dependency axiom` | Any other axiom, or a name with an axiom version in any imported module, by membership in P. |
+| `trusted (<reason>)` | A member of T that is not an axiom, with its `trusted-reason`. The summary line counts it under `trusted`. |
+
+The status walk is memoized and stops at the project boundary and at the proofs of the trusted base. It takes about a second on a 230-module project that depends on Mathlib. The assumption-set walk also enters dependency packages. It added 4 to 6 s (11 to 15%) to a 34 to 42 s `extract` of PrimeNumberTheoremAnd, and about 2.5 s (25 to 30%) to a 9 s `extract` of curve25519-dalek-lean-verify. `-m` and `-l` do not make either walk smaller.
 
 ### `viewify`
 
@@ -272,7 +303,7 @@ If its saved build output is newer than every `.lean` file, `lean-toolchain`, `l
 
 ### `--skip-verify`
 
-`--skip-verify` leaves `verification-status` off every atom except the ones that read `"trusted"`. The kernel walk still runs and prints its summary, so the flag saves only the build-log cross-check. The flag is for consumers that must not see statuses. It does not make the run faster:
+`--skip-verify` leaves `verification-status` off every atom except the ones that read `"trusted"`, and `assumptions` off every atom. The status walk still runs and prints its summary. The flag saves the build-log cross-check and the assumption-set walk, which takes about a tenth of the run on a Mathlib-sized project:
 
 ```bash
 probe-lean extract ./my-project --skip-verify

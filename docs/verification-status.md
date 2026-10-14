@@ -6,6 +6,14 @@ audit one verdict. It covers where a `sorry` is attributed, what the walk follow
 modules it covers. It also covers duplicated names and the scope and limits of each trust rule.
 The CLI output for these cases is in [usage.md](usage.md#extract).
 
+## Notation
+
+- P: every constant of every built project module, atoms or not.
+- T: the trusted base, the constants of P that one of the three trust rules matches. See
+  [The trusted base T in full](#the-trusted-base-t-in-full).
+- S: the standard axioms `propext`, `Classical.choice` and `Quot.sound`.
+- `As(c)`: the assumption set of the constant `c`. See [Assumption sets](#assumption-sets).
+
 ## The walk
 
 `sorry` elaborates to the `sorryAx` axiom. `extract` and `check-axioms` walk the constant graph of
@@ -205,3 +213,90 @@ The `check-axioms` listing of T (`N trusted constant(s) (T):`, one
 reviewer checks rule-3 models there. A member of T whose statement rests on a project `sorry` has
 the suffix ` [statement tainted]`. It is also in the tainted list above T, and its atom does not
 read `"trusted"`.
+
+## Assumption sets
+
+`verification-status` looks only for `sorry`. probe-lean trusts axioms and does not test them. An
+axiom such as `axiom bad : False` leaves its callers `"transitively-verified"`. A human reviews
+each project axiom once, in the `check-axioms` listing of T. No tool can replace that review:
+whether a set of axioms is consistent is undecidable, so no test finds every false axiom.
+
+The `assumptions` field shows what each proof trusts. It does not change the status. The
+assumption set `As(c)` of a constant `c` holds every axiom and trusted constant that `c` rests on,
+other than the standard axioms S (`propext`, `Classical.choice`, `Quot.sound`). The first
+matching rule applies:
+
+| Constant `c` | `As(c)` |
+|---|---|
+| `sorryAx` | `{sorryAx}` |
+| in S and outside P (see [Notation](#notation)) | `{}` |
+| any other axiom, in a project or a dependency | `{c}` ∪ `As` of the constants of its type |
+| outside P | the union of `As` over the constants of its type and value (and constructors, for an inductive). Trust rules do not apply outside P. |
+| in T, not an axiom | see below |
+| any other constant of P | the union of `As` over its walk edges |
+
+Lean's importer keeps one version of a name that several modules declare with the same
+statement. The set walk does not rely on that version alone:
+
+- If any version is an axiom, in a project module or a dependency, the name adds `{c}`, whichever
+  version the environment kept.
+- The walk also follows the edges of every version that a module outside P declares: the
+  constants of its type and value. It does so for every rule above except `sorryAx` and S, which
+  stay leaves. Trust rules do not apply to those edges, so a `sorry` there gives `sorryAx`.
+
+Without this, two dependency modules that swap an axiom and a theorem hide both axioms. Take
+`axiom a : False` and `theorem b : False := a` in one module, and `axiom b : False` and
+`theorem a : False := b` in the other. Lean keeps both theorems, which only call each other. A
+project theorem that uses `a` then reads `"transitively-verified"`, and its set holds `a` and
+`b`. The status walk does not search dependency packages, so the status stays as it is.
+
+Trust excuses only `sorry`. For a member `c` of T whose version in the environment is not an
+axiom:
+
+```
+As(c) = own(c) ∪ As(stmt(c)) ∪ As(outside(c)) ∪ (As(proof(c)) \ {sorryAx}) ∪ ({c} if sorryAx ∈ As(proof(c)))
+```
+
+The last two terms replace `sorryAx` with `c`. A `sorry` in the proof of a trusted constant is
+excused, and its callers list the constant that they trust instead. Other axioms of the proof flow
+through. If the proof is complete, `c` is not in the set, because trusting it costs nothing. For a
+lemma `add_spec` in T:
+
+| Proof of `add_spec` | `As(add_spec)` |
+|---|---|
+| `sorry` | `{add_spec}` |
+| `native_decide`, no `sorry` | `{add_spec._native.native_decide.ax_1_1}` |
+| complete, no axioms | `{}` |
+
+`own(c)` adds `c` for another reason: it is `{c}` if any version of `c` is an axiom (see above),
+whatever the proof contains, else `{}`. `stmt(c)` is the statement the status walk follows: the
+type, and the constructors of an inductive. `outside(c)` is the edges of the versions outside P (see
+above). It is not excused, so a project axiom merged with a dependency theorem that uses `sorry`
+lists `sorryAx`. `proof(c)` is the constants of the value of a `def`, `theorem` or `opaque`, the
+union over the project versions for a merged name. Other kinds have no proof edges. So the leaves of
+a set are axioms and the trusted constants that cut off a `sorry`. If a vouched lemma has a full
+proof through another vouched lemma that has a `sorry`, both the lemma and the axioms of the other
+lemma's statement flow through. A value can name the constants of its statement (a type argument, an
+`rfl` term), so a member of T whose statement rests on a `sorry` can list its own name next to
+`sorryAx`.
+
+The graph has cycles, for example an inductive and its constructors. `As` is the least fixpoint
+of the rules. The rules are monotone, so this fixpoint is unique and does not depend on the visit
+order. The walk solves each strongly connected component on its own: every member starts at its
+own names, and the walk evaluates the members again until no set changes. Each member keeps its
+own set.
+
+`sorryAx` is in the set of every atom that reads `"unverified"`, or `"verified"` with
+`"status-origin": "kernel-taint"`. Both walks use the same project test, trust set and edges, and
+a tainted path keeps `sorryAx` at each trusted node because it uses a statement edge there. The
+converse does not hold. A `sorry` in a dependency package puts `sorryAx` in the set of a
+`"transitively-verified"` atom.
+
+The `check-axioms` listing ends with the names of all sets over P, with a category and the
+number of constants of P whose set holds each name (see [usage.md](usage.md#check-axioms)).
+
+The walk does not use the axiom table that Lean 4.30 and later stores in each olean. Lean's
+exporter caches an empty placeholder for a constant while it walks the children of that
+constant, and it does not repair cycles. So an entry can be too small: a constructor can get `[]`
+although it reaches `sorryAx` through its inductive. The table also covers only the version of a
+merged name that the caller was compiled against.

@@ -5692,12 +5692,389 @@ def runSuiteD (result : TestResult) : IO TestResult := do
   result ← testUsedConstants result
   return result
 
+-- ============================================================
+-- Assumption categories on a real environment
+--
+-- `assumptionCategory` reads the kind and the type of each name from the
+-- environment, so the checks run at elaboration time on this file's own
+-- environment (the pattern of `taintEnvChecks`).
+-- ============================================================
+
+namespace AsmEnv
+
+axiom univAx : Type
+axiom plainAx : (0 : Nat) < 5
+axiom bvCertAx : ∀ c : Std.Sat.CNF Nat, Std.Tactic.BVDecide.Reflect.verifyCert c "" = true
+axiom bvExprAx : ∀ e : Std.Tactic.BVDecide.BVLogicalExpr,
+  Std.Tactic.BVDecide.Reflect.verifyBVExpr e "" = true
+axiom x._native.decide.ax_1_1 : True
+axiom y._native.native_decide.ax_1 : True
+axiom z._native.decide.ax_1a : True
+axiom w._native.decide.ax_ : True
+theorem v._native.decide.ax_1 : True := trivial
+theorem vouchedThm : True := trivial
+theorem mergedThm : True := trivial
+
+end AsmEnv
+
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let inP (n : Name) : Bool := n.getRoot == `AsmEnv
+  let trust : Std.HashMap Name String := Std.HashMap.ofList
+    [(`AsmEnv.vouchedThm, "externally_verified"), (`AsmEnv.v._native.decide.ax_1, "external")]
+  let axiomVersion (n : Name) : Bool := n == `AsmEnv.mergedThm
+  let cat (n : Name) : String := toString (assumptionCategory env inP trust axiomVersion n)
+  let checks : Array (String × Bool) := #[
+    ("sorryAx → sorry", cat `sorryAx == "sorry"),
+    ("verifyCert axiom → bv_decide", cat `AsmEnv.bvCertAx == "bv_decide"),
+    ("verifyBVExpr axiom → bv_decide", cat `AsmEnv.bvExprAx == "bv_decide"),
+    ("X._native.decide.ax_1_1 → native_decide", cat `AsmEnv.x._native.decide.ax_1_1 == "native_decide"),
+    ("X._native.native_decide.ax_1 → native_decide",
+      cat `AsmEnv.y._native.native_decide.ax_1 == "native_decide"),
+    ("Lean.ofReduceBool → native_decide", cat ``Lean.ofReduceBool == "native_decide"),
+    ("Lean.ofReduceNat → native_decide", cat ``Lean.ofReduceNat == "native_decide"),
+    ("Lean.trustCompiler → native_decide", cat ``Lean.trustCompiler == "native_decide"),
+    ("ax_1a is not a native axiom", cat `AsmEnv.z._native.decide.ax_1a == "project axiom"),
+    ("ax_ is not a native axiom", cat `AsmEnv.w._native.decide.ax_ == "project axiom"),
+    ("a non-axiom ending in _native.decide.ax_1 is not native_decide",
+      cat `AsmEnv.v._native.decide.ax_1 == "trusted (external)"),
+    ("axiom with a Sort type → universe-typed", cat `AsmEnv.univAx == "universe-typed"),
+    ("project axiom", cat `AsmEnv.plainAx == "project axiom"),
+    ("dependency axiom", toString (assumptionCategory env (fun _ => false) trust axiomVersion
+      `AsmEnv.plainAx) == "dependency axiom"),
+    ("merged name with an axiom version → project axiom", cat `AsmEnv.mergedThm == "project axiom"),
+    ("trusted constant → trusted (<reason>)", cat `AsmEnv.vouchedThm == "trusted (externally_verified)")]
+  let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
+  elabCommand (← `(def $(mkIdent `asmCategoryChecks) : Array (String × Bool) :=
+    #[$items,*]))
+
+section AssumptionSetTests
+open Lean
+
+/-! ### Assumption sets (`assumptionSetsWith`) on fabricated graphs -/
+
+/-- A `node` function over a fixed graph. A missing name is a leaf with no names. -/
+def setGraph (g : List (Name × SetNode)) : Name → SetNode :=
+  let m : Std.HashMap Name SetNode := g.foldl (init := {}) fun m (n, s) => m.insert n s
+  fun n => m.getD n (.leaf #[])
+
+/-- The set of `n` in a result map, as sorted strings. -/
+def setOf (m : Std.HashMap Name (Array Name)) (n : Name) : List String :=
+  ((m.getD n #[]).map toString).qsort (· < ·) |>.toList
+
+/-- An axiom node: its own name and the constants of its type. -/
+def axNode (n : Name) (type : Array Name := #[]) : SetNode := .inner #[n] type
+
+def sorryLeaf : SetNode := .leaf #[sorryAxiomName]
+
+def testAssumptionCycles (result : TestResult) : IO TestResult := do
+  IO.println "Testing assumption sets over cycles..."
+  let mut result := result
+  let g := setGraph [(`r, .inner #[] #[`a]), (`a, .inner #[] #[`b]),
+    (`b, .inner #[] #[`a, `ax]), (`ax, axNode `ax)]
+  let m := (assumptionSetsWith g #[`r, `a, `b]).sets
+  result ← test "cycle reaching an axiom: every member and the caller hold it"
+    (setOf m `r == ["ax"] && setOf m `a == ["ax"] && setOf m `b == ["ax"]) result
+  let g := setGraph [(`a, .inner #[] #[`b]), (`b, .inner #[] #[`a, `p]), (`p, .leaf #[])]
+  let m := (assumptionSetsWith g #[`a, `b]).sets
+  result ← test "cycle without axioms: empty sets, absent from the map"
+    (m.isEmpty) result
+  let g := setGraph [(`a, .inner #[] #[`a, `ax]), (`ax, axNode `ax)]
+  let m := (assumptionSetsWith g #[`a]).sets
+  result ← test "self-loop reaching an axiom" (setOf m `a == ["ax"]) result
+  return result
+
+def testAssumptionTrustedNodes (result : TestResult) : IO TestResult := do
+  IO.println "Testing assumption sets of trusted nodes..."
+  let mut result := result
+  let g := setGraph [(`clean, .trusted `clean #[] #[] #[`p]), (`p, .inner #[] #[`q]),
+    (`axOnly, .trusted `axOnly #[] #[] #[`ax]), (`ax, axNode `ax),
+    (`vouched, .trusted `vouched #[] #[] #[`sorryAx]), (`sorryAx, sorryLeaf),
+    (`stmtTainted, .trusted `stmtTainted #[] #[`sorryAx] #[`p]),
+    (`both, .trusted `both #[] #[`ax] #[`sorryAx, `ax2]), (`ax2, axNode `ax2)]
+  let m := (assumptionSetsWith g #[`clean, `axOnly, `vouched, `stmtTainted, `both]).sets
+  result ← test "trusted, clean proof: []" (setOf m `clean == []) result
+  result ← test "trusted, axiom-only proof: the axiom, not the node"
+    (setOf m `axOnly == ["ax"]) result
+  result ← test "trusted, sorry proof: the node" (setOf m `vouched == ["vouched"]) result
+  result ← test "trusted, tainted statement, clean proof: sorryAx, not the node"
+    (setOf m `stmtTainted == ["sorryAx"]) result
+  result ← test "trusted, axioms in statement and proof, sorry proof: axioms and the node"
+    (setOf m `both == ["ax", "ax2", "both"]) result
+  -- The proof of trusted `c` calls trusted `d`, whose proof has a `sorry`.
+  let g := setGraph [(`c, .trusted `c #[] #[] #[`d]), (`d, .trusted `d #[] #[] #[`sorryAx]),
+    (`sorryAx, sorryLeaf)]
+  let m1 := (assumptionSetsWith g #[`c, `d]).sets
+  let m2 := (assumptionSetsWith g #[`d, `c]).sets
+  result ← test "trusted caller of a vouched trusted node lists that node"
+    (setOf m1 `c == ["d"] && setOf m1 `d == ["d"] && setOf m2 `c == ["d"]) result
+  return result
+
+/-- Trusted `c` and `d` in one cycle (`c`'s proof names `d`, `d`'s proof names `c`
+    and `leafName`), for every root order and both child orders of `d`. -/
+def twoTrustedSets (leafName : Name) (leaf : SetNode) : List (List String × List String) :=
+  [false, true].flatMap fun swap =>
+    let dProof := if swap then #[leafName, `c] else #[`c, leafName]
+    let g := setGraph [(`c, .trusted `c #[] #[] #[`d]), (`d, .trusted `d #[] #[] dProof),
+      (leafName, leaf)]
+    [#[`c, `d], #[`d, `c]].map fun roots =>
+      let m := (assumptionSetsWith g roots).sets
+      (setOf m `c, setOf m `d)
+
+def testAssumptionTrustedCycles (result : TestResult) : IO TestResult := do
+  IO.println "Testing assumption sets of trusted cycles..."
+  let mut result := result
+  result ← test "two trusted nodes in a cycle with an axiom: both hold the axiom only"
+    ((twoTrustedSets `bad (axNode `bad)).all (· == (["bad"], ["bad"]))) result
+  result ← test "two trusted nodes in a cycle with sorry: both hold d"
+    ((twoTrustedSets `sorryAx sorryLeaf).all (· == (["d"], ["d"]))) result
+  -- Trusted `c` (proof `[d]`) and untrusted `d` (children `[c, sorryAx]`).
+  let g := setGraph [(`c, .trusted `c #[] #[] #[`d]), (`d, .inner #[] #[`c, `sorryAx]),
+    (`sorryAx, sorryLeaf)]
+  let m1 := (assumptionSetsWith g #[`c, `d]).sets
+  let m2 := (assumptionSetsWith g #[`d, `c]).sets
+  result ← test "trusted/untrusted cycle: each member keeps its own set"
+    (setOf m1 `c == ["c"] && setOf m1 `d == ["c", "sorryAx"] &&
+      setOf m2 `c == ["c"] && setOf m2 `d == ["c", "sorryAx"]) result
+  return result
+
+def testAssumptionNodeKind (result : TestResult) : IO TestResult := do
+  IO.println "Testing the rule order of the set walk (nodeKind)..."
+  let mut result := result
+  result ← test "outside P, accepted by trusted: still outside"
+    (nodeKind { isTrusted := true } == .outside) result
+  result ← test "sorryAx first"
+    (nodeKind { isSorry := true, isStandard := true, isAxiom := true, isProject := true,
+                isTrusted := true } == .sorry) result
+  result ← test "standard axiom outside P"
+    (nodeKind { isStandard := true, isAxiom := true } == .standard) result
+  result ← test "standard name inside P falls through to the axiom rule"
+    (nodeKind { isStandard := true, isAxiom := true, isProject := true, isTrusted := true } == .axiom) result
+  result ← test "a trusted project axiom is an axiom"
+    (nodeKind { isAxiom := true, isProject := true, isTrusted := true } == .axiom) result
+  result ← test "trusted project constant"
+    (nodeKind { isProject := true, isTrusted := true } == .trusted) result
+  result ← test "untrusted project constant" (nodeKind { isProject := true } == .project) result
+  return result
+
+def testAssumptionDeepChain (result : TestResult) : IO TestResult := do
+  IO.println "Testing the set walk on a chain of 100 000 nodes..."
+  let mut result := result
+  let len := 100000
+  let node (n : Name) : SetNode :=
+    match n with
+    | .num _ i => if i + 1 < len then .inner #[] #[.num `n (i + 1)] else .inner #[] #[`ax]
+    | _ => if n == `ax then axNode `ax else .leaf #[]
+  let w := assumptionSetsWith node #[.num `n 0]
+  let (m, depth, nodes) := (w.sets, w.maxDepth, w.visited)
+  result ← test "100 000-node chain: the walk returns the axiom"
+    (setOf m (.num `n 0) == ["ax"]) result
+  result ← test s!"100 000-node chain: depth {depth}, nodes {nodes}"
+    (depth == len + 1 && nodes == len + 1) result
+  return result
+
+def testAssumptionSharedMemo (result : TestResult) : IO TestResult := do
+  IO.println "Testing that the set walk memoizes empty sets..."
+  let mut result := result
+  let leaves := (Array.range 10).map (Name.num `s ·)
+  let g := setGraph ([(`r1, .inner #[] #[`s]), (`r2, .inner #[] #[`s]), (`s, .inner #[] leaves)] ++
+    (leaves.map fun l => (l, SetNode.inner #[] #[])).toList)
+  let w := assumptionSetsWith g #[`r1, `r2]
+  let (m, nodes) := (w.sets, w.visited)
+  result ← test s!"shared clean subgraph: each node expanded once ({nodes} calls for 13 nodes)"
+    (nodes == 13 && m.isEmpty) result
+  -- `own` of a merged name with an axiom version, untrusted and trusted.
+  let g := setGraph [(`h, .inner #[`h] #[`p]), (`t, .trusted `t #[`t] #[] #[]),
+    (`caller, .inner #[] #[`h, `t])]
+  let m := (assumptionSetsWith g #[`caller, `h, `t]).sets
+  result ← test "axiom version: own name on an untrusted and a trusted node"
+    (setOf m `h == ["h"] && setOf m `t == ["t"] && setOf m `caller == ["h", "t"]) result
+  return result
+
+def testUnionSorted (result : TestResult) : IO TestResult := do
+  IO.println "Testing unionSorted..."
+  let mut result := result
+  let sort (a : Array Name) := a.qsort Name.quickLt
+  let a := sort #[`x, `y, `z]
+  let b := sort #[`y, `w]
+  let u := unionSorted a b
+  result ← test "unionSorted: union without duplicates"
+    ((u.map toString).qsort (· < ·) == #["w", "x", "y", "z"]) result
+  result ← test "unionSorted: sorted by quickLt" (u == sort u) result
+  result ← test "unionSorted: empty sides" (unionSorted #[] a == a && unionSorted a #[] == a) result
+  result ← test "unionSorted: idempotent" (unionSorted a a == a) result
+  return result
+
+def testAssumptionCategory (result : TestResult) : IO TestResult := do
+  IO.println "Testing assumptionCategory..."
+  let mut result := result
+  result ← test "category checks were generated" (asmCategoryChecks.size == 16) result
+  for (name, ok) in asmCategoryChecks do
+    result ← test name ok result
+  return result
+
+def testAssumptionFormatters (result : TestResult) : IO TestResult := do
+  IO.println "Testing the assumption formatters..."
+  let mut result := result
+  result ← test "header" (formatAssumptionsHeader 3 ==
+    "3 assumption name(s) in the sets of project constants:") result
+  result ← test "line" (formatAssumptionLine `Foo.bar .projectAxiom 7 == "  Foo.bar [project axiom] 7") result
+  result ← test "summary: fixed order, zeros, trusted reasons counted under trusted"
+    (formatAssumptionCategoryCounts #[.trusted "external", .sorry, .trusted "axiom", .nativeDecide] ==
+      "Assumptions by category: sorry 1 | bv_decide 0 | native_decide 1 | universe-typed 0 | \
+       project axiom 0 | dependency axiom 0 | trusted 2") result
+  result ← test "summary with no names" (formatAssumptionCategoryCounts #[] ==
+    "Assumptions by category: sorry 0 | bv_decide 0 | native_decide 0 | universe-typed 0 | \
+     project axiom 0 | dependency axiom 0 | trusted 0") result
+  return result
+
+def testAssumptionField (result : TestResult) : IO TestResult := do
+  IO.println "Testing the assumptions atom field..."
+  let mut result := result
+  let mkU (name : String) (ln : Name) : UnifiedAtom :=
+    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
+      codePath := "T.lean", codeText := none, kind := .theorem, verificationStatus := none }
+  let sets : Std.HashMap Name (Array Name) := Std.HashMap.ofList
+    [(`T.ev, #[`T.ev]), (`T.via, #[`sorryAx, `Z.ax, `A.ax])]
+  let pt : ProjectTaint := {
+    trust := Std.HashMap.ofList [(`T.ev, "externally_verified")]
+    taint := { tainted := Std.HashSet.ofArray #[`T.via], direct := {} }
+    constants := Std.HashSet.ofArray #[`T.ev, `T.via, `T.clean]
+    pSize := 3, moduleCount := 1, assumptions := some sets }
+  let atoms := #[mkU "probe:ev" `T.ev, mkU "probe:via" `T.via, mkU "probe:clean" `T.clean,
+    mkU "probe:unknown" `T.unknown]
+  let (full, _) := applyTaintStatus atoms pt true true
+  result ← test "sets are bare names sorted by string"
+    (full[1]!.assumptions == some #["A.ax", "Z.ax", "sorryAx"]) result
+  result ← test "a trusted atom gets its set" (full[0]!.assumptions == some #["T.ev"]) result
+  result ← test "computed map without an entry → []" (full[2]!.assumptions == some #[]) result
+  result ← test "an atom outside P gets no field" (full[3]!.assumptions == none) result
+  let (noTaint, _) := applyTaintStatus atoms pt false true
+  result ← test "--skip-verify: a trusted atom keeps its status and has no field"
+    (noTaint[0]!.verificationStatus == some .trusted && noTaint[0]!.assumptions == none &&
+      noTaint.all (·.assumptions == none)) result
+  let (notComputed, _) := applyTaintStatus atoms { pt with assumptions := none } true true
+  result ← test "map not computed → no atom gets the field"
+    (notComputed.all (·.assumptions == none)) result
+  let roundTrip (a : UnifiedAtom) : Option (Option (Array String)) :=
+    match Lean.FromJson.fromJson? (Lean.toJson a) (α := UnifiedAtom) with
+    | .ok b => some b.assumptions
+    | .error _ => none
+  result ← test "JSON round trip with the field" (roundTrip full[1]! == some full[1]!.assumptions) result
+  result ← test "JSON round trip with []" (roundTrip full[2]! == some (some #[])) result
+  result ← test "JSON round trip without the field" (roundTrip noTaint[1]! == some none) result
+  result ← test "no field → no key"
+    ((Lean.toJson noTaint[1]!).getObjVal? "assumptions" |>.toOption |>.isNone) result
+  return result
+
+def testAssumptionWideNode (result : TestResult) : IO TestResult := do
+  IO.println "Testing the set walk on one node over 5 000 axioms..."
+  let mut result := result
+  let axs := (Array.range 5000).map (Name.num `ax ·)
+  let node (n : Name) : SetNode :=
+    if n == `root then .inner #[] axs
+    else if n == `wrap then .trusted `wrap #[] #[] (axs.push `root)
+    else axNode n
+  let m := (assumptionSetsWith node #[`root, `wrap]).sets
+  let s := m.getD `root #[]
+  result ← test "wide node: every axiom once, sorted by quickLt"
+    (s.size == 5000 && s == s.qsort Name.quickLt) result
+  result ← test "wide trusted proof: the same names, the node not added"
+    (m.getD `wrap #[] == s) result
+  -- 2 000 children that share the same 200 axioms: the union holds each name once.
+  let shared := (Array.range 200).map (Name.num `sh ·)
+  let kids := (Array.range 2000).map (Name.num `kid ·)
+  let node2 (n : Name) : SetNode :=
+    if n == `fan then .inner #[] kids
+    else if n.getPrefix == `kid then .inner #[] shared
+    else axNode n
+  let m2 := (assumptionSetsWith node2 #[`fan]).sets
+  let s2 := m2.getD `fan #[]
+  result ← test "overlapping children: every shared axiom once, sorted by quickLt"
+    (s2.size == 200 && s2 == s2.qsort Name.quickLt) result
+  let u := unionChildren (fun ch => if ch == `x then #[`a, `b] else #[`b, `c]) #[`a] #[`x, `y]
+  result ← test "unionChildren: own and child names once, sorted by quickLt"
+    (u.size == 3 && u == #[`a, `b, `c].qsort Name.quickLt) result
+  return result
+
+/-- A `HeaderModule` for `duplicateVersions`: its constants are axioms or theorems
+    whose value is one constant. -/
+def dupModule (mod : Name) (isProject : Bool) (decls : List (Name × Option Name)) : HeaderModule :=
+  let ci (n : Name) : Option Name → ConstantInfo
+    | none => .axiomInfo { name := n, levelParams := [], type := .sort .zero, isUnsafe := false }
+    | some v => .thmInfo { name := n, levelParams := [], type := .sort .zero, value := .const v [] }
+  (mod, isProject, (decls.map (·.1)).toArray, (decls.map fun (n, v) => ci n v).toArray)
+
+def testDuplicateVersions (result : TestResult) : IO TestResult := do
+  IO.println "Testing duplicateVersions (versions the importer drops)..."
+  let mut result := result
+  let mods := #[
+    dupModule `Dep.A false [(`a, none), (`b, some `a)],
+    dupModule `Dep.B false [(`b, none), (`a, some `b)],
+    dupModule `P.X true [(`p, none), (`c, some `p)],
+    dupModule `P.Y true [(`p, some `c)]]
+  let (edges, axioms) := duplicateVersions mods
+  result ← test "swapped axiom/theorem pair: both names have an axiom version"
+    (axioms.contains `a && axioms.contains `b) result
+  result ← test "the dependency versions' edges are kept"
+    ((edges.getD `a #[]).contains `b && (edges.getD `b #[]).contains `a) result
+  result ← test "a project/project duplicate: axiom version, no extra edges"
+    (axioms.contains `p && !edges.contains `p) result
+  result ← test "a name declared once is not a duplicate"
+    (!axioms.contains `c && !edges.contains `c) result
+  -- The swap through the set walk: theorems kept, extra edges and axiom versions on.
+  let node (n : Name) : SetNode :=
+    if n == `boom then .inner #[] #[`a]
+    else .inner (if axioms.contains n then #[n] else #[]) ((if n == `a then #[`b] else #[`a]) ++ edges.getD n #[])
+  let m := (assumptionSetsWith node #[`boom]).sets
+  result ← test "a caller of the swapped pair lists both axioms"
+    (setOf m `boom == ["a", "b"]) result
+  return result
+
+def testAssumptionStrictJson (result : TestResult) : IO TestResult := do
+  IO.println "Testing the strict JSON read of assumptions..."
+  let mut result := result
+  let a : UnifiedAtom := {
+    name := "probe:x", displayName := "x", dependencies := #[], codeModule := "T"
+    codePath := "T.lean", codeText := none, kind := .theorem, verificationStatus := some .verified
+    assumptions := some #["sorryAx"] }
+  let withValue (v : Lean.Json) : Lean.Json := match Lean.toJson a with
+    | .obj kvs => .obj (kvs.insert "assumptions" v)
+    | j => j
+  let reads (j : Lean.Json) : Bool := (Lean.FromJson.fromJson? j (α := UnifiedAtom)).toOption.isSome
+  result ← test "a string value is rejected" (!reads (withValue (.str "sorryAx"))) result
+  result ← test "a mixed array is rejected" (!reads (withValue (.arr #[.str "a", .num 1]))) result
+  result ← test "null is rejected" (!reads (withValue .null)) result
+  result ← test "a string array is read" (reads (withValue (.arr #[.str "a"]))) result
+  return result
+
+def runSuiteE (result : TestResult) : IO TestResult := do
+  let mut result := result
+  result ← testAssumptionCycles result
+  result ← testAssumptionTrustedNodes result
+  result ← testAssumptionTrustedCycles result
+  result ← testAssumptionNodeKind result
+  result ← testAssumptionDeepChain result
+  result ← testAssumptionSharedMemo result
+  result ← testUnionSorted result
+  result ← testAssumptionCategory result
+  result ← testAssumptionFormatters result
+  result ← testAssumptionField result
+  result ← testAssumptionWideNode result
+  result ← testDuplicateVersions result
+  result ← testAssumptionStrictJson result
+  return result
+
+end AssumptionSetTests
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
   result ← runSuiteB result
   result ← runSuiteC result
   result ← runSuiteD result
+  result ← runSuiteE result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

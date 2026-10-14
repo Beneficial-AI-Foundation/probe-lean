@@ -47,6 +47,7 @@ private def mkAtom (shortName : String) (kind : DeclKind)
   codeText := some { linesStart := startLine, linesEnd := startLine + 2 }
   kind := kind
   verificationStatus := some status
+  assumptions := some #[]
 }
 
 private def configRef : String := addProbePrefix "ExampleProject.Config"
@@ -60,6 +61,8 @@ private def unprovedRef : String := addProbePrefix "ExampleProject.unproved"
     - a `def`, a `theorem`, a `projection`, a `structure`, and an `axiom`
     - at least one `verified` and one `trusted` atom
     - `trusted-reason` present only on trusted atoms
+    - `assumptions` on every atom: the axiom's own name, `sorryAx` on the direct
+      carrier and its caller, `[]` on the others
     - `specs` / `primary-spec` / `attributes` populated on a target
 
     Statuses are those of a default-mode extract (no `--skip-enrich`): clean atoms
@@ -81,6 +84,7 @@ private def fixtureAtoms : Array UnifiedAtom := #[
     codomainHead := some "Nat" },
   { mkAtom "axiomatic_truth" .axiom .trusted 12 with
     trustedReason := some "axiom"
+    assumptions := some #["ExampleProject.axiomatic_truth"]
     codomainIsProp := true },
   { mkAtom "external_helper" .def .trusted 3 with
     codeModule := "ExampleProject.CoreExternal"
@@ -108,6 +112,7 @@ private def fixtureAtoms : Array UnifiedAtom := #[
     codomainHead := some "Eq"
     codomainIsProp := true },
   { mkAtom "unproved" .theorem .unverified 36 with
+    assumptions := some #["sorryAx"]
     dependencies := #[helperRef]
     typeDependencies := #[helperRef]
     codomainHead := some "Eq"
@@ -116,6 +121,7 @@ private def fixtureAtoms : Array UnifiedAtom := #[
     dependencies := #[unprovedRef]
     termDependencies := #[unprovedRef]
     statusOrigin := some .kernelTaint
+    assumptions := some #["sorryAx"]
     codomainHead := some "Eq"
     codomainIsProp := true }
 ]

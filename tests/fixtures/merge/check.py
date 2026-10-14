@@ -131,10 +131,16 @@ def main():
     check("--module Merge.FixAdd: the dangling edge to Merge.Fix.mutual is reported",
           any(l.startswith(f'Warning: dependency "{fix}" not found in atom map') for l in add_stderr))
 
+    print("Assumptions of an axiom/theorem pair")
+    for name in ("pairAx", "callerAx"):
+        a = data.get(f"probe:{name}", {})
+        check(f"{name} has assumptions [\"pairAx\"]",
+              "assumptions" in a and a["assumptions"] == ["pairAx"])
+
     print("Extract stderr")
     check("the merged declarations are reported",
-          any(l.startswith("Warning: 2 declaration name(s) are declared by more than one project module")
-              and "shared" in l and "Merge.Fix.mutual" in l for l in stderr))
+          any(l.startswith("Warning: 3 declaration name(s) are declared by more than one project module")
+              and "shared" in l and "Merge.Fix.mutual" in l and "pairAx" in l for l in stderr))
     check("no fallback: the whole project co-imported",
           not any("not imported" in l for l in stderr))
     check("no cross-boundary note (both declarers are project modules)",

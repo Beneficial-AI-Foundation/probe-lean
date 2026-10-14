@@ -61,3 +61,8 @@ tests/fixtures/orphan/extract.stderr
 tests/fixtures/orphan/extract2.stderr
 tests/fixtures/orphan/check-axioms2.out
 tests/fixtures/orphan/check-axioms2.err
+tests/fixtures/assumptions/.verilib/
+tests/fixtures/assumptions/lake-manifest.json
+tests/fixtures/assumptions/dep/lake-manifest.json
+tests/fixtures/assumptions/assumptions-*.json
+tests/fixtures/assumptions/check-axioms.out
