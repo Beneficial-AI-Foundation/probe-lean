@@ -11,6 +11,8 @@
 #     find its asset only on an old probe-lean release.
 #   - Skip a stable-shaped tag (no -rc) that GitHub marks as a prerelease.
 #   - Drop a version with no compatible lean4-cli tag (see below).
+#   - The list grows with every RC. The release workflows stop above 128
+#     versions (the 256-job matrix limit on two platforms). Raise the floor then.
 #   - RCs sort numerically (rc10 > rc2) and below their own stable
 #     (v4.29.0-rc8 < v4.29.0).
 #

@@ -53,6 +53,12 @@ jobs:
             echo "::error::No supported Lean versions were derived."
             exit 1
           fi
+          # GitHub rejects a matrix of more than 256 jobs, 128 versions on two
+          # platforms. Fail here with the fix instead.
+          if [ "$(printf '%s' "$versions" | jq length)" -gt 128 ]; then
+            echo "::error::More than 128 Lean versions selected. Raise LEAN_VERSION_FLOOR in tools/lean-versions.sh."
+            exit 1
+          fi
           printf 'versions=%s\n' "$versions" >> "$GITHUB_OUTPUT"
 
   ensure-release:

@@ -84,6 +84,12 @@ jobs:
             done
           done
           missing=$(printf '%s' "$missing" | jq -c .)
+          # GitHub rejects a matrix of more than 256 jobs, 128 versions on two
+          # platforms. Fail here with the fix instead.
+          if [ "$(printf '%s' "$missing" | jq length)" -gt 128 ]; then
+            echo "::error::More than 128 Lean versions need artifacts. Raise LEAN_VERSION_FLOOR in tools/lean-versions.sh."
+            exit 1
+          fi
           echo "Versions needing artifacts: $missing"
           {
             echo "have_release=true"
