@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The release matrix pins Lean `v4.28.0-rc1` in `tools/lean-version-extras.txt` (#142). It is a superseded RC, so no release after v0.9.4 shipped its asset, and the installer served probe-lean 0.9.4 for projects on that toolchain. If you installed probe-lean for `v4.28.0-rc1` before, rerun the installer with `--force`.
+
 ## [0.18.2] - 2026-10-12
 
 ### Fixed
