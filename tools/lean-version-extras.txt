@@ -21,3 +21,6 @@ v4.29.0-rc8
 
 # Older curve25519-dalek-lean-verify commits — see issue #142.
 v4.28.0-rc1
+
+# KeyedVerificationAnonymousCredential-verify — see issue #142.
+v4.30.0-rc2

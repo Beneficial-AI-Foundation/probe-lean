@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- The release matrix pins Lean `v4.28.0-rc1` in `tools/lean-version-extras.txt` (#142). It is a superseded RC, so no release after v0.9.4 shipped its asset, and the installer served probe-lean 0.9.4 for projects on that toolchain. If you installed probe-lean for `v4.28.0-rc1` before, rerun the installer with `--force`.
+- The release matrix pins Lean `v4.28.0-rc1` and `v4.30.0-rc2` in `tools/lean-version-extras.txt` (#142). They are superseded RCs, so no release after v0.9.4 shipped their assets, and the installer served probe-lean 0.9.4 for projects on these toolchains, for example older curve25519-dalek-lean-verify commits and KeyedVerificationAnonymousCredential-verify. If you installed probe-lean for one of these versions before, rerun the installer with `--force`.
 
 ## [0.18.2] - 2026-10-12
 
