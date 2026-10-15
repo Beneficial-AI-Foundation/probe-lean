@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.19.1] - 2026-10-15
+## [0.20.0] - 2026-10-15
 
 ### Fixed
 
-- probe-lean builds on Lean 4.35 and later (#149). Lean 4.35 removed `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, and 0.19.0 named them as checked constants in `ProbeLean/Taint.lean`, so it did not compile. The names are now plain literals. The output does not change on any Lean version. From Lean 4.31 on, `native_decide` proofs rest on `X._native.native_decide.ax_N` axioms, and `check-axioms` puts those in the `native_decide` category.
+- probe-lean builds on Lean 4.35 and later (#149). Lean 4.35 removed `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, and 0.19.0 named them as checked constants in `ProbeLean/Taint.lean`, so it did not compile. The names are now plain literals. On Lean 4.34 and earlier the output does not change. From Lean 4.31 on, `X._native.native_decide.ax_N` axioms replace these constants, and the existing `native_decide` category of `check-axioms` already covers them.
 - The `test-newest` CI job runs on Lean 4.35.0.
 
 ### Added

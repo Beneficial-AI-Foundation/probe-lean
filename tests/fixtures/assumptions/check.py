@@ -126,13 +126,13 @@ EXPECTED = {
 }
 
 # The expected values below were taken on Lean 4.28.0-rc1 (`NEW_NATIVE` false),
-# Lean 4.33.0 and Lean 4.35.0 (`NEW_NATIVE` true, 4.35.0 is the `test-newest` toolchain). Lean generates other
-# constants on other versions, so after a toolchain bump compare these values first.
+# Lean 4.33.0 and Lean 4.35.0 (`NEW_NATIVE` true). Lean generates other constants on
+# other versions, so after a toolchain bump compare these values first.
 #
 # The check-axioms section: (name, category, count), sorted by name. The counts
 # include project constants that are not atoms: the constructor `Box.a`, the
-# generated constants of the inductives (`BadBox.casesOn` names the trusted
-# recursor `BadBox.rec`), and the auxiliary constants of the compiled-code proofs.
+# generated constants of the inductives (up to Lean 4.34, `BadBox.casesOn` names the
+# trusted recursor `BadBox.rec`), and the auxiliary constants of the compiled-code proofs.
 COMMON = [
     # From Lean 4.35 on, the generated `BadBox.recOn` refers to `BadBox.casesOn`, not
     # to `BadBox.rec`, so `BadBox.casesOn` is in one more set.
