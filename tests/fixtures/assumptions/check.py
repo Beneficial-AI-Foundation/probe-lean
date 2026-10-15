@@ -125,8 +125,8 @@ EXPECTED = {
     "useDd2B": ("transitively-verified", None, ["sorryAx"]),
 }
 
-# The expected values below were taken on Lean 4.28.0-rc1 (`NEW_NATIVE` false) and
-# Lean 4.33.0 (`NEW_NATIVE` true, the `test-newest` toolchain). Lean generates other
+# The expected values below were taken on Lean 4.28.0-rc1 (`NEW_NATIVE` false),
+# Lean 4.33.0 and Lean 4.35.0 (`NEW_NATIVE` true, 4.35.0 is the `test-newest` toolchain). Lean generates other
 # constants on other versions, so after a toolchain bump compare these values first.
 #
 # The check-axioms section: (name, category, count), sorted by name. The counts
@@ -134,7 +134,9 @@ EXPECTED = {
 # generated constants of the inductives (`BadBox.casesOn` names the trusted
 # recursor `BadBox.rec`), and the auxiliary constants of the compiled-code proofs.
 COMMON = [
-    ("BadBox.casesOn", "trusted (external)", 1),
+    # From Lean 4.35 on, the generated `BadBox.recOn` refers to `BadBox.casesOn`, not
+    # to `BadBox.rec`, so `BadBox.casesOn` is in one more set.
+    ("BadBox.casesOn", "trusted (external)", 2 if lean_minor() >= 35 else 1),
     ("BadBox.recOn", "trusted (external)", 1),
     ("T", "universe-typed", 44),
     ("add_spec", "trusted (externally_verified)", 3),

@@ -675,8 +675,9 @@ def isNativeAxiomName : Name → Bool
   | .str (.str (.str _ "_native") _) ax => isNativeAxiomComponent ax
   | _ => false
 
-/-- The axioms that compiled code rests on before Lean 4.31. -/
-def compilerAxioms : Array Name := #[``Lean.ofReduceBool, ``Lean.ofReduceNat, ``Lean.trustCompiler]
+/-- The axioms that compiled code rests on before Lean 4.31. The names are plain literals,
+    not checked names, because Lean 4.35 removed the constants. -/
+def compilerAxioms : Array Name := #[`Lean.ofReduceBool, `Lean.ofReduceNat, `Lean.trustCompiler]
 
 /-- The category of a name in an assumption set, for `check-axioms`. -/
 inductive AssumptionCategory where

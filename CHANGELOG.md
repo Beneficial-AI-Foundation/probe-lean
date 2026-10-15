@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-15
+
+### Fixed
+
+- probe-lean builds on Lean 4.35 and later (#149). Lean 4.35 removed `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler`, and 0.19.0 named them as checked constants in `ProbeLean/Taint.lean`, so it did not compile. The names are now plain literals. The output does not change on any Lean version. From Lean 4.31 on, `native_decide` proofs rest on `X._native.native_decide.ax_N` axioms, and `check-axioms` puts those in the `native_decide` category.
+- The `test-newest` CI job runs on Lean 4.35.0.
+
 ### Added
 
 - The installers (`tools/bash/install.sh` and `tools/python/install.py`) warn on stderr about an old probe-lean build (#144). One warning appears when the downloaded binary comes from an older release than the newest one, because the newest release has no binary for the Lean version. The other appears when the installed binary for the Lean version is older than the newest release and you do not set `--force`. The warnings name the releases. They tell you to rerun with `--force`, or they point to the `lean-build-failure` issue. The exit codes do not change.
