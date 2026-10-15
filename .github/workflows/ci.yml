@@ -244,7 +244,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     env:
-      LEAN_VERSION: v4.33.0
+      LEAN_VERSION: v4.35.0
     steps:
       - uses: actions/checkout@v4
 
