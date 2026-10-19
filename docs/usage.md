@@ -128,10 +128,10 @@ externally_verified tag set: 2 name(s) from externallyVerifiedAttr
 
 Lean and every package in `lake-manifest.json` are trusted as a whole. This includes a second Lake package that holds the project's own code. Move such code into the main package to have it analyzed.
 
-To check that the emitted dependency graph explains every status, run the graph check on the artifact. It prints a `Divergence(graph)` line for each atom where a BFS over `dependencies` disagrees with the walk, and a `Warning:` line for each dependency that is not an atom. Exit 0 means that the graph and the walk agree on every atom with a status, not that every edge was emitted. The script reads artifacts from 0.16.0 on. If `extract` printed the duplicate-name warning, the report lacks the colliding atoms. Up to 0.20.0, `extract` printed these lines on stderr.
+To check that the emitted dependency graph explains every status, run the graph check on the artifact. It prints a `Divergence(graph)` line for each atom where a BFS over `dependencies` disagrees with the walk, and a `Warning:` line for each dependency that is not an atom. With `--fail-on-divergence`, exit 0 means that the graph and the walk agree on every atom with a status, not that every edge was emitted. Without the flag, the script exits 0 also on a divergence. The script reads enveloped artifacts from 0.16.0 on, and rejects input without a probe-lean version. If `extract` printed the duplicate-name warning, the report lacks the colliding atoms. Up to 0.20.0, `extract` printed these lines on stderr. The script is in the probe-lean repository, not in the release assets. You need a probe-lean checkout and Python 3. In the command, `<probe-lean>` is the checkout and `<project>` is the target project:
 
 ```bash
-python3 tools/audit/check-graph.py --fail-on-divergence .verilib/probes/lean_<pkg>_<ver>.json
+python3 <probe-lean>/tools/audit/check-graph.py --fail-on-divergence <project>/.verilib/probes/lean_<pkg>_<ver>.json
 ```
 
 [verification-status.md](verification-status.md) explains how the walk decides and what each stderr line means, including the section "Coverage of P". [schema.md](schema.md), section "Verification status and the trusted base", defines the status values. An atom that reads `"verified"` because a project `sorry` is reachable from it carries `"status-origin": "kernel-taint"`. A tool that recomputes statuses from the dependency arrays must not promote such an atom or its callers (see [schema.md](schema.md), section "Re-deriving statuses").

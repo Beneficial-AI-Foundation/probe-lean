@@ -222,9 +222,6 @@ structure PreparedProject where
       of them anyway, the extraction aborts (`Atomize.loadedOrphans`). -/
   orphans : Array Lean.Name := #[]
   nixMode : Option NixMode
-  /-- Captured `lake build` output (or the cached copy). The build cache saves it,
-      and nothing reads it after the build step. -/
-  buildOutput : String
 
 /-- Build (honouring the cache) and discover/select the project's modules. Shared by
     `runExtractInProject` and `check-axioms` (`runCheckAxiomsInProject`) so the audit
@@ -261,12 +258,9 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     | some ls => pure ls
     | none => getLeanLibs projectPath
 
-  let buildOutput ← if ← isCacheValid projectPath then
+  if ← isCacheValid projectPath then
     IO.println "Build cache is up-to-date, skipping lake build..."
-    match ← loadCache projectPath with
-    | some cached => pure cached
-    | none => pure ""
-  else do
+  else
     ensureMathlibCache projectPath nixMode
     let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
     if !libs.isEmpty then
@@ -276,9 +270,7 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     if buildExit != 0 then
       IO.eprintln s!"Lake build failed:\n{buildStderr}"
       return .error 1
-    let output := buildStdout ++ "\n" ++ buildStderr
-    saveCache projectPath output
-    pure output
+    saveCache projectPath (buildStdout ++ "\n" ++ buildStderr)
 
   IO.println "Getting project modules..."
   let sourceRoots ← getSourceRoots projectPath
@@ -315,7 +307,7 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
     return .error 1
 
   IO.println s!"Analyzing {filteredModules.size} modules..."
-  return .ok { allModules := modules, selectedModules := filteredModules, orphans, nixMode, buildOutput }
+  return .ok { allModules := modules, selectedModules := filteredModules, orphans, nixMode }
 
 /-- Step 2. The kernel walk decides the status. This step prints how many atoms
     are direct carriers. -/

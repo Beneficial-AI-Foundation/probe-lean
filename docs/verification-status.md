@@ -74,10 +74,11 @@ every toolchain. `tools/audit/compare-extract.py --status-policy taint` accepts 
 `extract` uses neither the build log nor the emitted graph for the status. Up to 0.20.0 it also
 ran two cross-checks against the walk and printed their disagreements on stderr. Version 0.21.0
 removed both. The build-log check is gone. The graph check is the script
-`tools/audit/check-graph.py`, which reads an artifact:
+`tools/audit/check-graph.py` in the probe-lean repository (not in the release assets), which
+reads an artifact. `<probe-lean>` is a probe-lean checkout and `<project>` is the target project:
 
 ```bash
-python3 tools/audit/check-graph.py --fail-on-divergence .verilib/probes/lean_<pkg>_<ver>.json
+python3 <probe-lean>/tools/audit/check-graph.py --fail-on-divergence <project>/.verilib/probes/lean_<pkg>_<ver>.json
 ```
 
 The script runs a reverse BFS over the emitted `dependencies`. The seeds are the atoms that read
@@ -90,9 +91,12 @@ declaration range. The `status-origin` marker makes the same gap visible in the 
 [Re-deriving statuses](schema.md#re-deriving-statuses). The script also prints a `Warning:` line
 for each dependency name that is not an atom.
 
-Exit 0 means that the emitted graph and the walk agree on every atom with a status. It does not
-prove that every edge was emitted: a missing edge that does not change taint is invisible, and
-missing dependencies never fail the run. The script reads artifacts from 0.16.0 on. If `extract`
+With `--fail-on-divergence`, exit 0 means that the emitted graph and the walk agree on every atom
+with a status. Without the flag, the script exits 0 also on a divergence. Exit 0 does not prove
+that every edge was emitted: a missing edge that does not change taint is invisible, and missing
+dependencies never fail the run. The script reads enveloped artifacts from 0.16.0 on. It rejects
+input whose version it cannot read, because before 0.16.0 a tainted atom that reads `"verified"`
+has no `status-origin` marker and looks clean. If `extract`
 printed the duplicate-name warning, the artifact keeps one of the colliding atoms, and the report
 lacks the other one and its edges.
 

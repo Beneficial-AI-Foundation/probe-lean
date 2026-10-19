@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `tools/audit/check-graph.py ARTIFACT.json`: the graph check that `extract` ran up to 0.20.0. It prints the same `Divergence(graph)` lines, missing-dependency warnings and type-member count from an artifact. `--fail-on-divergence` exits 1 on a divergence. It reads artifacts from 0.16.0 on and rejects `--skip-verify` artifacts. Before, every `extract` run showed a missing dependency edge (the bugs of #99 and #135). Now only a run of the script does. Run it on every re-extract of a downstream target.
+- `tools/audit/check-graph.py ARTIFACT.json`: the graph check that `extract` ran up to 0.20.0. It prints the same `Divergence(graph)` lines, missing-dependency warnings and type-member count from an artifact. `--fail-on-divergence` exits 1 on a divergence. It reads enveloped artifacts from 0.16.0 on, and rejects input without a probe-lean version and `--skip-verify` artifacts. The script is in the repository, not in the release assets. Before, every `extract` run showed a missing dependency edge (the bugs of #99 and #135). Now only a run of the script does. Run it on every re-extract of a downstream target.
 
 ## [0.20.0] - 2026-10-15
 

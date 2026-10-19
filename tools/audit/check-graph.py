@@ -35,15 +35,18 @@ A missing name `Foo.Bar` whose parent `Foo` is an `inductive`, `structure` or
 `class` atom is a type member. It goes into the `Note:` count, not a warning.
 
 Exit status: 0 when the report is printed, 1 when there is a divergence and
-`--fail-on-divergence` is given, 2 on invalid input. Exit 0 means that the emitted
-graph and the kernel walk agree on every atom with a status. It does not prove that
-every edge was emitted: a missing edge that does not change taint is invisible, and
-missing dependencies never fail the run.
+`--fail-on-divergence` is given, 2 on invalid input. Without the flag, the exit
+status is 0 also when there are divergences. With `--fail-on-divergence`, exit 0 means
+that the emitted graph and the kernel walk agree on every atom with a status. It does
+not prove that every edge was emitted: a missing edge that does not change taint is
+invisible, and missing dependencies never fail the run.
 
 Limits:
 
-- Artifacts from probe-lean 0.16.0 on. Older ones have no `status-origin` marker,
-  and the script rejects them. A bare-dict artifact has no version and is accepted.
+- Enveloped artifacts from probe-lean 0.16.0 on. Older ones have no `status-origin`
+  marker, so a tainted atom that reads "verified" looks clean. The script rejects
+  them, and it rejects input whose version it cannot read: a bare dict, an envelope
+  without `tool`, an envelope from another tool.
 - If `extract` printed the duplicate-name warning, the artifact keeps one of the
   colliding atoms. The report then lacks the other atom and its edges.
 - A `--skip-verify` artifact has no kernel-walk status, and the script rejects it.
@@ -78,22 +81,25 @@ def parse_version(text):
 
 
 def unwrap(doc):
-    """The atom map of a bare-dict or enveloped artifact, as `Loader.lean` reads it:
-    an envelope has a string `schema` and a `data` field. Rejects an envelope from
-    probe-lean before 0.16.0."""
+    """The atom map of an enveloped probe-lean artifact: a string `schema`, a `data`
+    field and `tool` with name "probe-lean" and a version from 0.16.0 on. Rejects
+    everything else, because the meaning of "verified" depends on the version."""
     if not isinstance(doc, dict):
         raise InputError("top level is not a JSON object")
     if not (isinstance(doc.get("schema"), str) and "data" in doc):
-        return doc
+        raise InputError("not an enveloped artifact (no schema and data): "
+                         "the version, and so the meaning of \"verified\", is unknown")
     tool = doc.get("tool")
-    if isinstance(tool, dict) and tool.get("name") == "probe-lean":
-        version = tool.get("version")
-        parsed = parse_version(version) if isinstance(version, str) else None
-        if parsed is None:
-            raise InputError(f"tool.version is {version!r}, not a version")
-        if parsed < MIN_VERSION:
-            raise InputError(f"artifact from probe-lean {version}: the graph check needs "
-                             "0.16.0 or later (status-origin marker)")
+    if not (isinstance(tool, dict) and tool.get("name") == "probe-lean"):
+        raise InputError("tool.name is not \"probe-lean\": "
+                         "the meaning of \"verified\" is unknown")
+    version = tool.get("version")
+    parsed = parse_version(version) if isinstance(version, str) else None
+    if parsed is None:
+        raise InputError(f"tool.version is {version!r}, not a version")
+    if parsed < MIN_VERSION:
+        raise InputError(f"artifact from probe-lean {version}: the graph check needs "
+                         "0.16.0 or later (status-origin marker)")
     data = doc["data"]
     if not isinstance(data, dict):
         raise InputError("data is not a JSON object")
@@ -109,7 +115,7 @@ def validate(atoms):
         if not isinstance(deps, list) or not all(isinstance(d, str) for d in deps):
             raise InputError(f"{key}: dependencies is not a list of strings")
         status = atom.get("verification-status")
-        if status is not None and status not in STATUSES:
+        if status is not None and (not isinstance(status, str) or status not in STATUSES):
             raise InputError(f"{key}: unknown verification-status {status!r}")
         if "status-origin" in atom:
             origin = atom["status-origin"]

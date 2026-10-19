@@ -50,18 +50,24 @@ def clean(deps=()):
     return atom("transitively-verified", deps)
 
 
+def envelope(atoms, version="0.16.0", name="probe-lean"):
+    """`atoms` in the envelope that `extract` writes."""
+    return {"schema": "probe-lean/extract", "tool": {"name": name, "version": version},
+            "data": atoms}
+
+
 def divs(atoms):
-    lines, _ = cg.run(atoms)
+    lines, _ = cg.run(envelope(atoms))
     return [l for l in lines if l.startswith("Divergence(graph):")]
 
 
 def missing(atoms, report=None):
-    lines, _ = cg.run(atoms, report)
+    lines, _ = cg.run(envelope(atoms), report)
     return [l for l in lines if l.startswith("Warning: dependency")]
 
 
 def note(atoms):
-    lines, _ = cg.run(atoms)
+    lines, _ = cg.run(envelope(atoms))
     return [l for l in lines if l.startswith("Note:")]
 
 
@@ -73,10 +79,11 @@ def says_tainted(key):
     return f"Divergence(graph): {key} graph says tainted, oracle says clean"
 
 
-def main_exit(doc, *flags, raw=None):
-    """(exit code, stdout, stderr) of `main` on `doc` written to a temp file."""
+def main_exit(atoms, *flags, raw=None):
+    """(exit code, stdout, stderr) of `main` on `atoms`, enveloped, written to a temp
+    file. `raw` is written as it is instead."""
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-        fh.write(raw if raw is not None else json.dumps(doc))
+        fh.write(raw if raw is not None else json.dumps(envelope(atoms)))
         path = fh.name
     out, err = io.StringIO(), io.StringIO()
     try:
@@ -159,9 +166,6 @@ def test_drop_regression():
 def test_input_output():
     print("Input and output")
     bare = {"U": atom("unverified"), "T": tainted()}
-    env = {"schema": "probe-lean/extract", "tool": {"name": "probe-lean", "version": "0.16.0"},
-           "data": bare}
-    assert_eq("bare and enveloped give the same report", cg.run(bare), cg.run(env))
     two = {"X": clean(["a", "b"])}
     assert_eq("--report 1 prints one warning", 1, len(missing(two, 1)))
     assert_eq("--report 0 prints no warning", 0, len(missing(two, 0)))
@@ -181,12 +185,18 @@ def test_input_output():
     assert_eq("empty artifact: zero summary, exit 0",
               (0, "Graph check: 0 atom(s) where the emitted graph disagrees with the kernel walk\n"),
               main_exit({})[:2])
-    old = dict(env, tool={"name": "probe-lean", "version": "0.15.2"})
-    code, _, err = main_exit(old)
+    code, _, err = main_exit(None, raw=json.dumps(envelope(bare, version="0.15.2")))
     assert_eq("artifact before 0.16.0 exits 2 and names the version",
               (2, True), (code, "0.15.2" in err))
-    other = dict(env, tool={"name": "other-tool", "version": "0.1.0"})
-    assert_eq("envelope from another tool is not version-checked", 0, main_exit(other)[0])
+    # A 0.15 tainted atom reads "verified" without the marker. Read as clean, the
+    # missing carrier would go unreported, so input without a version is rejected.
+    old_data = {"T": atom("verified", ["missingCarrier"])}
+    for name, raw in (("bare dict", old_data),
+                      ("envelope without tool", {"schema": "s", "data": old_data}),
+                      ("envelope from another tool", envelope(old_data, "0.1.0", "other-tool"))):
+        code, out, err = main_exit(None, raw=json.dumps(raw))
+        assert_eq(f"{name} exits 2 with one message", (2, "", 1),
+                  (code, out, len(err.splitlines())))
     code, out, _ = main_exit({"U": atom("unverified"), "N": atom(None, ["U"])})
     assert_eq("atom without status: warning, exit 0",
               (0, "Warning: 1 atom(s) without verification-status "
@@ -202,11 +212,13 @@ def test_invalid_input():
     cases = {
         "invalid JSON": dict(raw="{"),
         "top level not an object": dict(raw="[]"),
-        "data not an object": dict(doc={"schema": "s", "data": []}),
+        "data not an object": dict(raw=json.dumps(envelope([]))),
         "atom not an object": dict(doc={"A": 1}),
         "dependencies not a list": dict(doc={"A": {"dependencies": "x"}}),
         "dependency not a string": dict(doc={"A": {"dependencies": [1]}}),
         "unknown status": dict(doc={"A": {"verification-status": "proved"}}),
+        "list status": dict(doc={"A": {"verification-status": []}}),
+        "object status": dict(doc={"A": {"verification-status": {}}}),
         "unknown status-origin": dict(doc={"A": {"verification-status": "verified",
                                                  "status-origin": "log"}}),
         "status-origin on a non-verified atom": dict(
