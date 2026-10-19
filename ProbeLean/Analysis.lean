@@ -950,8 +950,8 @@ inductive DepClass where
       also skips `.ctorInfo`/`.recInfo`, and this classifier does not mirror that.
       So a project `Color.red` is a target but is never emitted as an atom of its
       own. This is benign, and identical to how a *direct* edge to such a
-      constructor already behaves: `partitionMissingDeps` treats a constructor
-      whose parent type is extracted as benign. But "targets are exactly the
+      constructor already behaves: the graph check (`tools/audit/check-graph.py`)
+      counts a missing constructor whose parent type is extracted as benign. But "targets are exactly the
       atoms" is false, and `docs/schema.md` ("Auxiliary-dependency folding") says so too. -/
   | emitted
   /-- Not emitted as an atom, value-bearing, not a structural member: traversed

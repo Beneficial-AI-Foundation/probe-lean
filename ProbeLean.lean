@@ -9,7 +9,6 @@ import ProbeLean.Taint
 import ProbeLean.Loader
 import ProbeLean.Metadata
 import ProbeLean.Atomize
-import ProbeLean.VerifyInternal
 import ProbeLean.Transitive
 import ProbeLean.Extract
 import ProbeLean.CheckAxioms

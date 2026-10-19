@@ -413,10 +413,10 @@ def checkStderr (fs : Failures) (path : String) (helperHasRange : Bool) : IO Uni
     (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
   check fs "every atom was covered by the walk (no unknown-atom warning)"
     (!lines.any fun l => l.startsWith "Warning: atom ")
-  check fs "no build-log divergence (log and kernel agree on the direct carriers; trusted hosts are moot)"
-    (!lines.any fun l => l.startsWith "Divergence(log):")
-  check fs "the partial def never produces a generic log divergence (its own Note(log) line, if the log was read)"
-    (!lines.any fun l => l.startsWith "Divergence(log): probe:loopy")
+  check fs "no graph or build-log cross-check line (extract no longer prints them)"
+    (!lines.any fun l => l.startsWith "Divergence(graph):" || l.startsWith "Divergence(log):" ||
+      l.startsWith "Note(log):" || l.startsWith "Graph cross-check:" ||
+      (l.splitOn "not found in atom map").length > 1)
   check fs "no cross-boundary note (nothing here restates a dependency)"
     (!lines.any fun l => l.startsWith "Note:" && (l.splitOn "by a module outside the project").length > 1)
   -- The tag audit: the shapes the scan would have trusted (the generated helper

@@ -8,7 +8,7 @@ means that the graph lacks a node or an edge on the path to a `sorry` (issues #9
 and #135 were such bugs). Up to 0.20.0, `extract` ran this check itself and printed
 the same lines on stderr.
 
-The rule, ported from `enrichTransitiveVerification`:
+The rule (the reverse BFS that `extract` ran up to 0.20.0):
 
     seeds        atoms that read "unverified" or "failed"
     propagation  from a dependency to its callers, through atoms that read
@@ -127,7 +127,7 @@ def validate(atoms):
 
 def missing_dependencies(atoms):
     """(orphans, type_member_count): the sorted dependency names that are not atoms,
-    without type members, and the number of type members (`partitionMissingDeps`)."""
+    without type members, and the number of type members."""
     missing = sorted({d for a in atoms.values() for d in a.get("dependencies", [])
                       if d not in atoms})
     type_defs = {k for k, a in atoms.items() if a.get("kind") in TYPE_KINDS}

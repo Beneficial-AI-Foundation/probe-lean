@@ -36,6 +36,13 @@ def check(name, ok):
         failures.append(name)
 
 
+def old_cross_check_line(line):
+    """A line of the cross-checks that `extract` printed up to 0.20.0 (issue #141)."""
+    return (line.startswith(("Divergence(graph):", "Divergence(log):", "Note(log):",
+                             "Graph cross-check:"))
+            or "not found in atom map" in line)
+
+
 def main():
     paths = glob.glob(".verilib/probes/lean_*.json")
     if len(paths) != 1:
@@ -57,6 +64,8 @@ def main():
     check("bad is not an atom (its module is not selected)", "probe:bad" not in data)
 
     print("Extract stderr")
+    check("no graph or build-log cross-check line (extract no longer prints them)",
+          not any(old_cross_check_line(l) for l in stderr))
     check("fallback warning names the two modules outside the import closure",
           any(l.startswith("Warning: 2 project module(s) not imported (full import failed)")
               for l in stderr))

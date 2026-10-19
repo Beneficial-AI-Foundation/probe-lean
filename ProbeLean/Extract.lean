@@ -8,7 +8,6 @@ import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Metadata
 import ProbeLean.Atomize
-import ProbeLean.VerifyInternal
 import ProbeLean.Transitive
 
 namespace ProbeLean
@@ -21,7 +20,6 @@ structure ExtractConfig where
   outputPath : Option System.FilePath
   moduleFilter : Option String
   skipVerify : Bool
-  fromFile : Option System.FilePath
   libraries : Option (Array String) := none
   skipEnrich : Bool := false
   deriving Repr
@@ -64,13 +62,13 @@ def unifyAtom (atom : Atom) : UnifiedAtom :=
   }
 
 /-- A generated atom (lean- or aeneas-generated) is *contaminated* in two cases.
-    After full enrichment, it is locally verified but not transitively verified
-    (`.verified`). Or it is itself `.unverified`/`.failed`. Such an atom is worth
-    surfacing, so users can trace why a downstream atom is not fully verified.
-    `.transitivelyVerified` and `.trusted` generated atoms are clean and stay
-    hidden. The test has meaning only after enrichment. The caller skips the
-    unhide pass under `--skip-enrich`, where every proved atom still reads
-    `.verified` and so looks contaminated. -/
+    It reads `.verified`: with the upgrade to `transitively-verified`, that means the
+    kernel walk found it tainted. Or it is itself `.unverified`/`.failed`. Such an
+    atom is worth surfacing, so users can trace why a downstream atom is not fully
+    verified. `.transitivelyVerified` and `.trusted` generated atoms are clean and
+    stay hidden. The test has meaning only with the upgrade. The caller skips the
+    unhide pass under `--skip-enrich`, where every clean atom reads `.verified` and
+    so looks contaminated. -/
 def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
   (atom.isLeanGenerated || atom.isAeneasGenerated) &&
     match atom.verificationStatus with
@@ -224,7 +222,8 @@ structure PreparedProject where
       of them anyway, the extraction aborts (`Atomize.loadedOrphans`). -/
   orphans : Array Lean.Name := #[]
   nixMode : Option NixMode
-  /-- Captured `lake build` output (or the cached copy). -/
+  /-- Captured `lake build` output (or the cached copy). The build cache saves it,
+      and nothing reads it after the build step. -/
   buildOutput : String
 
 /-- Build (honouring the cache) and discover/select the project's modules. Shared by
@@ -318,100 +317,34 @@ def prepareProject (projectPath : System.FilePath) (libraries : Option (Array St
   IO.println s!"Analyzing {filteredModules.size} modules..."
   return .ok { allModules := modules, selectedModules := filteredModules, orphans, nixMode, buildOutput }
 
-/-- Where the build log and the kernel disagree about an atom. The log is matched to
-    atoms by file and line range. So the log attributes a `sorry` abstracted into an
-    auxiliary (`X._proof_N`) to `X`, while the kernel makes `X` tainted rather than
-    direct. That is agreement, not divergence. Generated atoms share their range with
-    the declaration that produced them (a `.mvcgen_spec` companion with its parent, a
-    derived instance with its type). The log cannot speak about them, so they are
-    skipped. So are the members of T, also the ones whose statement is tainted: a
-    `sorry` in a trusted proof is excused by trust, not missed by the kernel. The
-    walk does not follow a trusted proof. So the log's finding is moot, not a
-    disagreement.
-    Two cases are reported. The log flags an atom the kernel finds clean modulo T.
-    Or the kernel finds a direct carrier the log never warned about (a module with
-    errors, `warn.sorry` off). -/
-def logDivergences (warnings : Array SorryWarning) (atoms : Array Atom) (pt : ProjectTaint)
-    : Array String := Id.run do
-  let mut out : Array String := #[]
-  for atom in atoms do
-    if atom.isLeanGenerated || atom.isAeneasGenerated || pt.trust.contains atom.leanName then
-      continue
-    let logSorry := !(findSorriesForAtom warnings atom).isEmpty
-    let direct := pt.taint.direct.contains atom.leanName
-    let restsOnSorry := direct || pt.taint.tainted.contains atom.leanName
-    if logSorry && !restsOnSorry then
-      -- A `partial def`'s body compiles to `X._unsafe_rec`; the kernel constant `X` is
-      -- an opaque inhabitant with no edge to it, so a `sorry` in the body is the
-      -- log's finding only. Known and systematic, so it gets its own line: the
-      -- status is about kernel dependencies, not executable bodies (SCHEMA).
-      let unsafeRec := Name.str atom.leanName "_unsafe_rec"
-      if pt.taint.direct.contains unsafeRec || pt.taint.tainted.contains unsafeRec then
-        out := out.push s!"Note(log): {atom.name} build log says sorry; it sits in the compiled body \
-          {unsafeRec} of a `partial def`, which the kernel constant does not reference \
-          (verification-status covers kernel dependencies, not executable bodies)"
-      else
-        out := out.push s!"Divergence(log): {atom.name} build log says sorry, kernel says clean modulo trust"
-    else if direct && !logSorry then
-      out := out.push s!"Divergence(log): {atom.name} kernel says sorry, no warning in the log"
-  return out
-
-/-- Step 2. The build log decides nothing (the kernel walk does), but it is parsed
-    as before and cross-checked against the walk (`logDivergences`). -/
-private def runVerifyStep (config : ExtractConfig) (buildOutput : String) (atoms : Array Atom)
-    (pt : ProjectTaint) : IO Unit := do
+/-- Step 2. The kernel walk decides the status. This step prints how many atoms
+    are direct carriers. -/
+private def runVerifyStep (config : ExtractConfig) (atoms : Array Atom) (pt : ProjectTaint)
+    : IO Unit := do
   IO.println "=== Step 2/3: Verify ==="
   if config.skipVerify then
     IO.println "Verification skipped (--skip-verify)"
     return
-  let verifyOutput ← match config.fromFile with
-    | some file =>
-      IO.println s!"Reading build output from {file}..."
-      IO.FS.readFile file
-    | none => pure buildOutput
-  let warnings := parseSorryWarnings verifyOutput
-  IO.println s!"Found {warnings.size} sorry warnings (build log)"
   -- Only the direct count is printed here: the final statuses are mutually exclusive
   -- and the enrich step prints them (`Transitively verified | Locally verified | Not
   -- verified`); a "verified n/m" of the non-direct atoms would count tainted and
   -- trusted atoms alike under a word that is also a status.
   let direct := atoms.filter fun a => pt.taint.direct.contains a.leanName
   IO.println s!"Direct sorry carriers (kernel): {direct.size} of {atoms.size} atoms"
-  if warnings.isEmpty && !direct.isEmpty then
-    IO.eprintln s!"Note: the build log carries no sorry warnings (cached build without output, \
-      or warnings suppressed); the kernel finds {direct.size} direct carrier(s)"
-  else
-    for line in logDivergences warnings atoms pt do
-      IO.eprintln line
 
-/-- Enrich. The reverse-BFS over the emitted graph no longer decides status. It runs
-    on the oracle's seeds. Every atom on which it disagrees with the walk is printed
-    (`divergenceLines`), never reconciled. -/
-private def runEnrichStep (config : ExtractConfig) (oracle : Array UnifiedAtom) : IO Unit := do
+/-- Enrich. Prints the final status counts. The graph check of the emitted
+    `dependencies` against these statuses is `tools/audit/check-graph.py`. -/
+private def runEnrichStep (config : ExtractConfig) (atoms : Array UnifiedAtom) : IO Unit := do
   if config.skipEnrich then
     IO.println "Enrichment skipped (--skip-enrich)"
     return
   IO.println "=== Enrich ==="
-  let (graph, _, _, missingDeps) := enrichTransitiveVerification (demoteTransitive oracle)
-  -- Only surface genuine orphans. References to constructors/fields of an
-  -- extracted type (inductive/structure/class) are benign and collapsed into
-  -- a single note so real gaps are not lost in the noise.
-  let (orphans, typeMemberCount) := partitionMissingDeps oracle missingDeps
-  for dep in orphans do
-    IO.eprintln s!"Warning: dependency \"{dep}\" not found in atom map (graph cross-check only; status comes from the kernel walk)"
-  if typeMemberCount > 0 then
-    IO.eprintln s!"Note: {typeMemberCount} reference(s) to constructors/fields of extracted types (graph cross-check only)"
-  let divs := divergenceLines oracle graph
-  for d in divs do
-    IO.eprintln d
-  if !divs.isEmpty then
-    IO.eprintln s!"Graph cross-check: {divs.size} atom(s) where the emitted graph disagrees with the kernel walk"
-  let (transitive, local_, notVerified) := statusCounts oracle
+  let (transitive, local_, notVerified) := statusCounts atoms
   IO.println s!"Transitively verified: {transitive} | Locally verified: {local_} | Not verified: {notVerified}"
 
 /-- Run the combined extract pipeline: build → atomize (+ kernel taint pass) →
-    markAtomFlags → specs → verify (log cross-check) → merge (status from the taint
-    pass) → enrich (graph cross-check) → envelope → write -/
+    markAtomFlags → specs → verify (direct carrier count) → merge (status from the
+    taint pass) → enrich (status counts) → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let prepared ← match ← prepareProject config.projectPath config.libraries config.moduleFilter with
     | .error code => return code
@@ -447,7 +380,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   -- and `primarySpec` are populated.
   warnAmbiguousPrimarySpecs atoms
 
-  runVerifyStep config prepared.buildOutput atoms pt
+  runVerifyStep config atoms pt
 
   -- === Step 3: Merge — status from the taint pass, joined on `leanName` ===
   IO.println "=== Step 3/3: Merge ==="
@@ -460,9 +393,10 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
 
   -- Contaminated generated atoms (lean- or aeneas-generated) have their isHidden
   -- cleared so the user can trace why downstream atoms aren't fully verified (see
-  -- `isContaminatedGenerated`). Contamination is only meaningful after enrichment:
-  -- without it every proved atom still reads `.verified`, so the pass would
-  -- misread all clean generated atoms as contaminated and unhide them.
+  -- `isContaminatedGenerated`). Contamination is only meaningful with the upgrade
+  -- to `transitively-verified`: under `--skip-enrich` every clean atom reads
+  -- `.verified`, so the pass would misread all clean generated atoms as
+  -- contaminated and unhide them.
   let unifiedAtoms :=
     if config.skipEnrich then unifiedAtoms else unhideContaminatedGenerated unifiedAtoms
 

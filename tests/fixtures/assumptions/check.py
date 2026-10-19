@@ -172,9 +172,13 @@ else:
 SECTION = sorted(COMMON + NATIVE)
 
 
+STDERR = {}
+
+
 def run(cmd, stdout=None):
     print(f"$ {' '.join(cmd)}")
     proc = subprocess.run(cmd, stdout=stdout, stderr=subprocess.PIPE, text=True)
+    STDERR[" ".join(cmd[1:])] = proc.stderr
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr)
     return proc.returncode
@@ -313,6 +317,12 @@ def check_graph():
     check("rejects the --skip-verify output (exit 2, no kernel-walk status)",
           runs["skip-verify"].returncode == 2 and
           "no atom has a kernel-walk status" in runs["skip-verify"].stderr)
+    for cmd, err in STDERR.items():
+        if cmd.startswith("extract"):
+            check(f"`{cmd}` prints no graph or build-log cross-check line",
+                  not any(l.startswith(("Divergence(graph):", "Divergence(log):", "Note(log):",
+                                        "Graph cross-check:"))
+                          or "not found in atom map" in l for l in err.splitlines()))
 
 
 def main():

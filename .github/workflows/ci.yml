@@ -237,18 +237,6 @@ jobs:
             exit 1
           fi
 
-      # TEMPORARY (issue #141): the graph cross-check moves from `extract` stderr to
-      # tools/audit/check-graph.py. Before `extract` stops printing it, check that
-      # the script reports the same lines on the same runs. Removed in the next commit.
-      - name: Parity of check-graph.py with the extract stderr
-        run: |
-          cd tests/fixtures
-          "$GITHUB_WORKSPACE/tools/audit/parity-check-graph.sh" \
-            aux-fold/extract.stderr aux-fold/.verilib/probes/lean_*.json \
-            collision/extract.stderr collision/.verilib/probes/lean_*.json \
-            module-collision/extract.stderr module-collision/.verilib/probes/lean_*.json \
-            merge/.verilib/module-FixAdd.stderr merge/.verilib/module-FixAdd.json
-
   # The dev toolchain is pinned (lean-toolchain), so the Test job above can never
   # catch a regression that only manifests on a newer Lean — the class that shipped
   # broken release binaries while CI stayed green: the Lean 4.30
@@ -466,18 +454,6 @@ jobs:
             echo "::error::check-axioms succeeded although the imported Orph.Dep has no source"; exit 1; fi
           git checkout -- Orph/Dep.lean
           python3 check.py
-
-      # TEMPORARY (issue #141): the graph cross-check moves from `extract` stderr to
-      # tools/audit/check-graph.py. Before `extract` stops printing it, check that
-      # the script reports the same lines on the same runs. Removed in the next commit.
-      - name: Parity of check-graph.py with the extract stderr
-        run: |
-          cd tests/fixtures
-          "$GITHUB_WORKSPACE/tools/audit/parity-check-graph.sh" \
-            aux-fold/extract.stderr aux-fold/.verilib/probes/lean_*.json \
-            collision/extract.stderr collision/.verilib/probes/lean_*.json \
-            module-collision/extract.stderr module-collision/.verilib/probes/lean_*.json \
-            merge/.verilib/module-FixAdd.stderr merge/.verilib/module-FixAdd.json
 
   check-version:
     name: Version consistency

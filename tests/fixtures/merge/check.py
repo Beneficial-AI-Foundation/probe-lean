@@ -59,6 +59,13 @@ def both_bodies(atom):
     return "probe:sorryAx" in ext and "probe:True.intro" in ext
 
 
+def old_cross_check_line(line):
+    """A line of the cross-checks that `extract` printed up to 0.20.0 (issue #141)."""
+    return (line.startswith(("Divergence(graph):", "Divergence(log):", "Note(log):",
+                             "Graph cross-check:"))
+            or "not found in atom map" in line)
+
+
 def main():
     paths = glob.glob(".verilib/probes/lean_*.json")
     if len(paths) != 1:
@@ -132,6 +139,10 @@ def main():
           "(no partial_fixpoint block made it)",
           fix in add_caller.get("term-dependencies", [])
           and fix in add_caller.get("dependencies", []))
+    with open(".verilib/module-FixAdd.stderr") as fh:
+        add_stderr = fh.read().splitlines()
+    check("--module Merge.FixAdd: extract prints no atom-map warning (check-graph.py does)",
+          not any(old_cross_check_line(l) for l in add_stderr))
     add_graph = subprocess.run([sys.executable, str(CHECK_GRAPH), ".verilib/module-FixAdd.json"],
                                capture_output=True, text=True)
     check("--module Merge.FixAdd: check-graph.py reports the dangling edge to Merge.Fix.mutual",
@@ -145,6 +156,8 @@ def main():
               "assumptions" in a and a["assumptions"] == ["pairAx"])
 
     print("Extract stderr")
+    check("no graph or build-log cross-check line (extract no longer prints them)",
+          not any(old_cross_check_line(l) for l in stderr))
     check("the merged declarations are reported",
           any(l.startswith("Warning: 3 declaration name(s) are declared by more than one project module")
               and "shared" in l and "Merge.Fix.mutual" in l and "pairAx" in l for l in stderr))

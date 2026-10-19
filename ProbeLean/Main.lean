@@ -29,7 +29,6 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
   let skipVerify := parsed.hasFlag "skip-verify"
-  let fromFile := parsed.flag? "from-file" |>.map (·.as! String) |>.map System.FilePath.mk
   let libraries := parsed.flag? "library" |>.map fun f =>
     (f.as! String).splitOn "," |>.map (fun s => s.trimAscii.toString) |>.toArray
   let skipEnrich := parsed.hasFlag "skip-enrich"
@@ -39,7 +38,6 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
     outputPath := outputPath
     moduleFilter := moduleFilter
     skipVerify := skipVerify
-    fromFile := fromFile
     libraries := libraries
     skipEnrich := skipEnrich
   }
@@ -55,9 +53,8 @@ def extractCmd : Cmd := `[Cli|
     o, output : String; "Output file path (default: .verilib/probes/lean_<pkg>_<ver>.json)"
     m, module : String; "Filter to specific module prefix"
     "skip-verify"; "Omit verification-status (trusted atoms keep it)"
-    "from-file" : String; "Use existing build output for the build-log cross-check instead of the captured lake build output"
     l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
-    "skip-enrich"; "No upgrade to transitively-verified (clean atoms read verified); skip the graph cross-check"
+    "skip-enrich"; "No upgrade to transitively-verified (clean atoms read verified), generated atoms stay hidden"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to analyze"
