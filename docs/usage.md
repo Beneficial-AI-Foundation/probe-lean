@@ -107,8 +107,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | `--module <PREFIX>` | `-m` | Filter to a module prefix. The kernel walk still imports every built project module, so a narrow selection is not faster than a full run. |
 | `--library <LIBS>` | `-l` | Comma-separated library names to build and restrict analysis to. probe-lean keeps the modules whose names start with one of these library roots. Without the flag, the build uses `defaultTargets` from `lakefile.toml` (or all `[[lean_lib]]` entries), and all built modules are analyzed. The detected targets are not a module filter, because `defaultTargets` can name a `lean_exe` and a library can declare custom `roots`. |
 | `--skip-verify` | | Omit `verification-status` and `assumptions`. Trusted atoms keep their status (`"trusted"`). |
-| `--from-file <FILE>` | | Use existing build output for the build-log cross-check instead of the captured `lake build` output. |
-| `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`). The graph cross-check does not run. |
+| `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`). Generated atoms stay hidden. |
 
 #### Co-importability preflight
 
@@ -127,7 +126,13 @@ Project constants: 11293 in 231 module(s) | trusted: 149 | direct sorry carriers
 externally_verified tag set: 2 name(s) from externallyVerifiedAttr
 ```
 
-Lean and every package in `lake-manifest.json` are trusted as a whole. This includes a second Lake package that holds the project's own code. Move such code into the main package to have it analyzed. Two cross-checks (build log and emitted graph) print `Divergence` and `Note` lines on stderr but never change a status.
+Lean and every package in `lake-manifest.json` are trusted as a whole. This includes a second Lake package that holds the project's own code. Move such code into the main package to have it analyzed.
+
+To check that the emitted dependency graph explains every status, run the graph check on the artifact. It prints a `Divergence(graph)` line for each atom where a BFS over `dependencies` disagrees with the walk, and a `Warning:` line for each dependency that is not an atom. Exit 0 means that the graph and the walk agree on every atom with a status, not that every edge was emitted. The script reads artifacts from 0.16.0 on. If `extract` printed the duplicate-name warning, the report lacks the colliding atoms. Up to 0.20.0, `extract` printed these lines on stderr.
+
+```bash
+python3 tools/audit/check-graph.py --fail-on-divergence .verilib/probes/lean_<pkg>_<ver>.json
+```
 
 [verification-status.md](verification-status.md) explains how the walk decides and what each stderr line means, including the section "Coverage of P". [schema.md](schema.md), section "Verification status and the trusted base", defines the status values. An atom that reads `"verified"` because a project `sorry` is reachable from it carries `"status-origin": "kernel-taint"`. A tool that recomputes statuses from the dependency arrays must not promote such an atom or its callers (see [schema.md](schema.md), section "Re-deriving statuses").
 
@@ -314,11 +319,11 @@ probe-lean extract .
 
 ### Build cache
 
-If its saved build output is newer than every `.lean` file, `lean-toolchain`, `lakefile.toml` and `lakefile.lean` in the project, `extract` skips `lake build`. The kernel walk reads the `.olean` files, so it does not need a fresh build log. Only the build-log cross-check then uses the saved output.
+If its saved build output is newer than every `.lean` file, `lean-toolchain`, `lakefile.toml` and `lakefile.lean` in the project, `extract` skips `lake build`. The kernel walk reads the `.olean` files, so it does not need a fresh build log. Nothing reads the saved output for the status.
 
 ### `--skip-verify`
 
-`--skip-verify` leaves `verification-status` off every atom except the ones that read `"trusted"`, and `assumptions` off every atom. The status walk still runs and prints its summary. The flag saves the build-log cross-check and the assumption-set walk, which takes about a tenth of the run on a Mathlib-sized project:
+`--skip-verify` leaves `verification-status` off every atom except the ones that read `"trusted"`, and `assumptions` off every atom. The status walk still runs and prints its summary. The flag saves the assumption-set walk, which takes about a tenth of the run on a Mathlib-sized project:
 
 ```bash
 probe-lean extract ./my-project --skip-verify

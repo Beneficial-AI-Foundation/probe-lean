@@ -34,7 +34,7 @@ The tree does not keep completed specs. Git history and the PR keep them.
 - After each change (new features, commands, options, defaults), update README.md.
 - When commands, flags, installation steps or walkthroughs change, update docs/usage.md.
 - When the output format, fields or envelope structure change, update docs/schema.md.
-- When the status logic, the trust rules or the cross-checks change, update docs/verification-status.md.
+- When the status logic, the trust rules or the graph check change, update docs/verification-status.md.
 - When the rules for spec targets, spec sources or primary-spec change, update docs/spec-relationships.md.
 - Include usage examples and option descriptions
 - Update docs before committing
@@ -60,8 +60,8 @@ probe-lean viewify <PATH>       # Filter extract output → molecules for web UI
 CI (`.github/workflows/ci.yml`, on push and PR to `main`) runs these jobs:
 
 - `build`: builds the project.
-- `shell-tests`: the Lean version-policy and installer helper tests.
-- `test`: the unit suite and end-to-end `extract` and `check-axioms` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`). The job also regenerates the example fixture and fails on any diff.
+- `shell-tests`: the Lean version-policy and installer helper tests, and the tests of `tools/audit/check-graph.py`.
+- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`). The job also regenerates the example fixture and fails on any diff.
 - `test-newest`: the same suite and fixture checks on the newest supported Lean (`LEAN_VERSION` in the job).
 - `check-version`: `ProbeLean/Version.lean` matches `lakefile.toml`.
 - `check-extract`: runs `probe-extract-check` on the example fixture.
@@ -93,7 +93,7 @@ Do **not** hardcode version strings anywhere else. Use `ProbeLean.version` (or `
 
 ### Extract pipeline
 
-`probe-lean extract` runs: `build → atomize (+ kernel taint pass, + assumption sets) → markAtomFlags → specs → verify (log cross-check) → merge (status and assumptions from the taint pass) → enrich (graph cross-check) → envelope → write`
+`probe-lean extract` runs: `build → atomize (+ kernel taint pass, + assumption sets) → markAtomFlags → specs → verify (direct carrier count) → merge (status and assumptions from the taint pass) → enrich (status counts) → envelope → write`
 
 - `ProbeLean/Main.lean`: CLI entry point for `extract`, `check-axioms` and `viewify`.
 - `ProbeLean/Extract.lean`: orchestrates the pipeline and produces `UnifiedAtom` output.
@@ -104,8 +104,7 @@ Do **not** hardcode version strings anywhere else. Use `ProbeLean.version` (or `
 - `ProbeLean/AxiomCheck.lean`: the `sorryAx` reachability walk with a blocked set and a shared memo, and the set walk that computes the `assumptions` of every project constant.
 - `ProbeLean/Trust.lean`: the three trust rules (`axiom`, `externally_verified`, `*External` module), the only place they are written.
 - `ProbeLean/TagSet.lean`: reads the `@[externally_verified]` tag set statically from the target's olean entries.
-- `ProbeLean/Transitive.lean`: applies the taint pass result to atoms (`applyTaintStatus`, status and `assumptions`) and runs the old graph BFS as a cross-check that prints `Divergence(graph):` lines.
-- `ProbeLean/VerifyInternal.lean`: parses sorry warnings from build output for the build-log cross-check.
+- `ProbeLean/Transitive.lean`: applies the taint pass result to atoms (`applyTaintStatus`, status and `assumptions`) and counts the final statuses.
 - `ProbeLean/Coimport.lean`: preflight check that finds duplicate declarations across project modules in `.olean` headers before import.
 - `ProbeLean/Environment.lean`: Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), build cache, `ProjectModule` discovery.
 - `ProbeLean/NixEnv.lean`: Nix environment detection (`NixMode`, `detectNixShell`, `isNixAvailable`).

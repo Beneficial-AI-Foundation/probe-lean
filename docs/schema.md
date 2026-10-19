@@ -361,7 +361,7 @@ consumer must know:
   or in an `@[implemented_by]` target does not taint the host. A `native_decide` proof rests on a
   trusted generated axiom.
 
-The scope and limits of each rule, module coverage, merged declarations and the cross-checks are
+The scope and limits of each rule, module coverage, merged declarations and the graph check are
 in [verification-status.md](verification-status.md).
 
 ### Re-deriving statuses
@@ -448,8 +448,8 @@ direct edge to it:
 - This run does not emit it as an atom.
 
 The fold then lists the callees of the body.
-So no array lists the generated `.mutual` name, and `extract` prints no "not found in atom map"
-warning for it. Any other `X.mutual` stays listed: a hand-written one, and also a range-less one
+So no array lists the generated `.mutual` name, and `tools/audit/check-graph.py` prints no
+"not found in atom map" warning for it. Any other `X.mutual` stays listed: a hand-written one, and also a range-less one
 that metaprogramming added. If the latter is not an atom, the warning still flags it. Lean
 records no body for a block whose functions have a proposition as type. For such a block the
 direct edge to `f.mutual` stays, and the warning is still printed. This rule does not change

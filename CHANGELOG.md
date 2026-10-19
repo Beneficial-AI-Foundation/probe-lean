@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-19
+
+### Removed
+
+- **`extract` no longer runs the status cross-checks** (#141). The kernel walk decides `verification-status`, and the cross-checks only printed lines on stderr. No emitted field changes.
+  - The build-log cross-check is gone: no `Divergence(log)` or `Note(log)` lines, and no `Found N sorry warnings (build log)` line. The log could disagree with the walk only for known reasons: a cached build, `warn.sorry` off, a `partial def` body.
+  - The `--from-file` flag of `extract` is gone. Its only use was the build-log cross-check.
+  - `extract` prints no `Divergence(graph)` lines and no `not found in atom map` warnings. The graph check moved to a script (see Added).
+
+### Added
+
+- `tools/audit/check-graph.py ARTIFACT.json`: the graph check that `extract` ran up to 0.20.0. It prints the same `Divergence(graph)` lines, missing-dependency warnings and type-member count from an artifact. `--fail-on-divergence` exits 1 on a divergence. It reads artifacts from 0.16.0 on and rejects `--skip-verify` artifacts. Before, every `extract` run showed a missing dependency edge (the bugs of #99 and #135). Now only a run of the script does. Run it on every re-extract of a downstream target.
+
 ## [0.20.0] - 2026-10-15
 
 ### Fixed
