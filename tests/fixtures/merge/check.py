@@ -12,6 +12,8 @@ Run from this directory, after
     probe-lean extract . --module Merge.FixRestate -o .verilib/module-FixRestate.json
     python3 check.py
 
+`check.py` runs `tools/audit/check-graph.py` on the `--module Merge.FixAdd` artifact.
+
 `Merge.Bad` and `Merge.Good` both declare `theorem shared : True`; one proof is a
 `sorry`, the other is real. Lean's importer accepts the pair and keeps ONE body
 without comparing them, so in the merged environment the name `shared` no longer
@@ -33,7 +35,11 @@ emitted, but no `partial_fixpoint` block made it, so `fixCallerAdd` keeps the ed
 
 import glob
 import json
+import subprocess
 import sys
+from pathlib import Path
+
+CHECK_GRAPH = Path(__file__).resolve().parents[3] / "tools" / "audit" / "check-graph.py"
 
 failures = []
 
@@ -126,10 +132,11 @@ def main():
           "(no partial_fixpoint block made it)",
           fix in add_caller.get("term-dependencies", [])
           and fix in add_caller.get("dependencies", []))
-    with open(".verilib/module-FixAdd.stderr") as fh:
-        add_stderr = fh.read().splitlines()
-    check("--module Merge.FixAdd: the dangling edge to Merge.Fix.mutual is reported",
-          any(l.startswith(f'Warning: dependency "{fix}" not found in atom map') for l in add_stderr))
+    add_graph = subprocess.run([sys.executable, str(CHECK_GRAPH), ".verilib/module-FixAdd.json"],
+                               capture_output=True, text=True)
+    check("--module Merge.FixAdd: check-graph.py reports the dangling edge to Merge.Fix.mutual",
+          add_graph.returncode == 0 and
+          f'Warning: dependency "{fix}" not found in atom map' in add_graph.stdout.splitlines())
 
     print("Assumptions of an axiom/theorem pair")
     for name in ("pairAx", "callerAx"):

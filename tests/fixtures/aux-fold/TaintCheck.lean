@@ -6,7 +6,8 @@
 
       probe-lean extract . 2>extract.stderr
       probe-lean check-axioms . >check-axioms.out
-      lake env lean --run TaintCheck.lean extract.stderr check-axioms.out
+      python3 ../../../tools/audit/check-graph.py .verilib/probes/lean_*.json >check-graph.out
+      lake env lean --run TaintCheck.lean extract.stderr check-axioms.out check-graph.out
 
   Not part of the `Demo` library, so `lake build` never elaborates it.
 
@@ -20,7 +21,8 @@
      would silently turn the checks below into tests of something else.
   2. **Extract output.** Every status the trusted base and the walk prescribe; the
      companion is *not* trusted and carries none of its parent's attributes; the
-     range-less carrier taints its caller and the graph-BFS disagreement is printed;
+     range-less carrier taints its caller and `check-graph.py` prints the graph-BFS
+     disagreement;
      `check-axioms` lists exactly the tainted set, marking the non-atom, and then T
      with each entry's reason, module and (rule 3) statement.
 
@@ -373,9 +375,11 @@ def checkStatuses (fs : Failures) (data : Json) (helperHasRange ownSorryDirect :
   checkStmtTaint fs data
   checkRound3 fs data helperHasRange
 
-def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect : Bool) : IO Unit := do
+/-- The report of `tools/audit/check-graph.py` on the artifact: the emitted graph
+    against the kernel walk. -/
+def checkGraphReport (fs : Failures) (path : String) (ownSorryDirect : Bool) : IO Unit := do
   IO.println ""
-  IO.println s!"Extract stderr ({path}): the graph-BFS disagreement is printed"
+  IO.println s!"Graph check report ({path}): the graph-BFS disagreement is printed"
   let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
   check fs "divergence on viaNoRange is reported"
     (lines.contains "Divergence(graph): probe:viaNoRange graph says clean, oracle says tainted")
@@ -392,9 +396,7 @@ def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect :
     (lines.contains ownSorryDiv == !ownSorryDirect)
   let expectedGraphDivs := if ownSorryDirect then 1 else 2
   check fs s!"exactly {expectedGraphDivs} graph divergence(s)"
-    (lines.contains s!"Graph cross-check: {expectedGraphDivs} atom(s) where the emitted graph disagrees with the kernel walk")
-  check fs "the full module set was imported (no fallback warning)"
-    (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
+    (lines.contains s!"Graph check: {expectedGraphDivs} atom(s) where the emitted graph disagrees with the kernel walk")
   -- Issue #135: a generated `partial_fixpoint` body is never listed, so it never
   -- dangles. The range-less `noRangeMid` (the SPQR shape) still warns.
   check fs "no atom-map warning for a generated .mutual body"
@@ -402,6 +404,13 @@ def checkStderr (fs : Failures) (path : String) (helperHasRange ownSorryDirect :
       ((l.splitOn "fpEv.mutual").length > 1 || (l.splitOn "fpLoop.mutual").length > 1))
   check fs "the atom-map warning for noRangeMid is still printed"
     (lines.any fun l => l.startsWith "Warning: dependency \"probe:noRangeMid\" not found in atom map")
+
+def checkStderr (fs : Failures) (path : String) (helperHasRange : Bool) : IO Unit := do
+  IO.println ""
+  IO.println s!"Extract stderr ({path})"
+  let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
+  check fs "the full module set was imported (no fallback warning)"
+    (!lines.any fun l => l.startsWith "Warning:" && (l.splitOn "not imported").length > 1)
   check fs "every atom was covered by the walk (no unknown-atom warning)"
     (!lines.any fun l => l.startsWith "Warning: atom ")
   check fs "no build-log divergence (log and kernel agree on the direct carriers; trusted hosts are moot)"
@@ -552,8 +561,10 @@ def checkAxiomsReport (fs : Failures) (path : String) (helperHasRange ownSorryDi
 
 def main (args : List String) : IO UInt32 := do
   let fs : Failures ← IO.mkRef #[]
-  let some stderrPath := args[0]? | IO.eprintln "usage: TaintCheck.lean <extract.stderr> <check-axioms.out>"; return 2
-  let some reportPath := args[1]? | IO.eprintln "usage: TaintCheck.lean <extract.stderr> <check-axioms.out>"; return 2
+  let usage := "usage: TaintCheck.lean <extract.stderr> <check-axioms.out> <check-graph.out>"
+  let some stderrPath := args[0]? | IO.eprintln usage; return 2
+  let some reportPath := args[1]? | IO.eprintln usage; return 2
+  let some graphPath := args[2]? | IO.eprintln usage; return 2
   let (helperHasRange, ownSorryDirect) ← checkPrecondition fs
   match ← findArtifact fs with
   | none => pure ()
@@ -565,7 +576,8 @@ def main (args : List String) : IO UInt32 := do
       match json.getObjVal? "data" with
       | .error _ => check fs "artifact has a data object" false
       | .ok data => checkStatuses fs data helperHasRange ownSorryDirect
-  checkStderr fs stderrPath helperHasRange ownSorryDirect
+  checkStderr fs stderrPath helperHasRange
+  checkGraphReport fs graphPath ownSorryDirect
   checkAxiomsReport fs reportPath helperHasRange ownSorryDirect
   let failures ← fs.get
   IO.println ""

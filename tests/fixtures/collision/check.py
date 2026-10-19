@@ -7,6 +7,8 @@ Run from this directory, after
     probe-lean check-axioms . -m Coll.Main >check-axioms.out
     python3 check.py
 
+`check.py` runs `tools/audit/check-graph.py` on the artifact itself.
+
 The fixture has four modules. `Coll.A` and `Coll.B` both declare `dup`, so the
 full project cannot be co-imported and `extract --module Coll.Main` falls back to
 importing the selection. `Coll.Main` imports `Coll.Common`, whose `bad` is a
@@ -18,7 +20,11 @@ the *selected* list left `bad` outside P — blocked, hence clean — and `thm` 
 
 import glob
 import json
+import subprocess
 import sys
+from pathlib import Path
+
+CHECK_GRAPH = Path(__file__).resolve().parents[3] / "tools" / "audit" / "check-graph.py"
 
 failures = []
 
@@ -40,6 +46,8 @@ def main():
         stderr = fh.read().splitlines()
     with open("check-axioms.out") as fh:
         report = fh.read().splitlines()
+    graph = subprocess.run([sys.executable, str(CHECK_GRAPH), paths[0]],
+                           capture_output=True, text=True)
 
     print("Extract output under the import fallback")
     check("thm is an atom", "probe:thm" in data)
@@ -53,11 +61,15 @@ def main():
               for l in stderr))
     check("no atom was left uncovered by the walk",
           not any(l.startswith("Warning: atom ") for l in stderr))
+
+    print("check-graph.py report")
+    check("check-graph.py exits 0", graph.returncode == 0)
     # `bad` is not an atom (its module is not selected), so the emitted graph cannot
     # see the edge and the graph-BFS reports `thm` clean; the walk sees it. That
     # disagreement is exactly what the divergence line exists for.
     check("the graph-BFS disagreement on thm is printed",
-          "Divergence(graph): probe:thm graph says clean, oracle says tainted" in stderr)
+          "Divergence(graph): probe:thm graph says clean, oracle says tainted"
+          in graph.stdout.splitlines())
 
     print("check-axioms report")
     check("bad is listed as a direct carrier that is not emitted",
