@@ -99,7 +99,7 @@ def main():
                     help="comma-separated atom names (without `probe:`) whose 0.14 "
                          "status came from a `sorry` in an executable body the kernel "
                          "constant does not reference: a `partial def` (the sorry is "
-                         "in X._unsafe_rec, see `Note(log)` on extract's stderr and "
+                         "in X._unsafe_rec, listed as "
                          "`X._unsafe_rec [direct] [not emitted]` in check-axioms) or "
                          "an @[implemented_by] host. Under `taint` these may move "
                          "unverified -> transitively-verified, and an atom whose old "

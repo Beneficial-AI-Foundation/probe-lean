@@ -125,14 +125,6 @@ def saveCache (projectPath : System.FilePath) (output : String) : IO Unit := do
   let (outputCache, _) := getCacheFiles projectPath
   IO.FS.writeFile outputCache output
 
-/-- Load build output from cache -/
-def loadCache (projectPath : System.FilePath) : IO (Option String) := do
-  let (outputCache, _) := getCacheFiles projectPath
-  if ← outputCache.pathExists then
-    some <$> IO.FS.readFile outputCache
-  else
-    return none
-
 /-- Convert an olean's slash-separated relative path (`.olean` suffix already
     stripped) to its module name, one atomic component per path segment. Lean
     core uses the same construction (`Lean.moduleNameOfFileName`).

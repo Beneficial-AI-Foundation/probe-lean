@@ -18,6 +18,8 @@ It then checks:
 - `tools/audit/check-status-consistency.py` passes on each output with the matching
   flags, and fails on two edited copies (one atom without the field, one
   `--skip-verify` atom with it).
+- `tools/audit/check-graph.py` exits 0 with the same report on the normal and the
+  `--skip-enrich` output, and rejects the `--skip-verify` output (exit 2).
 
 The compiled-code rows depend on the Lean version in `lean-toolchain`: from 4.31 on
 each proof adds its own `X._native.<tactic>.ax_N` axiom.
@@ -32,6 +34,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONSISTENCY = os.path.join(HERE, "..", "..", "..", "tools", "audit", "check-status-consistency.py")
+CHECK_GRAPH = os.path.join(HERE, "..", "..", "..", "tools", "audit", "check-graph.py")
 OUT = {"normal": "assumptions-normal.json", "skip-verify": "assumptions-skip-verify.json",
        "skip-enrich": "assumptions-skip-enrich.json"}
 REPORT = "check-axioms.out"
@@ -169,9 +172,13 @@ else:
 SECTION = sorted(COMMON + NATIVE)
 
 
+STDERR = {}
+
+
 def run(cmd, stdout=None):
     print(f"$ {' '.join(cmd)}")
     proc = subprocess.run(cmd, stdout=stdout, stderr=subprocess.PIPE, text=True)
+    STDERR[" ".join(cmd[1:])] = proc.stderr
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr)
     return proc.returncode
@@ -293,6 +300,31 @@ def check_consistency(normal, skip_verify):
         check(f"fails on {path} with `{message}`", code != 0 and message in out)
 
 
+def check_graph():
+    """`check-graph.py` on the three outputs. The `--skip-enrich` cap leaves the
+    kernel walk's verdict unchanged (the `status-origin` marker separates tainted
+    from clean `verified`), so the report is the same as on the normal output."""
+    print("check-graph.py")
+    runs = {k: subprocess.run([sys.executable, CHECK_GRAPH, OUT[k]],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for k in OUT}
+    for k in ("normal", "skip-enrich"):
+        check(f"exits 0 on {OUT[k]}", runs[k].returncode == 0)
+        if runs[k].returncode != 0:
+            print(runs[k].stderr)
+    check("the same report on the normal and the --skip-enrich output",
+          runs["normal"].stdout == runs["skip-enrich"].stdout)
+    check("rejects the --skip-verify output (exit 2, no kernel-walk status)",
+          runs["skip-verify"].returncode == 2 and
+          "no atom has a kernel-walk status" in runs["skip-verify"].stderr)
+    for cmd, err in STDERR.items():
+        if cmd.startswith("extract"):
+            check(f"`{cmd}` prints no graph or build-log cross-check line",
+                  not any(l.startswith(("Divergence(graph):", "Divergence(log):", "Note(log):",
+                                        "Graph cross-check:"))
+                          or "not found in atom map" in l for l in err.splitlines()))
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__)
@@ -324,6 +356,7 @@ def main():
     check_skip_verify(normal, skip_verify)
     check_skip_enrich(normal, skip_enrich)
     check_consistency(normal, skip_verify)
+    check_graph()
     print(f"{len(failures)} failure(s)" if failures else "all assumption checks pass")
     return 1 if failures else 0
 

@@ -910,80 +910,6 @@ def testAtomLanguageField (result : TestResult) : IO TestResult := do
   result ← test "atoms output includes language per atom" atomValHasLang result
   return result
 
-def testSorryDetection (result : TestResult) : IO TestResult := do
-  let mut result := result
-  let testAtom : Atom := {
-    name := "probe:Test.foo"
-    displayName := "foo"
-    dependencies := #["probe:Test.helper"]
-    codeModule := "Test"
-    codePath := "Test.lean"
-    codeText := some { linesStart := 10, linesEnd := 15 }
-    kind := .theorem
-  }
-
-  IO.println ""
-  IO.println "Testing parseSorryWarning..."
-  let warning1 := parseSorryWarning "warning: ././././TestProject.lean:42:8: declaration uses 'sorry'"
-  result ← test "parse sorry warning" warning1.isSome result
-  match warning1 with
-  | some w =>
-    result ← test "warning file path" (w.filePath == "././././TestProject.lean") result
-    result ← test "warning line" (w.line == 42) result
-    result ← test "warning column" (w.column == 8) result
-  | none => pure ()
-
-  let noWarning := parseSorryWarning "Build completed successfully."
-  result ← test "no warning for non-warning line" noWarning.isNone result
-
-  let noSorry := parseSorryWarning "warning: unused variable 'x'"
-  result ← test "no warning for non-sorry warning" noSorry.isNone result
-
-  IO.println ""
-  IO.println "Testing normalizePathForMatch..."
-  result ← test "normalize relative path" (normalizePathForMatch "././././TestProject.lean" == "TestProject.lean") result
-  result ← test "normalize absolute path" (normalizePathForMatch "/tmp/test/TestProject.lean" == "TestProject.lean") result
-
-  IO.println ""
-  IO.println "Testing pathsMatch..."
-  result ← test "paths match same" (pathsMatch "/tmp/Test.lean" "/tmp/Test.lean") result
-  result ← test "paths match suffix" (pathsMatch "/tmp/project/Test.lean" "Test.lean") result
-  result ← test "paths match normalized" (pathsMatch "././././Test.lean" "/tmp/project/Test.lean") result
-  result ← test "paths no match" (!pathsMatch "/tmp/A.lean" "/tmp/B.lean") result
-
-  IO.println ""
-  IO.println "Testing findSorriesForAtom..."
-  let inRange : SorryWarning := { filePath := "Test.lean", line := 12, column := 0, message := "sorry" }
-  let outOfRange : SorryWarning := { filePath := "Test.lean", line := 20, column := 0, message := "sorry" }
-  let found := findSorriesForAtom #[outOfRange, inRange] testAtom
-  result ← test "only the warning inside the range is matched" (found.map (·.line) == #[12]) result
-  -- An atom without a source location cannot be matched: the log has nothing to say
-  -- about it (the kernel walk decides its status regardless).
-  let atomNoLoc : Atom := { testAtom with codeText := none }
-  result ← test "no location: no matches" (findSorriesForAtom #[inRange] atomNoLoc).isEmpty result
-
-  -- S4: Same filename in different directories should not match
-  IO.println ""
-  IO.println "Testing S4: same filename different dirs should not match..."
-  let differentDirMatch := pathsMatch "src/Foo/Constants.lean" "src/Bar/Constants.lean"
-  if differentDirMatch then
-    IO.eprintln "  BUG S4 CONFIRMED: same filename in different dirs incorrectly matches"
-  result ← test "S4: different dirs same filename should not match" (!differentDirMatch) result
-
-  -- S4: Sorry from one file should not be attributed to atom in another file
-  -- with the same filename but different directory
-  let sorryInFoo : SorryWarning := { filePath := "src/Foo/Constants.lean", line := 12, column := 0, message := "sorry" }
-  let atomInBar : Atom := { testAtom with
-    codePath := "src/Bar/Constants.lean"
-    codeText := some { linesStart := 10, linesEnd := 15 }
-  }
-  let crossMatch := sorryInDeclaration sorryInFoo atomInBar
-  if crossMatch then
-    IO.eprintln "  BUG S4 CONFIRMED: sorry in Foo/Constants.lean attributed to atom in Bar/Constants.lean"
-  result ← test "S4: sorry in Foo not attributed to atom in Bar" (!crossMatch) result
-
-  return result
-
 def testUnifiedAtomJson (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3136,233 +3062,6 @@ private def getVS (atom : UnifiedAtom) : Option WebVerificationStatus :=
 private def findUA (atoms : Array UnifiedAtom) (name : String) : Option UnifiedAtom :=
   atoms.find? fun a => a.name == name
 
-def testTransitiveVerificationBasic (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification basic cases..."
-
-  -- Leaf verified atom -> transitively-verified
-  let a := mkUnified "a" #[] (some .verified)
-  let (res, t, l, _) := enrichTransitiveVerification #[a]
-  result ← test "leaf verified -> transitively-verified"
-    (getVS (findUA res "a").get! == some .transitivelyVerified) result
-  result ← test "leaf counts: transitive=1, local=0" (t == 1 && l == 0) result
-
-  -- All deps verified -> all transitively-verified
-  let a2 := mkUnified "a" #["b"] (some .verified)
-  let b2 := mkUnified "b" #["c"] (some .verified)
-  let c2 := mkUnified "c" #[] (some .verified)
-  let (res2, t2, l2, _) := enrichTransitiveVerification #[a2, b2, c2]
-  result ← test "all verified chain -> all transitively-verified"
-    (getVS (findUA res2 "a").get! == some .transitivelyVerified &&
-     getVS (findUA res2 "b").get! == some .transitivelyVerified &&
-     getVS (findUA res2 "c").get! == some .transitivelyVerified) result
-  result ← test "all verified counts: transitive=3, local=0" (t2 == 3 && l2 == 0) result
-
-  -- One dep failed -> caller stays verified (locally)
-  let a3 := mkUnified "a" #["b"] (some .verified)
-  let b3 := mkUnified "b" #[] (some .failed)
-  let (res3, _, _, _) := enrichTransitiveVerification #[a3, b3]
-  result ← test "dep failed -> caller stays verified"
-    (getVS (findUA res3 "a").get! == some .verified) result
-  result ← test "failed dep unchanged"
-    (getVS (findUA res3 "b").get! == some .failed) result
-
-  -- One dep unverified -> caller stays verified (locally)
-  let a4 := mkUnified "a" #["b"] (some .verified)
-  let b4 := mkUnified "b" #[] (some .unverified)
-  let (res4, _, _, _) := enrichTransitiveVerification #[a4, b4]
-  result ← test "dep unverified -> caller stays verified"
-    (getVS (findUA res4 "a").get! == some .verified) result
-  result ← test "unverified dep unchanged"
-    (getVS (findUA res4 "b").get! == some .unverified) result
-  return result
-
-def testTransitiveVerificationTrust (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification trust and missing..."
-
-  -- Trusted dep does not block
-  let a := mkUnified "a" #["b"] (some .verified)
-  let b := mkUnified "b" #[] (some .trusted)
-  let (res, _, _, md) := enrichTransitiveVerification #[a, b]
-  result ← test "trusted dep -> caller transitively-verified"
-    (getVS (findUA res "a").get! == some .transitivelyVerified) result
-  result ← test "no missing deps when all present"
-    (md == #[]) result
-
-  -- Missing dep (not in map) does not block
-  let a2 := mkUnified "a" #["nonexistent"] (some .verified)
-  let (res2, _, _, md2) := enrichTransitiveVerification #[a2]
-  result ← test "missing dep -> caller transitively-verified"
-    (getVS (findUA res2 "a").get! == some .transitivelyVerified) result
-  result ← test "missing dep reported"
-    (md2 == #["nonexistent"]) result
-
-  -- Multiple missing deps are sorted and deduplicated
-  let a2b := mkUnified "a" #["z_missing", "a_missing", "z_missing"] (some .verified)
-  let (_, _, _, md2b) := enrichTransitiveVerification #[a2b]
-  result ← test "multiple missing deps sorted and deduped"
-    (md2b == #["a_missing", "z_missing"]) result
-
-  -- Missing status does not contaminate
-  let a3 := mkUnified "a" #["b"] (some .verified)
-  let b3 := mkUnified "b" #[] none
-  let (res3, _, _, _) := enrichTransitiveVerification #[a3, b3]
-  result ← test "missing status dep -> caller transitively-verified"
-    (getVS (findUA res3 "a").get! == some .transitivelyVerified) result
-
-  -- Non-verified atoms untouched
-  let a4 := mkUnified "a" #[] (some .unverified)
-  let b4 := mkUnified "b" #[] (some .failed)
-  let c4 := mkUnified "c" #[] none
-  let (res4, _, _, _) := enrichTransitiveVerification #[a4, b4, c4]
-  result ← test "unverified atom untouched"
-    (getVS (findUA res4 "a").get! == some .unverified) result
-  result ← test "failed atom untouched"
-    (getVS (findUA res4 "b").get! == some .failed) result
-  result ← test "none-status atom untouched"
-    (getVS (findUA res4 "c").get! == none) result
-  return result
-
-def testTransitiveVerificationGraph (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification graph patterns..."
-
-  -- Transitive chain: A->B->C, C unverified
-  let a := mkUnified "a" #["b"] (some .verified)
-  let b := mkUnified "b" #["c"] (some .verified)
-  let c := mkUnified "c" #[] (some .unverified)
-  let (res, _, _, _) := enrichTransitiveVerification #[a, b, c]
-  result ← test "transitive chain: A stays verified"
-    (getVS (findUA res "a").get! == some .verified) result
-  result ← test "transitive chain: B stays verified"
-    (getVS (findUA res "b").get! == some .verified) result
-  result ← test "transitive chain: C stays unverified"
-    (getVS (findUA res "c").get! == some .unverified) result
-
-  -- Diamond dependency with unverified leaf
-  let a2 := mkUnified "a" #["b", "c"] (some .verified)
-  let b2 := mkUnified "b" #["d"] (some .verified)
-  let c2 := mkUnified "c" #["d"] (some .verified)
-  let d2 := mkUnified "d" #[] (some .unverified)
-  let (res2, _, _, _) := enrichTransitiveVerification #[a2, b2, c2, d2]
-  result ← test "diamond: A stays verified"
-    (getVS (findUA res2 "a").get! == some .verified) result
-  result ← test "diamond: B stays verified"
-    (getVS (findUA res2 "b").get! == some .verified) result
-  result ← test "diamond: C stays verified"
-    (getVS (findUA res2 "c").get! == some .verified) result
-  result ← test "diamond: D stays unverified"
-    (getVS (findUA res2 "d").get! == some .unverified) result
-
-  -- Cycle (all verified) -> transitively-verified
-  let a3 := mkUnified "a" #["b"] (some .verified)
-  let b3 := mkUnified "b" #["a"] (some .verified)
-  let (res3, _, _, _) := enrichTransitiveVerification #[a3, b3]
-  result ← test "cycle all verified: A transitively-verified"
-    (getVS (findUA res3 "a").get! == some .transitivelyVerified) result
-  result ← test "cycle all verified: B transitively-verified"
-    (getVS (findUA res3 "b").get! == some .transitivelyVerified) result
-
-  -- Cycle with unverified dep
-  let a4 := mkUnified "a" #["b"] (some .verified)
-  let b4 := mkUnified "b" #["c", "d"] (some .verified)
-  let c4 := mkUnified "c" #["a"] (some .verified)
-  let d4 := mkUnified "d" #[] (some .unverified)
-  let (res4, _, _, _) := enrichTransitiveVerification #[a4, b4, c4, d4]
-  result ← test "cycle with unverified: A stays verified"
-    (getVS (findUA res4 "a").get! == some .verified) result
-  result ← test "cycle with unverified: B stays verified"
-    (getVS (findUA res4 "b").get! == some .verified) result
-  result ← test "cycle with unverified: C stays verified"
-    (getVS (findUA res4 "c").get! == some .verified) result
-  return result
-
-def testTransitiveVerificationProperties (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing enrichTransitiveVerification properties..."
-
-  -- Idempotency
-  let a := mkUnified "a" #["b"] (some .verified)
-  let b := mkUnified "b" #[] (some .unverified)
-  let (res1, _, _, _) := enrichTransitiveVerification #[a, b]
-  let (res2, _, _, _) := enrichTransitiveVerification res1
-  result ← test "idempotency: A unchanged after second run"
-    (getVS (findUA res2 "a").get! == getVS (findUA res1 "a").get!) result
-  result ← test "idempotency: B unchanged after second run"
-    (getVS (findUA res2 "b").get! == getVS (findUA res1 "b").get!) result
-
-  -- Idempotency for transitively-verified
-  let c := mkUnified "c" #[] (some .verified)
-  let (res3, _, _, _) := enrichTransitiveVerification #[c]
-  let (res4, _, _, _) := enrichTransitiveVerification res3
-  result ← test "idempotency: transitively-verified stays"
-    (getVS (findUA res4 "c").get! == some .transitivelyVerified) result
-
-  -- Counts are correct
-  let a5 := mkUnified "a" #[] (some .verified)
-  let b5 := mkUnified "b" #["c"] (some .verified)
-  let c5 := mkUnified "c" #[] (some .unverified)
-  let (_, t5, l5, _) := enrichTransitiveVerification #[a5, b5, c5]
-  result ← test "counts: transitive=1, local=1" (t5 == 1 && l5 == 1) result
-
-  -- Explicit unverified contaminates but missing does not
-  let a6 := mkUnified "a" #["b", "c"] (some .verified)
-  let b6 := mkUnified "b" #[] (some .unverified)
-  let c6 := mkUnified "c" #[] none
-  let (res6, _, _, _) := enrichTransitiveVerification #[a6, b6, c6]
-  result ← test "explicit unverified contaminates, missing does not"
-    (getVS (findUA res6 "a").get! == some .verified) result
-
-  return result
-
-def testPartitionMissingDeps (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing partitionMissingDeps..."
-
-  -- An enum-variant reference whose parent is an extracted inductive is a
-  -- benign type member (suppressed); a genuine orphan is reported.
-  let enumAtom := { mkUnified "probe:M.Error" #[] none with kind := .inductive }
-  let caller := mkUnified "probe:M.f" #["probe:M.Error.StateDecode", "probe:totally_unknown"]
-    (some .verified)
-  let (orphans, memberCount) :=
-    partitionMissingDeps #[enumAtom, caller]
-      #["probe:M.Error.StateDecode", "probe:totally_unknown"]
-  result ← test "enum variant ref suppressed as type member" (memberCount == 1) result
-  result ← test "genuine orphan still reported"
-    (orphans == #["probe:totally_unknown"]) result
-
-  -- Struct field reference whose parent is an extracted structure is suppressed.
-  let structAtom := { mkUnified "probe:M.S" #[] none with kind := .structure }
-  let (orphans2, memberCount2) :=
-    partitionMissingDeps #[structAtom] #["probe:M.S.field"]
-  result ← test "struct field ref suppressed" (memberCount2 == 1 && orphans2.isEmpty) result
-
-  -- Class field reference whose parent is an extracted class is suppressed.
-  let classAtom := { mkUnified "probe:M.C" #[] none with kind := .class }
-  let (_, memberCount3) := partitionMissingDeps #[classAtom] #["probe:M.C.proj"]
-  result ← test "class field ref suppressed" (memberCount3 == 1) result
-
-  -- A member of a non-type parent (a `def`) is a genuine orphan, still reported.
-  let defAtom := mkUnified "probe:M.g" #[] none
-  let (orphans4, memberCount4) :=
-    partitionMissingDeps #[defAtom] #["probe:M.g.inner"]
-  result ← test "member of non-type parent still reported"
-    (memberCount4 == 0 && orphans4 == #["probe:M.g.inner"]) result
-
-  -- A dep whose parent is absent from the map is a genuine orphan.
-  let (orphans5, memberCount5) :=
-    partitionMissingDeps #[] #["probe:Unknown.Variant"]
-  result ← test "absent-parent ref reported as orphan"
-    (memberCount5 == 0 && orphans5 == #["probe:Unknown.Variant"]) result
-
-  return result
-
 def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
@@ -3395,30 +3094,6 @@ def testTransitiveVerificationJson (result : TestResult) : IO TestResult := do
     | .ok a => a.verificationStatus == some .transitivelyVerified
     | .error _ => false
   result ← test "UnifiedAtom transitively-verified round-trips" tvRtOk result
-  return result
-
-/-- Regression guard for the mark-not-drop fix: a theorem T that reaches an
-    unverified U *only through* a derived instance I must NOT be reported as
-    `transitively-verified`. Dropping I (removing it from the atom set while T still
-    lists it as a dep) falsely upgrades T. This test pins why generated atoms are
-    hidden, not dropped. -/
-def testDropRegression (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing mark-not-drop contamination (T → I → U)..."
-  let u := mkUnified "U" #[] (some .unverified)
-  let i := mkUnified "I" #["U"] (some .verified)     -- derived instance, locally verified
-  let t := mkUnified "T" #["I"] (some .verified)
-  -- I present: contamination U → I → T, so T is held at `verified` (sound).
-  let (kept, _, _, _) := enrichTransitiveVerification #[t, i, u]
-  result ← test "I kept → T stays verified (not upgraded)"
-    (getVS (findUA kept "T").get! == some .verified) result
-  result ← test "I kept → I stays verified (contaminated)"
-    (getVS (findUA kept "I").get! == some .verified) result
-  -- I dropped (T still lists it): the U → I → T path is severed → T wrongly upgraded.
-  let (dropped, _, _, _) := enrichTransitiveVerification #[t, u]
-  result ← test "I dropped → T wrongly transitively-verified (the avoided bug)"
-    (getVS (findUA dropped "T").get! == some .transitivelyVerified) result
   return result
 
 def testGeneratedFieldRoundTrip (result : TestResult) : IO TestResult := do
@@ -3467,15 +3142,15 @@ def testConditionalHiding (result : TestResult) : IO TestResult := do
     codeModule := "Test", codePath := "Test.lean",
     codeText := some { linesStart := 1, linesEnd := 5 },
     kind := .instance, isLeanGenerated := true, isHidden := true,
-    verificationStatus := some .verified
+    verificationStatus := some .verified, statusOrigin := some .kernelTaint
   }
-  let t := mkUnified "T" #["I"] (some .verified)
+  let t := { mkUnified "T" #["I"] (some .verified) with statusOrigin := some .kernelTaint }
   let cleanI : UnifiedAtom := {
     name := "CleanI", displayName := "CleanI", dependencies := #[],
     codeModule := "Test", codePath := "Test.lean",
     codeText := some { linesStart := 10, linesEnd := 15 },
     kind := .instance, isLeanGenerated := true, isHidden := true,
-    verificationStatus := some .verified
+    verificationStatus := some .transitivelyVerified
   }
   -- A trusted lean-generated atom is clean: it must stay hidden.
   let trustedI : UnifiedAtom := {
@@ -3485,9 +3160,9 @@ def testConditionalHiding (result : TestResult) : IO TestResult := do
     kind := .instance, isLeanGenerated := true, isHidden := true,
     verificationStatus := some .trusted
   }
-  let (enriched, _, _, _) := enrichTransitiveVerification #[u, iAtom, t, cleanI, trustedI]
-  -- Exercise the *production* pass, not a copy of it.
-  let withHiding := unhideContaminatedGenerated enriched
+  -- The statuses as the taint pass stamps them: I and T rest on U's sorry, CleanI is
+  -- clean. Exercise the *production* pass, not a copy of it.
+  let withHiding := unhideContaminatedGenerated #[u, iAtom, t, cleanI, trustedI]
   let iResult := (findUA withHiding "I").get!
   result ← test "contaminated I has isHidden=false" (!iResult.isHidden) result
   result ← test "contaminated I is still lean-generated" iResult.isLeanGenerated result
@@ -4503,32 +4178,17 @@ def testStatusOriginReader (result : TestResult) : IO TestResult := do
     (match decode (withOrigin .null) with | .ok _ => false | .error _ => true) result
   return result
 
-def testDivergenceLines (result : TestResult) : IO TestResult := do
+def testStatusCounts (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing divergenceLines / demoteTransitive / statusCounts..."
+  IO.println "Testing statusCounts..."
   let mkU (name : String) (st : Option WebVerificationStatus) : UnifiedAtom :=
     { name, displayName := "x", dependencies := #[], codeModule := "T", codePath := "T.lean",
       codeText := none, kind := .theorem, verificationStatus := st }
-  let oracle := #[mkU "probe:a" (some .transitivelyVerified), mkU "probe:b" (some .verified),
+  let atoms := #[mkU "probe:a" (some .transitivelyVerified), mkU "probe:b" (some .verified),
     mkU "probe:c" (some .unverified), mkU "probe:d" (some .trusted),
     mkU "probe:e" (some .transitivelyVerified), mkU "probe:f" none]
-  let graph := #[mkU "probe:a" (some .verified), mkU "probe:b" (some .transitivelyVerified),
-    mkU "probe:c" (some .unverified), mkU "probe:d" (some .trusted),
-    mkU "probe:e" (some .transitivelyVerified), mkU "probe:f" none]
-  let lines := divergenceLines oracle graph
-  result ← test "exactly the two disagreeing atoms are reported" (lines.size == 2) result
-  result ← test "graph tainted / oracle clean text"
-    (lines[0]! == "Divergence(graph): probe:a graph says tainted, oracle says clean") result
-  result ← test "graph clean / oracle tainted text"
-    (lines[1]! == "Divergence(graph): probe:b graph says clean, oracle says tainted") result
-  result ← test "identical arrays produce no line" (divergenceLines oracle oracle).isEmpty result
-  let d := demoteTransitive oracle
-  result ← test "demoteTransitive undoes only the upgrade"
-    (d[0]!.verificationStatus == some .verified && d[1]!.verificationStatus == some .verified &&
-     d[2]!.verificationStatus == some .unverified && d[3]!.verificationStatus == some .trusted &&
-     d[5]!.verificationStatus == none) result
-  result ← test "statusCounts" (statusCounts oracle == (2, 1, 3)) result
+  result ← test "statusCounts" (statusCounts atoms == (2, 1, 3)) result
   return result
 
 /-- The `check-axioms` listing of T, the generated-axiom note, and the dependency-roots
@@ -4597,38 +4257,6 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   result ← test "summary line"
     (formatTaintSummary pt ==
       "Project constants: 40 in 3 module(s) | trusted: 1 | direct sorry carriers: 1 | tainted: 2") result
-  -- Log-vs-kernel cross-check: a sorry the log attributes to a host by line range
-  -- while the kernel makes the host *tainted* (the carrier is its auxiliary) is
-  -- agreement; only clean-vs-sorry conflicts are reported.
-  let mkA (name : String) (ln : Lean.Name) (line : Nat) : Atom :=
-    { name, leanName := ln, displayName := "x", dependencies := #[], codeModule := "T",
-      codePath := "T.lean", codeText := some { linesStart := line, linesEnd := line + 2 },
-      kind := .theorem }
-  -- A generated companion sharing the sorried host's range is skipped: the log
-  -- cannot tell it apart from its parent. So is a trusted atom whose `sorry` sits in
-  -- an auxiliary: the log attributes the warning to its range, the walk blocks it
-  -- (neither direct nor tainted), and that is trust at work, not a disagreement.
-  let companion : Atom := { mkA "probe:d.mvcgen_spec" `T.d.mvcgen_spec 20 with isAeneasGenerated := true }
-  -- A `partial def` whose `sorry` sits in its compiled `_unsafe_rec` body: the log
-  -- flags it, the kernel constant has no edge to it — a known shape with its own line.
-  let atoms := #[mkA "probe:host" `T.host 10, mkA "probe:d" `T.d 20, mkA "probe:clean" `T.clean 30,
-    mkA "probe:missed" `T.missed 40, companion, mkA "probe:ext" `T.ext 50, mkA "probe:loopy" `T.loopy 60]
-  let warn (line : Nat) : SorryWarning := { filePath := "T.lean", line, column := 1, message := "declaration uses 'sorry'" }
-  let warnings := #[warn 11, warn 21, warn 31, warn 51, warn 61]
-  let pt2 : ProjectTaint := {
-    trust := Std.HashMap.ofList [(`T.ext, "external")]
-    taint := { tainted := Std.HashSet.ofArray #[`T.host, `T.d, `T.missed, `T.loopy._unsafe_rec],
-               direct := Std.HashSet.ofArray #[`T.d, `T.missed, `T.loopy._unsafe_rec] }
-    constants := Std.HashSet.ofArray #[`T.host, `T.d, `T.clean, `T.missed, `T.d.mvcgen_spec, `T.ext,
-      `T.loopy, `T.loopy._unsafe_rec]
-    pSize := 4, moduleCount := 1 }
-  let divs := logDivergences warnings atoms pt2
-  result ← test "log divergences: aux-carried sorry is agreement; trusted host skipped; clean-vs-sorry both ways; partial def noted"
-    (divs == #["Divergence(log): probe:clean build log says sorry, kernel says clean modulo trust",
-               "Divergence(log): probe:missed kernel says sorry, no warning in the log",
-               "Note(log): probe:loopy build log says sorry; it sits in the compiled body \
-                T.loopy._unsafe_rec of a `partial def`, which the kernel constant does not reference \
-                (verification-status covers kernel dependencies, not executable bodies)"]) result
   result ← test "tag-set line: no registration"
     (formatTagSetLine {} ==
       "externally_verified tag set: 0 name(s); no registration of the attribute found in the \
@@ -5596,7 +5224,6 @@ def runSuiteA (result : TestResult) : IO TestResult := do
   result ← testAtomsOutputJson result
   result ← testAtomSpecsJson result
   result ← testAtomLanguageField result
-  result ← testSorryDetection result
   result ← testUnifiedAtomJson result
   result ← testCodomainFacts result
   result ← testViewHelpers result
@@ -5645,17 +5272,11 @@ def runSuiteC (result : TestResult) : IO TestResult := do
   result ← testCacheValidity result
   result ← testCheckFilesSkipsDotDirs result
   result ← testNixEnv result
-  result ← testTransitiveVerificationBasic result
-  result ← testTransitiveVerificationTrust result
-  result ← testTransitiveVerificationGraph result
-  result ← testTransitiveVerificationProperties result
-  result ← testPartitionMissingDeps result
   result ← testTransitiveVerificationJson result
   result ← testCoversRange result
   result ← testAxiomReachability result
   result ← testDerivedInstanceClusterNames result
   result ← testGeneratedCompanionTheoremNames result
-  result ← testDropRegression result
   return result
 
 /-- Part D of the suite (see `runSuiteA`). -/
@@ -5679,7 +5300,7 @@ def runSuiteD (result : TestResult) : IO TestResult := do
   result ← testStatusOrigin result
   result ← testStatementTaintVerdict result
   result ← testStatusOriginReader result
-  result ← testDivergenceLines result
+  result ← testStatusCounts result
   result ← testTaintFormatting result
   result ← testAttributeScan result
   result ← testAttributeScanNegatives result

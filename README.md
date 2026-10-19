@@ -96,7 +96,7 @@ For all flags and examples, see [docs/usage.md](docs/usage.md), section "Command
 - [docs/schema.md](docs/schema.md): output format and field rules.
 - [docs/verification-status.md](docs/verification-status.md): how the kernel walk decides `verification-status`, and the stderr lines it prints.
 - [docs/spec-relationships.md](docs/spec-relationships.md): which atoms receive `specs` and `primary-spec`, and why.
-- [tools/audit/README.md](tools/audit/README.md): audit scripts.
+- [tools/audit/README.md](tools/audit/README.md): audit scripts. `check-graph.py` checks that the emitted dependency graph of an artifact explains every status.
 - [CHANGELOG.md](CHANGELOG.md): release history.
 - [CLAUDE.md](CLAUDE.md): contributor guide, with testing and versioning.
 - [specs/template.md](specs/template.md): template for feature specs.

@@ -354,24 +354,6 @@ instance : Lean.FromJson SpecEntry where
     let specText ← json.getObjValAs? (Option CodeTextInfo) "spec-text"
     return { specified, codePath, specText }
 
-/-- Information about a sorry occurrence -/
-structure SorryInfo where
-  line : Nat
-  message : String
-  deriving Repr, BEq
-
-instance : Lean.ToJson SorryInfo where
-  toJson info := Lean.Json.mkObj [
-    ("line", Lean.toJson info.line),
-    ("message", Lean.toJson info.message)
-  ]
-
-instance : Lean.FromJson SorryInfo where
-  fromJson? json := do
-    let line ← json.getObjValAs? Nat "line"
-    let message ← json.getObjValAs? String "message"
-    return { line, message }
-
 /-- Verification status as consumed by the web frontend -/
 inductive WebVerificationStatus where
   | verified

@@ -61,7 +61,7 @@ definitions.
 On Lean ≤ 4.28 a `def`'s sorried proof obligation (`def f : Fin 5 := ⟨3, by sorry⟩`) is
 abstracted into `f._proof_1`. That auxiliary is the direct carrier (`[direct] [not emitted]` in
 `check-axioms`), and `f` itself reads `"verified"`. The emitted graph has no node for the
-auxiliary, so the graph cross-check prints a `Divergence(graph)` line for `f`. `f` also carries
+auxiliary, so `tools/audit/check-graph.py` prints a `Divergence(graph)` line for `f`. `f` also carries
 `"status-origin": "kernel-taint"`. From Lean 4.29 the `sorry` stays inline and `f` reads
 `"unverified"`. On every toolchain `f` is tainted and never `"transitively-verified"`.
 
@@ -69,17 +69,36 @@ Theorems are never abstracted. A data-typed `sorry` (`def n : Nat := sorry`) sta
 every toolchain. `tools/audit/compare-extract.py --status-policy taint` accepts the resulting
 `unverified → verified` move against a build-log artifact.
 
-## Cross-checks, never reconciled
+## Graph check
 
-Two older heuristics still run and are compared against the walk. When they disagree, `extract`
-prints a line on stderr and keeps the walk's verdict:
+`extract` uses neither the build log nor the emitted graph for the status. Up to 0.20.0 it also
+ran two cross-checks against the walk and printed their disagreements on stderr. Version 0.21.0
+removed both. The build-log check is gone. The graph check is the script
+`tools/audit/check-graph.py` in the probe-lean repository (not in the release assets), which
+reads an artifact. `<probe-lean>` is a probe-lean checkout and `<project>` is the target project:
 
-- The reverse-BFS over the emitted graph prints `Divergence(graph): <atom> graph says clean,
-  oracle says tainted` (or the reverse). Such a line points to a node or edge that the emitted
-  graph is missing, typically a carrier with no declaration range. The `status-origin` marker
-  makes the same gap visible in the output, see
-  [Re-deriving statuses](schema.md#re-deriving-statuses).
-- The build log's `sorry` warnings produce `Divergence(log): …` lines. Trusted atoms are skipped.
+```bash
+python3 <probe-lean>/tools/audit/check-graph.py --fail-on-divergence <project>/.verilib/probes/lean_<pkg>_<ver>.json
+```
+
+The script runs a reverse BFS over the emitted `dependencies`. The seeds are the atoms that read
+`"unverified"` or `"failed"`. Taint goes from a dependency to its callers through atoms that read
+`"verified"` or `"transitively-verified"`. Trusted atoms, atoms without a status and missing
+dependencies stop it. The script then prints `Divergence(graph): <atom> graph says clean, oracle
+says tainted` (or the reverse) for each atom where the BFS and the walk disagree. Such a line
+points to a node or edge that the emitted graph is missing, typically a carrier with no
+declaration range. The `status-origin` marker makes the same gap visible in the output, see
+[Re-deriving statuses](schema.md#re-deriving-statuses). The script also prints a `Warning:` line
+for each dependency name that is not an atom.
+
+With `--fail-on-divergence`, exit 0 means that the emitted graph and the walk agree on every atom
+with a status. Without the flag, the script exits 0 also on a divergence. Exit 0 does not prove
+that every edge was emitted: a missing edge that does not change taint is invisible, and missing
+dependencies never fail the run. The script reads enveloped artifacts from 0.16.0 on. It rejects
+input whose version it cannot read, because before 0.16.0 a tainted atom that reads `"verified"`
+has no `status-origin` marker and looks clean. If `extract`
+printed the duplicate-name warning, the artifact keeps one of the colliding atoms, and the report
+lacks the other one and its edges.
 
 ## Kernel dependencies, not executable bodies
 
@@ -88,8 +107,7 @@ The walk follows what the kernel constant references. This is not always the cod
 - A `partial def`'s body compiles to `X._unsafe_rec`, and the kernel constant `X` is an opaque
   inhabitant with no edge to it. So `loopy` in `partial def loopy … sorry …` reads
   `"transitively-verified"`, while `loopy._unsafe_rec` is a direct carrier that `check-axioms`
-  lists as `[direct] [not emitted]`. The build-log cross-check prints a `Note(log)` line that names
-  the compiled body, not a divergence. Against a build-log artifact this moves the host from
+  lists as `[direct] [not emitted]`. Against a build-log artifact this moves the host from
   `unverified` to `transitively-verified` and its callers from `verified` to
   `transitively-verified`. `compare-extract.py --status-policy taint` accepts the move only for
   hosts named with `--exec-hosts`.

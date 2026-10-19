@@ -12,6 +12,8 @@ Run from this directory, after
     probe-lean extract . --module Merge.FixRestate -o .verilib/module-FixRestate.json
     python3 check.py
 
+`check.py` runs `tools/audit/check-graph.py` on the `--module Merge.FixAdd` artifact.
+
 `Merge.Bad` and `Merge.Good` both declare `theorem shared : True`; one proof is a
 `sorry`, the other is real. Lean's importer accepts the pair and keeps ONE body
 without comparing them, so in the merged environment the name `shared` no longer
@@ -33,7 +35,11 @@ emitted, but no `partial_fixpoint` block made it, so `fixCallerAdd` keeps the ed
 
 import glob
 import json
+import subprocess
 import sys
+from pathlib import Path
+
+CHECK_GRAPH = Path(__file__).resolve().parents[3] / "tools" / "audit" / "check-graph.py"
 
 failures = []
 
@@ -51,6 +57,13 @@ def status(data, atom):
 def both_bodies(atom):
     ext = atom.get("term-dependencies-external", [])
     return "probe:sorryAx" in ext and "probe:True.intro" in ext
+
+
+def old_cross_check_line(line):
+    """A line of the cross-checks that `extract` printed up to 0.20.0 (issue #141)."""
+    return (line.startswith(("Divergence(graph):", "Divergence(log):", "Note(log):",
+                             "Graph cross-check:"))
+            or "not found in atom map" in line)
 
 
 def main():
@@ -128,8 +141,13 @@ def main():
           and fix in add_caller.get("dependencies", []))
     with open(".verilib/module-FixAdd.stderr") as fh:
         add_stderr = fh.read().splitlines()
-    check("--module Merge.FixAdd: the dangling edge to Merge.Fix.mutual is reported",
-          any(l.startswith(f'Warning: dependency "{fix}" not found in atom map') for l in add_stderr))
+    check("--module Merge.FixAdd: extract prints no atom-map warning (check-graph.py does)",
+          not any(old_cross_check_line(l) for l in add_stderr))
+    add_graph = subprocess.run([sys.executable, str(CHECK_GRAPH), ".verilib/module-FixAdd.json"],
+                               capture_output=True, text=True)
+    check("--module Merge.FixAdd: check-graph.py reports the dangling edge to Merge.Fix.mutual",
+          add_graph.returncode == 0 and
+          f'Warning: dependency "{fix}" not found in atom map' in add_graph.stdout.splitlines())
 
     print("Assumptions of an axiom/theorem pair")
     for name in ("pairAx", "callerAx"):
@@ -138,6 +156,8 @@ def main():
               "assumptions" in a and a["assumptions"] == ["pairAx"])
 
     print("Extract stderr")
+    check("no graph or build-log cross-check line (extract no longer prints them)",
+          not any(old_cross_check_line(l) for l in stderr))
     check("the merged declarations are reported",
           any(l.startswith("Warning: 3 declaration name(s) are declared by more than one project module")
               and "shared" in l and "Merge.Fix.mutual" in l and "pairAx" in l for l in stderr))
