@@ -61,7 +61,7 @@ CI (`.github/workflows/ci.yml`, on push and PR to `main`) runs these jobs:
 
 - `build`: builds the project.
 - `shell-tests`: the Lean version-policy and installer helper tests, and the tests of `tools/audit/check-graph.py`.
-- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`). The job also regenerates the example fixture and fails on any diff.
+- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`, `step-spec`). The job also regenerates the example fixture and fails on any diff.
 - `test-newest`: the same suite and fixture checks on the newest supported Lean (`LEAN_VERSION` in the job).
 - `check-version`: `ProbeLean/Version.lean` matches `lakefile.toml`.
 - `check-extract`: runs `probe-extract-check` on the example fixture.
@@ -112,6 +112,7 @@ Do **not** hardcode version strings anywhere else. Use `ProbeLean.version` (or `
 - `ProbeLean/Loader.lean`: loads probe-lean output files, bare-dict or enveloped.
 - `ProbeLean/Types.lean`: all data structures and JSON serialization.
 - `ProbeLean/View.lean`: the `viewify` command (filters atoms → molecules for the web UI).
+- `ProbeLean/SpecFramework.lean`: what probe-lean knows about verification frameworks: the framework attributes of primary-spec rule 2, the Aeneas spec statements and `stepProgramHeadOf`, the step program head of a theorem.
 - `ProbeLean/Attrs.lean`: shared tag attributes (`@[primary_spec]`, `@[externally_verified]` and four classification tags that probe-lean emits in `attributes` but does not interpret).
 - `ProbeLean/Version.lean`: the version constant, generated from `lakefile.toml`.
 

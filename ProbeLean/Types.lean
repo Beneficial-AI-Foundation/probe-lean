@@ -206,6 +206,10 @@ structure Atom where
       The kernel taint walk is joined to atoms on this field, so two private
       declarations that publish to the same string cannot swap statuses. -/
   leanName : Lean.Name := .anonymous
+  /-- Step program head of a theorem (see `stepProgramHeadOf`): raw Lean name, private
+      prefix kept. Not serialised, like `leanName`. Rules 2 to 4 of the primary-spec
+      precedence compare it with the target's `leanName`. -/
+  stepProgramHead : Option Lean.Name := none
   displayName : String
   dependencies : Array String
   typeDependencies : Array String := #[]

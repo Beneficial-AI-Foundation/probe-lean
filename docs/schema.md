@@ -284,7 +284,9 @@ computes them from the generic facts that probe-lean provides (`attributes`, nam
 
 probe-lean's own handle supplies `primary_spec`. A lexer-aware scan supplies every other name
 (`step`, `progress`, `simp`). The scan reads only the `@[…]` blocks in the declaration's header. A tag
-quoted in a docstring, comment, string or neighbouring declaration is not attributed.
+quoted in a docstring, comment, string or neighbouring declaration is not attributed. The scan
+skips the attribute kinds `local` and `scoped`: `@[local step]` lists `step`. It reads blocks on
+one line.
 If the header scan finds `externally_verified`, or the declaration is in the attribute's tag set
 read from the environment, the array lists it. A tag attached by an `attribute` command therefore
 shows here too.
@@ -307,8 +309,9 @@ Only a spec target has `specs` and `primary-spec`. A spec target is a data `def`
 (a type alias such as `abbrev Score : Type := Nat`). `specs` lists
 the theorems whose statement (`type-dependencies`) names the target. Generated theorems are
 excluded unless they carry `@[primary_spec]`. `primary-spec` picks one of them: a
-`@[primary_spec]` tag, then a known framework attribute, then the `<def>_spec` name, then the only
-spec. [spec-relationships.md](spec-relationships.md) states the rules, the edge cases and the
+`@[primary_spec]` tag, then a known framework attribute, then the `<def>_spec` or `<def>.spec`
+name, then a `<last>.spec` or `<last>_spec` name in any namespace, then the only spec. The rules
+read the step program head of each theorem, which is not in the output. [spec-relationships.md](spec-relationships.md) states the rules, the edge cases and the
 reasons for each decision.
 
 ## Verification status and the trusted base

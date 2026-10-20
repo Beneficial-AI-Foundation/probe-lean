@@ -7,6 +7,7 @@ import ProbeLean.Attrs
 import ProbeLean.Environment
 import ProbeLean.AxiomCheck
 import ProbeLean.Trust
+import ProbeLean.SpecFramework
 
 namespace ProbeLean
 
@@ -361,6 +362,9 @@ structure DeclInfo where
   /-- Final application arg of the result type is `Bool`. Neutral primitive (see
       `lastArgIsBool`). -/
   codomainLastArgIsBool : Bool := false
+  /-- Step program head of a theorem (see `stepProgramHeadOf`). Raw `Name`, private
+      prefix kept. `none` for every other kind. -/
+  stepProgramHead : Option Name := none
 
 /-- Analyze a single declaration. `modNames` is `env.allImportedModuleNames`, fetched
     once by the caller (see `moduleNameOf`). -/
@@ -379,7 +383,10 @@ def analyzeDecl (env : Environment) (modNames : Array Name) (name : Name) (info 
     codomainHead := codomainHeadOf info.type,
     codomainIsProp := codomainIsPropOf info.type,
     codomainIsType := codomainIsTypeOf info.type,
-    codomainLastArgIsBool := lastArgIsBool (stripForalls info.type) }
+    codomainLastArgIsBool := lastArgIsBool (stripForalls info.type),
+    stepProgramHead := match info with
+      | .thmInfo t => stepProgramHeadOf t.type
+      | _ => none }
 
 /-- `outer` covers `inner`'s line range, sharing boundaries allowed but not the
 identical range. Ranges are line-only (no columns), so a member reported on the
@@ -777,13 +784,18 @@ def readSourceFile (cache : FileCache) (path : String) : IO SourceFile := do
   return f
 
 /-- Parse attribute names out of a single `@[...]` block's inner content.
-    For example, `"progress, externally_verified"` → `#["progress", "externally_verified"]`. -/
+    For example, `"progress, externally_verified"` → `#["progress", "externally_verified"]`.
+    A leading attribute kind `local` or `scoped` is skipped:
+    `"local simp, scoped grind ="` → `#["simp", "grind"]`. -/
 private def parseAttrBlock (inside : String) : Array String := Id.run do
   let mut result : Array String := #[]
   for part in inside.splitOn "," do
-    let trimmed := part.trimAscii.toString
-    let attrName := (trimmed.splitOn " ").head!.trimAscii.toString
-    if !attrName.isEmpty then
+    let tokens := ((part.replace "\t" " ").splitOn " ").map (·.trimAscii.toString)
+      |>.filter (!·.isEmpty)
+    let tokens := match tokens with
+      | kind :: rest => if kind == "local" || kind == "scoped" then rest else tokens
+      | [] => []
+    if let some attrName := tokens.head? then
       result := result.push attrName
   return result
 
@@ -1410,6 +1422,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
     codomainIsProp := info.codomainIsProp
     codomainIsType := info.codomainIsType
     codomainLastArgIsBool := info.codomainLastArgIsBool
+    stepProgramHead := info.stepProgramHead
   }
 
 end ProbeLean

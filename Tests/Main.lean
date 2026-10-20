@@ -1590,10 +1590,12 @@ def testTypedDependencies (result : TestResult) : IO TestResult := do
 /-- Spec-detection fixture. `deps` are *statement* dependencies: `computeSpecs`
 reads `typeDependencies`, and `dependencies` is its superset, so both are set. -/
 def mkSpecAtom (name : String) (kind : DeclKind) (deps : Array String)
-    (isPrimarySpec : Bool := false) (attributes : Array String := #[]) : Atom :=
-  { name, displayName := name, dependencies := deps, typeDependencies := deps,
+    (isPrimarySpec : Bool := false) (attributes : Array String := #[])
+    (stepProgramHead : Option Lean.Name := none) : Atom :=
+  { name, leanName := (stripProbePrefix name).toName, displayName := name,
+    dependencies := deps, typeDependencies := deps,
     codeModule := "Test", codePath := "Test.lean", codeText := none, kind,
-    isPrimarySpec, attributes }
+    isPrimarySpec, attributes, stepProgramHead }
 
 def testPrimarySpecHeuristic (result : TestResult) : IO TestResult := do
   let mut result := result
@@ -5692,6 +5694,212 @@ def runSuiteE (result : TestResult) : IO TestResult := do
 
 end AssumptionSetTests
 
+-- ============================================================
+-- Primary spec from the step program (#129, #132, #133)
+-- ============================================================
+
+/-- The `local`/`scoped` attribute kinds are skipped by the header scan (#133). -/
+def testAttrKindPrefix (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing the attribute scan skips local/scoped..."
+  let scan (l : String) := attributesFromLines #[l, "theorem x : P := rfl"] 0 1
+  result ← test "@[local step] records step" (scan "@[local step]" == #["step"]) result
+  result ← test "@[scoped step] records step" (scan "@[scoped step]" == #["step"]) result
+  result ← test "@[local simp, scoped grind =] records simp and grind"
+    (scan "@[local simp, scoped grind =]" == #["simp", "grind"]) result
+  result ← test "a tab between local and step" (scan "@[local\tstep]" == #["step"]) result
+  result ← test "@[step] unchanged" (scan "@[step]" == #["step"]) result
+  result ← test "a kind without a name records nothing" (scan "@[local]" == #[]) result
+  return result
+
+/-- `stepProgramHeadOf` on hand-built types. -/
+def testStepProgramHead (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing stepProgramHeadOf..."
+  let nat := Lean.mkConst `Nat
+  let spec := Lean.mkConst `Aeneas.Std.WP.spec
+  let post := Lean.mkConst `Post
+  let g := Lean.mkConst `Fx.g
+  let prog := Lean.mkApp g (.bvar 0)
+  let stmt (p : Lean.Expr) := Lean.mkApp3 spec nat p post
+  let head := stepProgramHeadOf
+  let full := Lean.Expr.forallE `x nat
+    (.forallE `h (Lean.mkConst `H) (stmt prog) .default) .default
+  result ← test "WP.spec under ∀ and a hypothesis" (head full == some `Fx.g) result
+  result ← test "WP.dspec"
+    (head (Lean.mkApp3 (Lean.mkConst `Aeneas.Std.WP.dspec) nat prog post) == some `Fx.g) result
+  result ← test "wrong arity is none" (head (Lean.mkApp2 spec nat prog) == none) result
+  result ← test "Eq Prop is none" (head (Lean.mkApp3 (Lean.mkConst `Eq) nat prog prog) == none) result
+  result ← test "program head a bvar is none" (head (stmt (Lean.mkApp (.bvar 0) nat)) == none) result
+  result ← test "let in result position"
+    (head (Lean.mkLet `y nat (Lean.mkConst `zero) (stmt prog)) == some `Fx.g) result
+  result ← test "let in the program argument"
+    (head (stmt (Lean.mkLet `p nat g (Lean.mkApp (.bvar 0) nat))) == some `Fx.g) result
+  result ← test "mdata around the statement"
+    (head (.mdata .empty (stmt prog)) == some `Fx.g) result
+  result ← test "mdata around a partial application in the statement"
+    (head (Lean.mkApp2 (.mdata .empty (Lean.mkApp spec nat)) prog post) == some `Fx.g) result
+  result ← test "mdata around a partial application in the program"
+    (head (stmt (Lean.mkApp (.mdata .empty (Lean.mkApp g nat)) nat)) == some `Fx.g) result
+  result ← test "mdata around the program head"
+    (head (stmt (Lean.mkApp (.mdata .empty g) nat)) == some `Fx.g) result
+  return result
+
+/-- Primary spec of `target` after `computeSpecs`. -/
+def pickSpec (atoms : Array Atom) (target : String) : Option String :=
+  (computeSpecs atoms).find? (·.name == target) |>.bind (·.primarySpec)
+
+/-- A theorem atom for the step rules: `deps` are its statement dependencies. -/
+def stepThm (name : String) (deps : Array String) (head : Option Lean.Name := none)
+    (step : Bool := false) (isPrimarySpec : Bool := false) : Atom :=
+  mkSpecAtom name .theorem deps isPrimarySpec (if step then #["step"] else #[]) head
+
+def testStepRule2 (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing primary-spec rule 2 with step program heads..."
+  let invert := mkSpecAtom "probe:invert" .def #[]
+  let toEdwards := mkSpecAtom "probe:to_edwards" .def #[]
+  let invertCorrect := stepThm "probe:invert_correct" #["probe:invert"] (some `invert) true
+  let toEdwardsSpec := stepThm "probe:to_edwards_spec" #["probe:to_edwards", "probe:invert"]
+    (some `to_edwards) true
+  let atoms := #[invert, toEdwards, invertCorrect, toEdwardsSpec]
+  result ← test "a step thm about to_edwards is not a candidate for invert"
+    (pickSpec atoms "probe:invert" == some "probe:invert_correct") result
+  result ← test "to_edwards keeps its own step thm"
+    (pickSpec atoms "probe:to_edwards" == some "probe:to_edwards_spec") result
+  let f := mkSpecAtom "probe:f" .def #[]
+  let a := stepThm "probe:double_a" #["probe:f"] (some `f) true
+  let b := stepThm "probe:double_b" #["probe:f"] (some `f) true
+  result ← test "two step thms with head f fall through" (pickSpec #[f, a, b] "probe:f" == none) result
+  let lfactor := mkSpecAtom "probe:lfactor" .def #[]
+  let part1 := stepThm "probe:part1_spec" #["probe:lfactor"] (some `part1) true
+  let lfactorSpec := stepThm "probe:lfactor_spec" #["probe:lfactor"]
+  result ← test "#129: the tagged thm about part1 loses, lfactor_spec wins by rule 3"
+    (pickSpec #[lfactor, part1, lfactorSpec] "probe:lfactor" == some "probe:lfactor_spec") result
+  let tagged := stepThm "probe:f_thm" #["probe:f"] none true
+  let other := stepThm "probe:f_other" #["probe:f"]
+  result ← test "a tagged thm with head none stays a candidate"
+    (pickSpec #[f, tagged, other] "probe:f" == some "probe:f_thm") result
+  return result
+
+def testStepRule3 (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing primary-spec rule 3 with .spec names and the head guard..."
+  let f := mkSpecAtom "probe:f" .def #[]
+  let dotSpec := stepThm "probe:f.spec" #["probe:f"]
+  let aux := stepThm "probe:f_aux" #["probe:f"]
+  result ← test "<T>.spec wins" (pickSpec #[f, dotSpec, aux] "probe:f" == some "probe:f.spec") result
+  let underSpec := stepThm "probe:f_spec" #["probe:f"]
+  result ← test "both <T>_spec and <T>.spec pick nothing"
+    (pickSpec #[f, dotSpec, underSpec, aux] "probe:f" == none) result
+  let dotG := stepThm "probe:f.spec" #["probe:f"] (some `g) true
+  let thmH := stepThm "probe:h_spec" #["probe:f"] (some `h) true
+  result ← test "a tagged f.spec about g does not win rule 3"
+    (pickSpec #[f, dotG, thmH] "probe:f" == none) result
+  let underG := stepThm "probe:f_spec" #["probe:f"] (some `g)
+  let dotF := stepThm "probe:f.spec" #["probe:f"] (some `f)
+  result ← test "f_spec about g next to f.spec about f picks f.spec"
+    (pickSpec #[f, underG, dotF] "probe:f" == some "probe:f.spec") result
+  let solo := stepThm "probe:g_correct" #["probe:f"] (some `g) true
+  result ← test "rule 5: the sole spec of f about g still wins"
+    (pickSpec #[f, solo] "probe:f" == some "probe:g_correct") result
+  let main := stepThm "probe:f_main" #["probe:f"] (some `g) false true
+  let own := stepThm "probe:f_own" #["probe:f"] (some `f) true
+  result ← test "@[primary_spec] beats every rule"
+    (pickSpec #[f, main, own] "probe:f" == some "probe:f_main") result
+  return result
+
+def testStepRule4 (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing primary-spec rule 4 (namespace-insensitive, program head)..."
+  let mm := mkSpecAtom "probe:Fx.Ns.mont_mul" .def #[]
+  let h := some `Fx.Ns.mont_mul
+  let dep := #["probe:Fx.Ns.mont_mul"]
+  let spec := stepThm "probe:Props.mont_mul.spec" dep h true
+  let bound := stepThm "probe:Props.mont_mul_bound" dep h true
+  result ← test "mont_mul shape picks Props.mont_mul.spec"
+    (pickSpec #[mm, spec, bound] "probe:Fx.Ns.mont_mul" == some "probe:Props.mont_mul.spec") result
+  let under := stepThm "probe:Props.mont_mul_spec" dep h true
+  result ← test "the <last>_spec form matches"
+    (pickSpec #[mm, under, bound] "probe:Fx.Ns.mont_mul" == some "probe:Props.mont_mul_spec") result
+  let a := stepThm "probe:A.mont_mul.spec" dep h true
+  let b := stepThm "probe:B.mont_mul.spec" dep h true
+  result ← test "two matches pick nothing" (pickSpec #[mm, a, b] "probe:Fx.Ns.mont_mul" == none) result
+  let otherHead := stepThm "probe:A.mont_mul.spec" dep (some `Other.mont_mul) true
+  result ← test "a matching name with a different head is ignored"
+    (pickSpec #[mm, otherHead, bound, stepThm "probe:A.lemma" dep h true] "probe:Fx.Ns.mont_mul" == none) result
+  let privName := (Lean.Name.mkNum `_private.Test 0) ++ `Test.priv
+  let priv := { mkSpecAtom "probe:Test.priv" .def #[] with leanName := privName }
+  let pdep := #["probe:Test.priv"]
+  let pspec := stepThm "probe:P.priv.spec" pdep (some privName) true
+  let pbound := stepThm "probe:P.priv_bound" pdep (some privName) true
+  result ← test "a private target matches its head"
+    (pickSpec #[priv, pspec, pbound] "probe:Test.priv" == some "probe:P.priv.spec") result
+  return result
+
+-- Stub Aeneas spec statements at the root, as in Aeneas: inside `namespace StepEnv`
+-- they would be `StepEnv.Aeneas.Std.WP.spec`. Only the test binary sees them.
+namespace Aeneas.Std.WP
+def spec {α : Type} (_x : Option α) (_p : α → Prop) : Prop := True
+def dspec {α : Type} (_x : Option α) (_p : α → Prop) : Prop := True
+end Aeneas.Std.WP
+
+namespace StepEnv
+def f (x : Nat) : Option Nat := some x
+private def pf (x : Nat) : Option Nat := some x
+theorem f_ok : ∀ x, x < 5 → Aeneas.Std.WP.spec (f x) (fun r => r = x) := fun _ _ => trivial
+theorem f_let : ∀ x, let y := x; Aeneas.Std.WP.spec (f y) (fun r => r = y) := fun _ => trivial
+theorem f_dlet : ∀ x, Aeneas.Std.WP.dspec (let g := f; g x) (fun r => r = x) := fun _ => trivial
+theorem pf_ok : ∀ x, Aeneas.Std.WP.spec (pf x) (fun r => r = x) := fun _ => trivial
+theorem generic : ∀ p : Option Nat, Aeneas.Std.WP.spec p (fun r => r = 0) := fun _ => trivial
+end StepEnv
+
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let modNames := env.allImportedModuleNames
+  let headOf (n : Name) : Option Name := (env.find? n).bind fun info =>
+    (analyzeDecl env modNames n info).stepProgramHead
+  let pfHead := headOf `StepEnv.pf_ok
+  let checks : Array (String × Bool) := #[
+    ("the stubs are the stepSpecStatements constants",
+      [``Aeneas.Std.WP.spec, ``Aeneas.Std.WP.dspec].all fun c =>
+        (env.find? c).isSome && stepSpecStatements.any (·.1 == c)),
+    ("a theorem with ∀ and a hypothesis has head f", headOf `StepEnv.f_ok == some `StepEnv.f),
+    ("a let in result position", headOf `StepEnv.f_let == some `StepEnv.f),
+    ("a let in the program of a dspec", headOf `StepEnv.f_dlet == some `StepEnv.f),
+    ("a private program keeps its private name",
+      pfHead.any isPrivateName && pfHead.map privateToUserName == some `StepEnv.pf),
+    ("a generic lemma has head none", headOf `StepEnv.generic == none),
+    ("a def has head none", headOf `StepEnv.f == none)]
+  let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
+  elabCommand (← `(def $(mkIdent `stepEnvChecks) : Array (String × Bool) :=
+    #[$items,*]))
+
+def testStepEnv (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing stepProgramHead on elaborated theorems..."
+  result ← test "environment-backed step checks were generated" (stepEnvChecks.size == 7) result
+  for (name, ok) in stepEnvChecks do
+    result ← test name ok result
+  return result
+
+def runSuiteF (result : TestResult) : IO TestResult := do
+  let mut result := result
+  result ← testAttrKindPrefix result
+  result ← testStepProgramHead result
+  result ← testStepRule2 result
+  result ← testStepRule3 result
+  result ← testStepRule4 result
+  result ← testStepEnv result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
@@ -5699,6 +5907,7 @@ def main : IO UInt32 := do
   result ← runSuiteC result
   result ← runSuiteD result
   result ← runSuiteE result
+  result ← runSuiteF result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

@@ -7,6 +7,7 @@ import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Coimport
 import ProbeLean.Analysis
+import ProbeLean.SpecFramework
 import ProbeLean.Taint
 
 namespace ProbeLean
@@ -92,16 +93,6 @@ def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (aeneasGenera
     let isIgnored := atom.isIgnored || ignoredList.contains nameWithoutPrefix
     { atom with isHidden := isHidden, isAeneasGenerated := isAeneasGenerated, isIgnored := isIgnored }
 
-/-- Attributes from verification frameworks that indicate a theorem is a
-    primary specification. Used as a signal in primary-spec detection.
-    Precedence: @[primary_spec] > known-attribute > _spec suffix > sole-spec. -/
-def primarySpecAttributes : List String :=
-  ["progress", "pspec", "step"]
-
-/-- Check if an atom carries any of the known primary-spec attributes. -/
-def hasKnownSpecAttribute (attrs : Array String) : Bool :=
-  primarySpecAttributes.any fun a => attrs.contains a
-
 /-- The kinds of a spec target (`isSpecTarget`). -/
 def specTargetKinds : List DeclKind := [.def, .abbrev, .instance, .opaque, .axiom]
 
@@ -113,20 +104,78 @@ def specTargetKinds : List DeclKind := [.def, .abbrev, .instance, .opaque, .axio
 def isSpecTarget (a : Atom) : Bool :=
   specTargetKinds.contains a.kind && !a.isProof && !a.codomainIsProp && !a.codomainIsType
 
+/-- True when the components of `n` end in `[last, "spec"]`, or its last component is
+    `last ++ "_spec"`. Components come from the `Name`, so a `«a.b»` part is one
+    component. -/
+private def specNameMatches (n : Name) (last : String) : Bool :=
+  match n with
+  | .str (.str _ l) "spec" => l == last
+  | .str _ s => s == last ++ "_spec"
+  | _ => false
+
+/-- Rules 2 to 5 of the primary-spec precedence (see `computeSpecs`) for target `t`
+    with spec names `specs`. `specAtom` looks up the atom of a spec name.
+
+    A spec is about another function when its step program head is known and differs
+    from `t.leanName`. Rules 2 and 3 skip such a spec. Without that, a step theorem
+    whose postcondition names `t` counts for `t` (`to_edwards_spec` for `invert`,
+    #132), and a theorem named `<T>.spec` about another function wins rule 3 once
+    rule 2 rejects all tagged candidates. A tagged spec with head `none` stays a rule 2
+    candidate. Rule 4 ignores the namespace, so it needs the program head: the same
+    short name exists in other namespaces. Rule 5 has no head check, so the only spec
+    of `t` wins even if it is about another function.
+
+    Several candidates at a rule never resolve arbitrarily: the next rule decides.
+
+    Known limit: `specs` and `specAtom` are keyed by published names. A #88 collision
+    merges targets and makes colliding specs share one atom's program head. The head
+    comparison itself is exact (raw names, private prefix kept). -/
+def heuristicPrimarySpec (t : Atom) (specs : Array String)
+    (specAtom : String → Option Atom) : Option String := Id.run do
+  let aboutOther : Atom → Bool := fun s =>
+    match s.stepProgramHead with
+    | some h => h != t.leanName
+    | none => false
+  -- Rule 2: the only framework-tagged spec not about another function
+  let tagged := specs.filter fun n =>
+    match specAtom n with
+    | some s => hasKnownSpecAttribute s.attributes && !aboutOther s
+    | none => false
+  if tagged.size == 1 then return some tagged[0]!
+  -- Rule 3: exactly one of `<T>_spec` and `<T>.spec`, not about another function
+  let exact := #[t.name ++ "_spec", t.name ++ ".spec"].filter fun n =>
+    specs.contains n && match specAtom n with
+      | some s => !aboutOther s
+      | none => true
+  if exact.size == 1 then return some exact[0]!
+  -- Rule 4: the only spec about `t` whose name ends in `<last>.spec` or `<last>_spec`
+  if let .str _ last := privateToUserName t.leanName then
+    let named := specs.filter fun n =>
+      match specAtom n with
+      | some s => s.stepProgramHead == some t.leanName &&
+          specNameMatches (privateToUserName s.leanName) last
+      | none => false
+    if named.size == 1 then return some named[0]!
+  -- Rule 5: sole spec
+  if specs.size == 1 then return some specs[0]!
+  return none
+
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
     list of every spec-target **type** dependency (`isSpecTarget`). Also propagate `primarySpec`
-    using a multi-signal precedence chain:
+    using a precedence chain:
     1. `@[primary_spec]` attribute (always wins)
-    2. Known verification-framework attributes (`primarySpecAttributes`)
-    3. `_spec` suffix naming convention
-    4. Sole-spec inference (exactly one spec)
+    2. The only framework-tagged spec (`primarySpecAttributes`) that is not about
+       another function (`heuristicPrimarySpec`)
+    3. The exact name `<T>_spec` or `<T>.spec`, unless about another function
+    4. The only spec about `T` whose name ends in `<last>.spec` or `<last>_spec`
+    5. Sole-spec inference (exactly one spec)
 
     Only `typeDependencies` are walked, not the union `dependencies`: a theorem
     specifies what its *statement* is about. A constant that only the proof uses
     (a helper lemma, a definition it unfolds) is not something the theorem
     specifies. Following proof edges puts a spurious spec on most definitions in the
     project. It also defeats primary-spec detection, because its
-    known-attribute and sole-spec signals both require exactly one candidate.
+    known-attribute and sole-spec rules both require exactly one candidate.
 
     Fallback for explicit tags: a theorem can carry `@[primary_spec]` while its
     *statement* names no spec target (an abstract statement whose
@@ -140,17 +189,21 @@ def isSpecTarget (a : Atom) : Bool :=
 
     Generated theorems (attribute-macro companions like `X.mvcgen_spec`,
     whatever their origin flag) are not user specs: they enter neither the
-    `specs` lists nor the heuristic primary-spec candidate pool (signals 2-4).
+    `specs` lists nor the heuristic primary-spec candidate pool (rules 2-5).
     Without this, a generated companion sits next to its parent spec on every
-    dependency and defeats signals 2 and 4, which require exactly one
+    dependency and defeats rules 2 and 5, which require exactly one
     candidate. The explicit `@[primary_spec]` tag is the user's escape hatch:
-    it wins signal 1 as usual, and a tagged generated theorem also re-enters
+    it wins rule 1 as usual, and a tagged generated theorem also re-enters
     the `specs` lists, so `primary-spec` never points outside `specs`. -/
 def computeSpecs (atoms : Array Atom) : Array Atom :=
   let targetMap : Lean.RBMap String Bool compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name (isSpecTarget a)
-  let attrsMap : Lean.RBMap String (Array String) compare :=
-    atoms.foldl (init := .empty) fun m a => m.insert a.name a.attributes
+  -- Spec name → spec atom, for the rules that read a spec's attributes, step
+  -- program head and Lean name. Keyed by the published name like `specs`, so a #88
+  -- collision keeps one of the colliding atoms.
+  let specAtomMap : Lean.RBMap String Atom compare :=
+    atoms.foldl (init := .empty) fun m a =>
+      if a.kind == DeclKind.theorem then m.insert a.name a else m
   let isGeneratedTheorem : Atom → Bool := fun a =>
     (a.isLeanGenerated || a.isAeneasGenerated) && !a.isPrimarySpec
   -- A constant a spec can attach to (`isSpecTarget`; unknown names are never
@@ -179,7 +232,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
           let cur := (m.find? dep).getD #[]
           m.insert dep (cur.push a.name)
       else m
-  -- Signal 0: @[primary_spec] attribute (always wins). Deliberately NOT
+  -- Rule 1: @[primary_spec] attribute (always wins). Deliberately NOT
   -- filtered by isLeanGenerated: the explicit tag is the user's escape hatch,
   -- including for a false positive of the generated-companion detection.
   let attrPrimarySpecMap : Lean.RBMap String String compare :=
@@ -188,31 +241,17 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
         (specTargets a).foldl (init := m) fun m dep =>
           m.insert dep a.name
       else m
-  -- Signals 1-3: known-attribute > _spec suffix > sole-spec
+  -- Rules 2-5 (`heuristicPrimarySpec`)
   let primarySpecMap :=
     atoms.foldl (init := attrPrimarySpecMap) fun m a =>
       if !isSpecTarget a then m
       else
-        match m.find? a.name with
-        | some _ => m
-        | none =>
-          match specsMap.find? a.name with
-          | some specs =>
-            -- Signal 1: known-attribute boost
-            let knownAttrMatches := specs.filter fun s =>
-              match attrsMap.find? s with
-              | some attrs => hasKnownSpecAttribute attrs
-              | none => false
-            if knownAttrMatches.size == 1 then m.insert a.name knownAttrMatches[0]!
-            else
-              -- Signal 2: _spec suffix
-              let candidate := a.name ++ "_spec"
-              if specs.contains candidate then m.insert a.name candidate
-              else
-                -- Signal 3: sole spec
-                if specs.size == 1 then m.insert a.name specs[0]!
-                else m
+        match m.find? a.name, specsMap.find? a.name with
+        | none, some specs =>
+          match heuristicPrimarySpec a specs specAtomMap.find? with
+          | some ps => m.insert a.name ps
           | none => m
+        | _, _ => m
   atoms.map fun a =>
     let a := match specsMap.find? a.name with
       | some specs => { a with specs := specs.qsort (· < ·) }

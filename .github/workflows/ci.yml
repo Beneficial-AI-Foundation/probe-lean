@@ -225,6 +225,17 @@ jobs:
           git checkout -- Orph/Dep.lean
           python3 check.py
 
+      # Primary spec from the step program (#129, #132, #133): a stub `WP.spec` and a
+      # `step` label attribute, one shape per primary-spec rule, and one
+      # `@[local step]` theorem. `check.py` runs `extract` with its own `-o` path.
+      - name: End-to-end step-program primary-spec check
+        run: |
+          diff lean-toolchain tests/fixtures/step-spec/lean-toolchain \
+            || { echo "::error::tests/fixtures/step-spec/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/step-spec
+          lake build
+          python3 check.py "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean"
+
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
       # a hard failure instead of silent drift (the previous fixture was
@@ -269,6 +280,7 @@ jobs:
           cp lean-toolchain tests/fixtures/module-merge/lean-toolchain
           cp lean-toolchain tests/fixtures/module-collision/lean-toolchain
           cp lean-toolchain tests/fixtures/orphan/lean-toolchain
+          cp lean-toolchain tests/fixtures/step-spec/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -454,6 +466,17 @@ jobs:
             echo "::error::check-axioms succeeded although the imported Orph.Dep has no source"; exit 1; fi
           git checkout -- Orph/Dep.lean
           python3 check.py
+
+      # Primary spec from the step program (#129, #132, #133): a stub `WP.spec` and a
+      # `step` label attribute, one shape per primary-spec rule, and one
+      # `@[local step]` theorem. `check.py` runs `extract` with its own `-o` path.
+      - name: End-to-end step-program primary-spec check
+        run: |
+          diff lean-toolchain tests/fixtures/step-spec/lean-toolchain \
+            || { echo "::error::tests/fixtures/step-spec/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/step-spec
+          lake build
+          python3 check.py "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean"
 
   check-version:
     name: Version consistency
