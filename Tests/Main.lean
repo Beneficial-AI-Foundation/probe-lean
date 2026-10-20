@@ -5857,6 +5857,12 @@ theorem f_let : ∀ x, let y := x; Aeneas.Std.WP.spec (f y) (fun r => r = y) := 
 theorem f_dlet : ∀ x, Aeneas.Std.WP.dspec (let g := f; g x) (fun r => r = x) := fun _ => trivial
 theorem pf_ok : ∀ x, Aeneas.Std.WP.spec (pf x) (fun r => r = x) := fun _ => trivial
 theorem generic : ∀ p : Option Nat, Aeneas.Std.WP.spec p (fun r => r = 0) := fun _ => trivial
+-- A companion `X.mvcgen_spec` of an axiom takes the head of `X`. Its own statement is
+-- not in `WP.spec` form. A companion of a theorem does not.
+axiom ax_spec : ∀ x, Aeneas.Std.WP.spec (f x) (fun r => r = x)
+theorem ax_spec.mvcgen_spec : ∀ x, f x = some x := fun _ => rfl
+theorem thm_spec : ∀ x, f x = some x := fun _ => rfl
+theorem thm_spec.mvcgen_spec : ∀ x, f x = some x := fun _ => rfl
 end StepEnv
 
 open Lean Elab Command in
@@ -5876,6 +5882,9 @@ run_cmd do
     ("a private program keeps its private name",
       pfHead.any isPrivateName && pfHead.map privateToUserName == some `StepEnv.pf),
     ("a generic lemma has head none", headOf `StepEnv.generic == none),
+    ("the companion of an axiom takes the axiom's head",
+      headOf `StepEnv.ax_spec.mvcgen_spec == some `StepEnv.f),
+    ("the companion of a theorem has head none", headOf `StepEnv.thm_spec.mvcgen_spec == none),
     ("a def has head none", headOf `StepEnv.f == none)]
   let items ← checks.mapM fun (nm, ok) => `(($(quote nm), $(quote ok)))
   elabCommand (← `(def $(mkIdent `stepEnvChecks) : Array (String × Bool) :=
@@ -5885,7 +5894,7 @@ def testStepEnv (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
   IO.println "Testing stepProgramHead on elaborated theorems..."
-  result ← test "environment-backed step checks were generated" (stepEnvChecks.size == 7) result
+  result ← test "environment-backed step checks were generated" (stepEnvChecks.size == 9) result
   for (name, ok) in stepEnvChecks do
     result ← test name ok result
   return result

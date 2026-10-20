@@ -24,6 +24,8 @@ EXPECTED = {
     "Step.part1": "Step.part1_spec",  # rule 2
     "Step.chi_row": "Step.chi_row_correct",  # rule 2, @[local step] (#133)
     "Step.append": "Step.append.spec",  # rule 3, <T>.spec
+    "Step.hkdf": None,  # the axiom companion is about to_slice, to_vec_spec about to_vec
+    "Step.to_slice": "Step.to_slice_spec.mvcgen_spec",  # rule 2, the axiom companion
 }
 
 failures = []
@@ -53,7 +55,8 @@ def main():
     for target, spec in EXPECTED.items():
         atom = data.get(f"probe:{target}", {})
         got = atom.get("primary-spec")
-        check(f"{target} -> {spec} (got {got})", got == f"probe:{spec}")
+        want = None if spec is None else f"probe:{spec}"
+        check(f"{target} -> {spec} (got {got})", got == want)
     attrs = data.get("probe:Step.chi_row_correct", {}).get("attributes", [])
     check(f"@[local step] is recorded as step, not local (got {attrs})",
           "step" in attrs and "local" not in attrs)

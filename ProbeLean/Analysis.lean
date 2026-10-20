@@ -362,8 +362,9 @@ structure DeclInfo where
   /-- Final application arg of the result type is `Bool`. Neutral primitive (see
       `lastArgIsBool`). -/
   codomainLastArgIsBool : Bool := false
-  /-- Step program head of a theorem (see `stepProgramHeadOf`). Raw `Name`, private
-      prefix kept. `none` for every other kind. -/
+  /-- Step program head of a theorem (see `stepProgramHeadOf`), else of the axiom
+      parent of a companion (`companionParentHead`). Raw `Name`, private prefix kept.
+      `none` for every other kind. -/
   stepProgramHead : Option Name := none
 
 /-- Analyze a single declaration. `modNames` is `env.allImportedModuleNames`, fetched
@@ -385,7 +386,7 @@ def analyzeDecl (env : Environment) (modNames : Array Name) (name : Name) (info 
     codomainIsType := codomainIsTypeOf info.type,
     codomainLastArgIsBool := lastArgIsBool (stripForalls info.type),
     stepProgramHead := match info with
-      | .thmInfo t => stepProgramHeadOf t.type
+      | .thmInfo t => (stepProgramHeadOf t.type).orElse fun _ => companionParentHead env name
       | _ => none }
 
 /-- `outer` covers `inner`'s line range, sharing boundaries allowed but not the

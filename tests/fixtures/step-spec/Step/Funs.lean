@@ -45,4 +45,16 @@ def append (x : Nat) : Option Nat := some x
 @[step] theorem append.spec (x : Nat) : spec (append x) (fun r => r = x) := trivial
 @[step] theorem append_aux_spec (x : Nat) : spec (append x) (fun r => x ≤ r) := trivial
 
+-- An axiom spec and its companion (#132 follow-up). The companion `X.mvcgen_spec` of
+-- an axiom is a spec source, and in Aeneas it shares the `@[step]` of its parent. It
+-- is tagged here by hand. Its statement is not in `WP.spec` form, so it takes the head
+-- of the axiom: `to_slice`. Expected: `hkdf` gets no primary spec, `to_slice` gets
+-- the companion.
+def hkdf (x : Nat) : Nat := x
+def to_slice (x : Nat) : Option Nat := some (hkdf x)
+def to_vec (x : Nat) : Option Nat := some (hkdf x)
+@[step] axiom to_slice_spec (x : Nat) : spec (to_slice x) (fun r => r = hkdf x)
+@[step] theorem to_slice_spec.mvcgen_spec (x : Nat) : to_slice x = some (hkdf x) := rfl
+@[step] theorem to_vec_spec (x : Nat) : spec (to_vec x) (fun r => r = hkdf x) := trivial
+
 end Step

@@ -148,13 +148,20 @@ namespaces. In SymCRust-lean, `Symcrust.Properties.MLKEM.mlkem.ntt.mont_mul.spec
 Rule 5 has no head check. If a theorem about another function is the only theorem in `specs`,
 rule 5 picks it. Tag the right theorem `@[primary_spec]` to fix such a case.
 
+For a `@[step]` declaration `X`, Aeneas generates a companion `X.mvcgen_spec` in mvcgen's
+`Triple` form, with the program of `X`. probe-lean keeps the companion of an axiom as the axiom's
+spec source ("Spec sources"). Its own statement has no head, so it takes the head of the axiom.
+Without that, the companion keeps the `step` tag it shows from the source scan, rule 2 removes
+the real step theorems, and the companion wins. In SPQR, `crypto.hkdf` got the companion of the
+axiom about `spqr.kdf.hkdf_to_slice` in a build without this rule.
+
 These rules assume that in one project, either every tagged theorem has a step program head or
 no tagged theorem has one. Aeneas made `@[progress]` a deprecated alias of `@[step]` in March 2026,
 with the same shape check, and the `WP.spec` shape replaced `∃ y, f x = ok y ∧ P` in December 2025.
 Three kinds of project break the assumption. The first tags generic lemmas `∀ p, WP.spec p P`,
 which Aeneas accepts and which have no head. The second mixes the old and the new shape. The third
-registers its own spec statement. For such a project, probe-lean gives no guarantee about
-`primary-spec`.
+registers its own spec statement. A companion of an axiom does not break it, because it takes the
+head of the axiom. For such a project, probe-lean gives no guarantee about `primary-spec`.
 
 `specs` is keyed by published names. If two spec sources publish the same name (#88), one
 atom's head serves both.

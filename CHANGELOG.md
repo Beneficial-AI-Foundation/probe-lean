@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `primary-spec` reads the step program head of each theorem from its type (#132): the function `f` in `WP.spec (f …) P`. The head is not in the output.
   - Rule 2 (framework attribute) and rule 3 (name) skip a theorem whose head is another function. A step theorem whose postcondition names `invert` no longer blocks the step theorem of `invert`.
   - Rule 3 accepts `<T>.spec` as well as `<T>_spec`. If both are present, it picks nothing.
+  - A companion `X.mvcgen_spec` of an axiom `X` takes the head of `X`. Without that, a companion whose postcondition names a function wins rule 2 for it once the real step theorems are skipped.
   - New rule 4: the only theorem about `T` whose name ends in `<last>.spec` or `<last>_spec`, in any namespace. Rule 5 is the former sole-spec rule.
   - Some `primary-spec` values change on re-extract. See `docs/spec-relationships.md`, section "Step program head".
 
