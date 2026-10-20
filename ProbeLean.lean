@@ -2,6 +2,7 @@ import ProbeLean.Types
 import ProbeLean.NixEnv
 import ProbeLean.Environment
 import ProbeLean.Coimport
+import ProbeLean.SpecFramework
 import ProbeLean.Analysis
 import ProbeLean.AxiomCheck
 import ProbeLean.Trust

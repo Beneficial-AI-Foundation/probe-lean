@@ -107,14 +107,68 @@ Known limitations:
 `primary-spec` picks one theorem from `specs`, by this precedence:
 
 1. a theorem tagged `@[primary_spec]`.
-2. a theorem with a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`), only
-   when exactly one theorem in `specs` has one.
-3. the theorem named exactly `<def>_spec`, where `<def>` is the atom's own name.
-4. the only theorem in `specs`.
+2. a theorem with a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`, also
+   with `local` or `scoped`), only when exactly one such theorem in `specs` is not about another
+   function.
+3. the theorem named exactly `<T>_spec` or `<T>.spec`, where `<T>` is the atom's own name, unless
+   it is about another function. If both names are present and count, rule 3 picks nothing.
+4. the only theorem about `T` whose name ends in `<last>.spec` or `<last>_spec`, where `<last>`
+   is the last component of `T`. The namespace of the theorem does not matter.
+5. the only theorem in `specs`.
+
+At each rule, several candidates never resolve arbitrarily. The next rule decides, or the atom
+gets no `primary-spec`.
+
+### Step program head
+
+A theorem is about the function in its step program. Aeneas accepts a `@[step]` theorem only in
+the shape `∀ xs, H1 → ... → Hk → S T (f a1 ... an) P`. Here `S` is a registered spec statement
+(`Aeneas.Std.WP.spec` or `Aeneas.Std.WP.dspec`), and `f a1 ... an` is the program. The `step`
+tactic indexes the theorem under `f`, its step program head. probe-lean reads the head from the
+theorem's type, not from the attribute and not from the Aeneas data in the `.olean`:
+`@[local step]` registrations never reach the `.olean`. An untagged theorem of this shape also has
+a head. It can win rule 4, but it is never a rule 2 candidate, because rule 2 requires the author's
+tag. A theorem of any other shape has no head. Rules 2 and 3 never skip it for its head.
+
+If the head of a theorem is known and is not `T`, the theorem is about another function. Rules 2
+and 3 skip such a theorem:
+
+- Rule 2. A step theorem lands in `specs` of every function that its statement names. In
+  curve25519-dalek, the postcondition of `MontgomeryPoint.to_edwards_spec` names
+  `FieldElement51.invert`, so `invert` had two tagged candidates and no `primary-spec` (#132).
+  The step theorem of `constants.LFACTOR` was `Scalar52.part1_spec`, a theorem about
+  `montgomery_reduce.part1` (#129). With the head rule, `invert` gets its own step theorem and
+  `LFACTOR` gets `constants.LFACTOR_spec` by rule 3.
+- Rule 3. A theorem named `f.spec` whose program is `g` does not win rule 3 for `f`.
+
+Rule 4 ignores the namespace, so it requires the head: the same short name exists in other
+namespaces. In SymCRust-lean, `Symcrust.Properties.MLKEM.mlkem.ntt.mont_mul.spec` is the spec of
+`symcrust.mlkem.ntt.mont_mul`.
+
+Rule 5 has no head check. If a theorem about another function is the only theorem in `specs`,
+rule 5 picks it. Tag the right theorem `@[primary_spec]` to fix such a case.
+
+For a `@[step]` declaration `X`, Aeneas generates a companion `X.mvcgen_spec` in mvcgen's
+`Triple` form, with the program of `X`. probe-lean keeps the companion of an axiom as the axiom's
+spec source ("Spec sources"). Its own statement has no head, so it takes the head of the axiom.
+Without that, the companion keeps the `step` tag it shows from the source scan, rule 2 removes
+the real step theorems, and the companion wins. In SPQR, `crypto.hkdf` got the companion of the
+axiom about `spqr.kdf.hkdf_to_slice` in a build without this rule.
+
+These rules assume that in one project, either every tagged theorem has a step program head or
+no tagged theorem has one. Aeneas made `@[progress]` a deprecated alias of `@[step]` in March 2026,
+with the same shape check, and the `WP.spec` shape replaced `∃ y, f x = ok y ∧ P` in December 2025.
+Three kinds of project break the assumption. The first tags generic lemmas `∀ p, WP.spec p P`,
+which Aeneas accepts and which have no head. The second mixes the old and the new shape. The third
+registers its own spec statement. A companion of an axiom does not break it, because it takes the
+head of the axiom. For such a project, probe-lean gives no guarantee about `primary-spec`.
+
+`specs` is keyed by published names. If two spec sources publish the same name (#88), one
+atom's head serves both.
 
 If several `@[primary_spec]` theorems target one atom, the tie-break is arbitrary and `extract`
 prints a warning on stderr. The other tagged theorems stay in `specs` with `is-primary-spec: true`.
-Signals 2 to 4 pick a theorem without tagging it, so the winner's own `is-primary-spec` can be
+Rules 2 to 5 pick a theorem without tagging it, so the winner's own `is-primary-spec` can be
 `false`. A tagged non-theorem reads `true`. A tagged theorem that the inference attaches to no
 target (issue #104) also reads `true`. To find a target's tagged candidates, intersect its `specs`
 with this flag.
