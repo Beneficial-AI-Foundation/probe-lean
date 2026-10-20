@@ -5745,6 +5745,11 @@ def testStepProgramHead (result : TestResult) : IO TestResult := do
     (head (stmt (Lean.mkApp (.mdata .empty (Lean.mkApp g nat)) nat)) == some `Fx.g) result
   result ← test "mdata around the program head"
     (head (stmt (Lean.mkApp (.mdata .empty g) nat)) == some `Fx.g) result
+  result ← test "let in function position of the program"
+    (head (stmt (Lean.mkApp (Lean.mkLet `a nat g (.bvar 0)) nat)) == some `Fx.g) result
+  result ← test "let in function position of the statement"
+    (head (Lean.mkApp2 (Lean.mkLet `s nat (Lean.mkApp spec nat) (.bvar 0)) prog post)
+      == some `Fx.g) result
   return result
 
 /-- Primary spec of `target` after `computeSpecs`. -/
@@ -5855,6 +5860,8 @@ private def pf (x : Nat) : Option Nat := some x
 theorem f_ok : ∀ x, x < 5 → Aeneas.Std.WP.spec (f x) (fun r => r = x) := fun _ _ => trivial
 theorem f_let : ∀ x, let y := x; Aeneas.Std.WP.spec (f y) (fun r => r = y) := fun _ => trivial
 theorem f_dlet : ∀ x, Aeneas.Std.WP.dspec (let g := f; g x) (fun r => r = x) := fun _ => trivial
+theorem f_flet : ∀ x, Aeneas.Std.WP.spec ((let g := f; g) x) (fun r => r = x) :=
+  fun _ => trivial
 theorem pf_ok : ∀ x, Aeneas.Std.WP.spec (pf x) (fun r => r = x) := fun _ => trivial
 theorem generic : ∀ p : Option Nat, Aeneas.Std.WP.spec p (fun r => r = 0) := fun _ => trivial
 -- A companion `X.mvcgen_spec` of an axiom takes the head of `X`. Its own statement is
@@ -5879,6 +5886,7 @@ run_cmd do
     ("a theorem with ∀ and a hypothesis has head f", headOf `StepEnv.f_ok == some `StepEnv.f),
     ("a let in result position", headOf `StepEnv.f_let == some `StepEnv.f),
     ("a let in the program of a dspec", headOf `StepEnv.f_dlet == some `StepEnv.f),
+    ("a let in function position of the program", headOf `StepEnv.f_flet == some `StepEnv.f),
     ("a private program keeps its private name",
       pfHead.any isPrivateName && pfHead.map privateToUserName == some `StepEnv.pf),
     ("a generic lemma has head none", headOf `StepEnv.generic == none),
@@ -5894,7 +5902,7 @@ def testStepEnv (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
   IO.println "Testing stepProgramHead on elaborated theorems..."
-  result ← test "environment-backed step checks were generated" (stepEnvChecks.size == 9) result
+  result ← test "environment-backed step checks were generated" (stepEnvChecks.size == 10) result
   for (name, ok) in stepEnvChecks do
     result ← test name ok result
   return result

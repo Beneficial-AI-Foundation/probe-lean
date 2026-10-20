@@ -41,11 +41,13 @@ def hasKnownSpecAttribute (attrs : Array String) : Bool :=
 def stepSpecStatements : List (Name × Nat × Nat) :=
   [(`Aeneas.Std.WP.spec, 3, 1), (`Aeneas.Std.WP.dspec, 3, 1)]
 
-/-- Strip `let` binders (zeta, by instantiating the body with the value) and
-    metadata from the front of `e`. -/
-private partial def stripLets : Expr → Expr
-  | .mdata _ e => stripLets e
-  | .letE _ _ value body _ => stripLets (body.instantiate1 value)
+/-- Strip `let` binders (zeta, by instantiating the body with the value) and metadata
+    from the front of `e` and along its application spine, keeping the arguments:
+    `(let g := f; g) x` → `f x`. -/
+private partial def stripSpineLets : Expr → Expr
+  | .app f a => .app (stripSpineLets f) a
+  | .mdata _ e => stripSpineLets e
+  | .letE _ _ value body _ => stripSpineLets (body.instantiate1 value)
   | e => e
 
 /-- Strip leading `∀`/`→` binders, `let` binders and metadata, in any order. The
@@ -59,16 +61,15 @@ private partial def stripToResult : Expr → Expr
 /-- The step program head of a theorem type: the head constant of the program in a
     statement `S T (f a1 ... an) P` with `S` in `stepSpecStatements`, after the leading
     binders. `none` if the statement is not such an application with the listed arity,
-    or if the program does not start with a constant (a generic lemma). The primed
-    `Expr` helpers look through metadata anywhere in an application spine, also around
-    a partial application. A `let` in the program is instantiated, as Aeneas does
-    before it indexes the theorem. -/
+    or if the program does not start with a constant (a generic lemma). A `let` or
+    metadata at the front or in function position of the statement or the program is
+    removed first, as Aeneas normalizes `let`s before it indexes the theorem. -/
 def stepProgramHeadOf (type : Expr) : Option Name := do
-  let stmt := stripToResult type
-  let .const c _ := stmt.getAppFn' | none
+  let stmt := stripSpineLets (stripToResult type)
+  let .const c _ := stmt.getAppFn | none
   let (_, arity, idx) ← stepSpecStatements.find? (·.1 == c)
-  guard (stmt.getAppNumArgs' == arity)
-  match (stripLets (stmt.getArg!' idx)).getAppFn' with
+  guard (stmt.getAppNumArgs == arity)
+  match (stripSpineLets (stmt.getArg! idx)).getAppFn with
   | .const f _ => some f
   | _ => none
 
