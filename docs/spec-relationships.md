@@ -128,7 +128,7 @@ tactic indexes the theorem under `f`, its step program head. probe-lean reads th
 theorem's type, not from the attribute and not from the Aeneas data in the `.olean`:
 `@[local step]` registrations never reach the `.olean`. An untagged theorem of this shape also has
 a head. It can win rule 4, but it is never a rule 2 candidate, because rule 2 requires the author's
-tag. A theorem of any other shape has no head and keeps the behavior of 0.21.0.
+tag. A theorem of any other shape has no head. Rules 2 and 3 never skip it for its head.
 
 If the head of a theorem is known and is not `T`, the theorem is about another function. Rules 2
 and 3 skip such a theorem:

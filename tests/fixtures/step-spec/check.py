@@ -53,8 +53,11 @@ def main():
 
     print("Primary spec from the step program")
     for target, spec in EXPECTED.items():
-        atom = data.get(f"probe:{target}", {})
-        got = atom.get("primary-spec")
+        key = f"probe:{target}"
+        if key not in data:
+            check(f"{target} is in the output", False)
+            continue
+        got = data[key].get("primary-spec")
         want = None if spec is None else f"probe:{spec}"
         check(f"{target} -> {spec} (got {got})", got == want)
     attrs = data.get("probe:Step.chi_row_correct", {}).get("attributes", [])
