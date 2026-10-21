@@ -8,6 +8,7 @@ import ProbeLean.Extract
 import ProbeLean.CheckAxioms
 import ProbeLean.View
 import ProbeLean.Version
+import ProbeLean.Workspace
 
 open Cli
 open ProbeLean
@@ -126,6 +127,9 @@ def probeleanCmd : Cmd :=
       checkAxiomsCmd
   ]).withVersion ProbeLean.version
 
-/-- Entry point -/
+/-- Entry point. The hidden workspace helper subcommands (`runWorkspaceHelper?`)
+    run before the CLI parser, so they do not show in `--help`. -/
 def main (args : List String) : IO UInt32 :=
-  probeleanCmd.validate args
+  match runWorkspaceHelper? args with
+  | some helper => helper
+  | none => probeleanCmd.validate args

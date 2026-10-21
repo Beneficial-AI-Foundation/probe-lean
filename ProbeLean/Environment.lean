@@ -3,6 +3,7 @@
 -/
 import Lean
 import ProbeLean.NixEnv
+import ProbeLean.WorkspaceInfo
 
 namespace ProbeLean
 
@@ -45,6 +46,49 @@ def runLakeCmd (args : Array String) (cwd : Option System.FilePath := none)
     runCmd "nix-shell" #["--run", nixShellRunString args] cwd
   | none =>
     runCmd "lake" args cwd
+
+/-- The error for a failed helper call (`queryWorkspaceInfo`, `queryOwners`). Exit
+    code `helperGithashExit` means the target uses another Lean (R2), and the
+    helper's stderr then names both githashes. -/
+def formatHelperFailure (command : String) (exitCode : UInt32) (stderr : String) : String :=
+  if exitCode == helperGithashExit then stderr.trimAscii.toString
+  else s!"Error: the Lake workspace load failed (`lake env probe-lean {command}`, \
+    exit {exitCode}):\n{stderr.trimAscii}"
+
+/-- Run the hidden `workspace-info` subcommand of this binary under `lake env` in
+    the project directory (`ProbeLean/Workspace.lean`) and decode its answer. Also
+    checks the githash in the answer against probe-lean's own, as a second guard. -/
+def queryWorkspaceInfo (projectPath : System.FilePath) (nixMode : Option NixMode)
+    : IO (Except String WorkspaceInfo) := do
+  let app ← IO.appPath
+  let (out, err, code) ← runLakeCmd #["env", app.toString, "workspace-info"]
+    (some projectPath) nixMode
+  if code != 0 then return .error (formatHelperFailure "workspace-info" code err)
+  match decodeWorkspaceInfo out with
+  | .error e => return .error s!"Error: {e}"
+  | .ok info =>
+    unless githashMatches info.leanGithash Lean.githash do
+      return .error (formatGithashMismatch info.leanGithash Lean.githash)
+    return .ok info
+
+/-- Ask the helper (`workspace-owners`) for the owners of `names`. The names go
+    through a temporary file outside the project, deleted after the call. The answer
+    must cover every name exactly once (`checkOwnersComplete`). -/
+def queryOwners (projectPath : System.FilePath) (nixMode : Option NixMode)
+    (names : Array Lean.Name) : IO (Except String (Array OwnerInfo)) := do
+  let app ← IO.appPath
+  IO.FS.withTempFile fun h file => do
+    h.putStr (encodeOwnerRequest names)
+    h.flush
+    let (out, err, code) ← runLakeCmd #["env", app.toString, "workspace-owners", file.toString]
+      (some projectPath) nixMode
+    if code != 0 then return .error (formatHelperFailure "workspace-owners" code err)
+    match decodeOwners out with
+    | .error e => return .error s!"Error: {e}"
+    | .ok owners =>
+      match checkOwnersComplete names owners with
+      | .error e => return .error s!"Error: {e}"
+      | .ok () => return .ok owners
 
 /-- Build the target project using lake, returning combined stdout+stderr on success -/
 def buildProject (projectPath : System.FilePath) : IO (Except String String) := do

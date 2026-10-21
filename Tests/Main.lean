@@ -5943,8 +5943,74 @@ def testRunCmdBothPipes (result : TestResult) : IO TestResult := do
   result ← test "exit code 0" (code == 0) result
   return result
 
+def testDecodeWorkspaceInfo (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing decodeWorkspaceInfo..."
+  let good := "info: noise\n{\"leanGithash\":\"abc\",\"leanPath\":\"a:b\",\"leanLibDir\":\".lake/build/lib/lean\",\"defaultTargets\":[\"«my-exe»\",\"Core\"],\"libs\":[{\"name\":\"«a.b»\",\"modules\":[\"«a.b»\",\"X.«c-d»\"]}],\"exes\":[{\"name\":\"«my-exe»\",\"root\":\"Main\"}]}\n"
+  match decodeWorkspaceInfo good with
+  | .ok info =>
+    result ← test "decodes the last line" (info.leanGithash == "abc" && info.leanPath == "a:b") result
+    result ← test "«» exe name is one component"
+      (info.defaultTargets == #[Lean.Name.mkSimple "my-exe", `Core]) result
+    result ← test "«a.b» lib name is one component"
+      (info.libs.map (·.name) == #[Lean.Name.mkSimple "a.b"]) result
+    result ← test "«c-d» module component"
+      (info.libs[0]!.modules[1]! == (Lean.Name.mkSimple "X").str "c-d") result
+    result ← test "exe root" (info.exes == #[{ name := Lean.Name.mkSimple "my-exe", root := `Main }]) result
+  | .error e => result ← test s!"decodes a correct answer ({e})" false result
+  let wrong := "{\"leanGithash\":\"abc\",\"leanPath\":\"\",\"leanLibDir\":\"x\",\"defaultTargets\":[],\"libs\":[],\"exe\":[]}"
+  result ← test "a wrong field fails" (decodeWorkspaceInfo wrong matches .error _) result
+  let rawShown := match decodeWorkspaceInfo "Segmentation fault" with
+    | .error e => containsSubstring e "Segmentation fault"
+    | .ok _ => false
+  result ← test "non-JSON fails and shows the raw output" rawShown result
+  result ← test "empty output fails" (decodeWorkspaceInfo "\n" matches .error _) result
+  return result
+
+def testDecodeOwners (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing decodeOwners and checkOwnersComplete..."
+  let out := "{\"module\":\"A.B\",\"lib\":\"A\",\"exe\":null}\n{\"module\":\"Main\",\"exe\":\"«my-exe»\"}\n"
+  match decodeOwners out with
+  | .ok os =>
+    result ← test "two answers" (os.size == 2) result
+    result ← test "lib owner" (os[0]! == { module := `A.B, lib := some `A }) result
+    result ← test "exe owner, missing lib is none"
+      (os[1]! == { module := `Main, exe := some (Lean.Name.mkSimple "my-exe") }) result
+    result ← test "complete answer passes" (checkOwnersComplete #[`A.B, `Main] os matches .ok _) result
+    result ← test "missing name fails" (checkOwnersComplete #[`A.B, `Main, `C] os matches .error _) result
+    result ← test "unrequested name fails" (checkOwnersComplete #[`A.B] os matches .error _) result
+    result ← test "duplicate answer fails"
+      (checkOwnersComplete #[`A.B, `Main] (os.push os[0]!) matches .error _) result
+  | .error e => result ← test s!"decodes owners ({e})" false result
+  result ← test "wrong field fails" (decodeOwners "{\"mod\":\"A\"}" matches .error _) result
+  result ← test "non-JSON owners fail" (decodeOwners "oops" matches .error _) result
+  let req := #[Lean.Name.mkSimple "a.b", `X.Y, (Lean.Name.mkSimple "Misc").str "Real-EReal"]
+  result ← test "owner request round trip with «» names"
+    ((decodeOwnerRequest (encodeOwnerRequest req)).toOption == some req) result
+  return result
+
+def testGithashCheck (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing githashMatches and formatGithashMismatch..."
+  result ← test "equal githashes match" (githashMatches "abc" "abc") result
+  result ← test "different githashes do not match" (!githashMatches "abc" "abd") result
+  result ← test "trailing newline does not count" (githashMatches "abc\n" "abc") result
+  let msg := formatGithashMismatch "aaa111" "bbb222"
+  result ← test "message names both githashes"
+    (containsSubstring msg "aaa111" && containsSubstring msg "bbb222") result
+  result ← test "message points to --from-project" (containsSubstring msg "--from-project") result
+  result ← test "exit 3 maps to the githash message"
+    (formatHelperFailure "workspace-info" 3 msg == msg) result
+  result ← test "other exits say the load failed"
+    (containsSubstring (formatHelperFailure "workspace-info" 1 "boom") "workspace load failed") result
+  return result
+
 def runSuiteG (result : TestResult) : IO TestResult := do
   let mut result := result
+  result ← testDecodeWorkspaceInfo result
+  result ← testDecodeOwners result
+  result ← testGithashCheck result
   result ← testShellQuote result
   result ← testRunCmdBothPipes result
   return result
