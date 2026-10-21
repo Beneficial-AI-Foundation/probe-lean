@@ -98,10 +98,11 @@ jobs:
           lake env lean --run TaintCheck.lean extract.stderr check-axioms.out check-graph.out
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
-      # The import fallback: two colliding modules force `extract --module` to
-      # import the selection only, and the selected module's transitively loaded
-      # project dependency carries a `sorry`. P must include that dependency.
-      - name: End-to-end import-fallback check
+      # Two colliding modules outside the closure of `Coll.Main`: `extract --module`
+      # imports that closure only, and its transitively loaded project dependency
+      # carries a `sorry`. P must include that dependency. The run without
+      # `--module` must fail with the preflight collision error.
+      - name: End-to-end collision check
         run: |
           diff lean-toolchain tests/fixtures/collision/lean-toolchain \
             || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
@@ -112,6 +113,8 @@ jobs:
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o .verilib/full.json 2>extract-full.stderr; then
+            echo "::error::extract without -m succeeded although Coll.A and Coll.B collide"; exit 1; fi
           python3 check.py
 
       # Merged declarations: two modules restate one theorem with the same
@@ -186,11 +189,10 @@ jobs:
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
-      # The import fallback over module-system modules: the collision fixture with
-      # `module` headers. At the exported level both `public def dup` are axioms of
-      # type `Nat`, which the base-olean preflight tolerates, so the full import
-      # itself fails and the fallback takes over.
-      - name: End-to-end module-system import-fallback check
+      # The collision fixture with `module` headers. At the exported level both
+      # `public def dup` are axioms of type `Nat`, which the base-olean preflight
+      # tolerates, so the run without `--module` fails at the import itself.
+      - name: End-to-end module-system collision check
         run: |
           diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
             || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
@@ -201,13 +203,15 @@ jobs:
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m ModColl.Main | tee check-axioms.out
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o .verilib/full.json 2>extract-full.stderr; then
+            echo "::error::extract without -m succeeded although ModColl.A and ModColl.B collide"; exit 1; fi
           python3 check.py
 
-      # A stale orphan olean the import still loads: after `Orph/Dep.lean` is deleted
-      # the build cache stays valid, discovery drops `Orph.Dep`, and importing
-      # `Orph.Main` loads its olean anyway. Both commands must abort instead of
-      # trusting the orphan's `sorry` as a dependency's.
-      - name: End-to-end stale-orphan abort check
+      # A deleted module that a target module imports: after `Orph/Dep.lean` is
+      # deleted, its olean stays in the build directory. The target build fails and
+      # names the file, so both commands fail before the import, and no output file
+      # is written.
+      - name: End-to-end deleted-module check
         run: |
           diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
             || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
@@ -217,7 +221,7 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
           rm Orph/Dep.lean
-          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract2.stderr; then
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o .verilib/after.json 2>extract2.stderr; then
             echo "::error::extract succeeded although the imported Orph.Dep has no source"; exit 1; fi
           cat extract2.stderr >&2
           if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . >check-axioms2.out 2>check-axioms2.err; then
@@ -235,6 +239,47 @@ jobs:
           cd tests/fixtures/step-spec
           lake build
           python3 check.py "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean"
+
+      # Stale build outputs (#152): probe-lean builds the targets on every run and
+      # imports only the closure of the target modules, every project module of
+      # which a lean_lib must own. check.sh changes a copy of the fixture step by
+      # step: a stale library outside the closure, --library, --all-libraries,
+      # defaultFacets = [], and the three ownership rejections.
+      - name: End-to-end stale build outputs check
+        run: |
+          diff lean-toolchain tests/fixtures/stale/lean-toolchain \
+            || { echo "::error::tests/fixtures/stale/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          bash tests/fixtures/stale/check.sh .lake/build/bin/probe-lean
+
+      # A lakefile.lean project (#123) with a package and a library srcDir, a «»
+      # library name and a quoted default executable, run from a fresh copy so the
+      # build directory check and the closure run before any build output exists.
+      - name: End-to-end lakefile.lean check
+        run: |
+          diff lean-toolchain tests/fixtures/lakefile-lean/lean-toolchain \
+            || { echo "::error::tests/fixtures/lakefile-lean/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          work=$(mktemp -d)
+          cp -r tests/fixtures/lakefile-lean "$work/p"
+          rm -rf "$work/p/.lake"
+          cd "$work/p"
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o out.json 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          python3 check.py
+
+      # Lake's artifact cache: a cache hit without a restore keeps the .olean files
+      # out of .lake/build, and extract must fail with the R8 error.
+      - name: End-to-end artifact cache check
+        run: bash tests/fixtures/stale/check-cache.sh .lake/build/bin/probe-lean
+
+      # The Lean version check (R2): a target on another Lean fails before any
+      # build, also for a lakefile.lean project, whose load fails with another Lean.
+      # NEWEST_LEAN is the newest supported Lean (LEAN_VERSION of test-newest).
+      - name: End-to-end Lean version check
+        env:
+          NEWEST_LEAN: v4.35.0
+        run: |
+          bash tests/fixtures/stale/check-version.sh .lake/build/bin/probe-lean tests/fixtures/stale "$NEWEST_LEAN"
+          bash tests/fixtures/stale/check-version.sh .lake/build/bin/probe-lean tests/fixtures/lakefile-lean "$NEWEST_LEAN"
 
       # The example fixture is real probe-lean output, so any output-format
       # change must be reflected in it. Regenerating and diffing makes staleness
@@ -281,6 +326,8 @@ jobs:
           cp lean-toolchain tests/fixtures/module-collision/lean-toolchain
           cp lean-toolchain tests/fixtures/orphan/lean-toolchain
           cp lean-toolchain tests/fixtures/step-spec/lean-toolchain
+          cp lean-toolchain tests/fixtures/stale/lean-toolchain
+          cp lean-toolchain tests/fixtures/lakefile-lean/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
           # build precondition needs it; the Cli rev is rewritten below.
           rm -rf .lake
@@ -343,7 +390,7 @@ jobs:
           lake env lean --run TaintCheck.lean extract.stderr check-axioms.out check-graph.out
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
-      - name: End-to-end import-fallback check
+      - name: End-to-end collision check
         run: |
           diff lean-toolchain tests/fixtures/collision/lean-toolchain \
             || { echo "::error::tests/fixtures/collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
@@ -354,6 +401,8 @@ jobs:
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m Coll.Main | tee check-axioms.out
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o .verilib/full.json 2>extract-full.stderr; then
+            echo "::error::extract without -m succeeded although Coll.A and Coll.B collide"; exit 1; fi
           python3 check.py
 
       # Merged declarations: two modules restate one theorem with the same
@@ -428,11 +477,10 @@ jobs:
           python3 check.py
           python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
-      # The import fallback over module-system modules: the collision fixture with
-      # `module` headers. At the exported level both `public def dup` are axioms of
-      # type `Nat`, which the base-olean preflight tolerates, so the full import
-      # itself fails and the fallback takes over.
-      - name: End-to-end module-system import-fallback check
+      # The collision fixture with `module` headers. At the exported level both
+      # `public def dup` are axioms of type `Nat`, which the base-olean preflight
+      # tolerates, so the run without `--module` fails at the import itself.
+      - name: End-to-end module-system collision check
         run: |
           diff lean-toolchain tests/fixtures/module-collision/lean-toolchain \
             || { echo "::error::tests/fixtures/module-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
@@ -443,13 +491,15 @@ jobs:
             status=$?; cat extract.stderr >&2; exit "$status"; }
           cat extract.stderr >&2
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . -m ModColl.Main | tee check-axioms.out
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o .verilib/full.json 2>extract-full.stderr; then
+            echo "::error::extract without -m succeeded although ModColl.A and ModColl.B collide"; exit 1; fi
           python3 check.py
 
-      # A stale orphan olean the import still loads: after `Orph/Dep.lean` is deleted
-      # the build cache stays valid, discovery drops `Orph.Dep`, and importing
-      # `Orph.Main` loads its olean anyway. Both commands must abort instead of
-      # trusting the orphan's `sorry` as a dependency's.
-      - name: End-to-end stale-orphan abort check
+      # A deleted module that a target module imports: after `Orph/Dep.lean` is
+      # deleted, its olean stays in the build directory. The target build fails and
+      # names the file, so both commands fail before the import, and no output file
+      # is written.
+      - name: End-to-end deleted-module check
         run: |
           diff lean-toolchain tests/fixtures/orphan/lean-toolchain \
             || { echo "::error::tests/fixtures/orphan/lean-toolchain must match the root lean-toolchain"; exit 1; }
@@ -459,7 +509,7 @@ jobs:
           "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
             status=$?; cat extract.stderr >&2; exit "$status"; }
           rm Orph/Dep.lean
-          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract2.stderr; then
+          if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o .verilib/after.json 2>extract2.stderr; then
             echo "::error::extract succeeded although the imported Orph.Dep has no source"; exit 1; fi
           cat extract2.stderr >&2
           if "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . >check-axioms2.out 2>check-axioms2.err; then
@@ -477,6 +527,41 @@ jobs:
           cd tests/fixtures/step-spec
           lake build
           python3 check.py "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean"
+
+      # Stale build outputs (#152): probe-lean builds the targets on every run and
+      # imports only the closure of the target modules, every project module of
+      # which a lean_lib must own. check.sh changes a copy of the fixture step by
+      # step: a stale library outside the closure, --library, --all-libraries,
+      # defaultFacets = [], and the three ownership rejections.
+      - name: End-to-end stale build outputs check
+        run: |
+          diff lean-toolchain tests/fixtures/stale/lean-toolchain \
+            || { echo "::error::tests/fixtures/stale/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          bash tests/fixtures/stale/check.sh .lake/build/bin/probe-lean
+
+      # A lakefile.lean project (#123) with a package and a library srcDir, a «»
+      # library name and a quoted default executable, run from a fresh copy so the
+      # build directory check and the closure run before any build output exists.
+      - name: End-to-end lakefile.lean check
+        run: |
+          diff lean-toolchain tests/fixtures/lakefile-lean/lean-toolchain \
+            || { echo "::error::tests/fixtures/lakefile-lean/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          work=$(mktemp -d)
+          cp -r tests/fixtures/lakefile-lean "$work/p"
+          rm -rf "$work/p/.lake"
+          cd "$work/p"
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . -o out.json 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          python3 check.py
+
+      # Lake's artifact cache: a cache hit without a restore keeps the .olean files
+      # out of .lake/build, and extract must fail with the R8 error.
+      - name: End-to-end artifact cache check
+        run: bash tests/fixtures/stale/check-cache.sh .lake/build/bin/probe-lean
+
+      # LAKE_RESTORE_ARTIFACTS exists from Lean 4.31: with it the same run succeeds.
+      - name: End-to-end artifact cache restore check
+        run: bash tests/fixtures/stale/check-cache.sh .lake/build/bin/probe-lean restore
 
   check-version:
     name: Version consistency
