@@ -14,19 +14,22 @@ def isLakeProject (path : System.FilePath) : IO Bool := do
   let hasToml ← lakefileToml.pathExists
   return hasLean || hasToml
 
-/-- Run a command and return stdout, stderr, and exit code -/
+/-- Run a command and return stdout, stderr, and exit code. `IO.Process.output`
+    reads both pipes at the same time, so a child that fills the stderr pipe
+    before it closes stdout does not block. -/
 def runCmd (cmd : String) (args : Array String) (cwd : Option System.FilePath := none) : IO (String × String × UInt32) := do
-  let proc ← IO.Process.spawn {
-    cmd := cmd
-    args := args
-    cwd := cwd
-    stdout := .piped
-    stderr := .piped
-  }
-  let stdout ← proc.stdout.readToEnd
-  let stderr ← proc.stderr.readToEnd
-  let exitCode ← proc.wait
-  return (stdout, stderr, exitCode)
+  let out ← IO.Process.output { cmd, args, cwd }
+  return (out.stdout, out.stderr, out.exitCode)
+
+/-- Quote one argument for a POSIX shell: wrap it in single quotes and write each
+    single quote inside it as `'\''`. -/
+def shellQuote (s : String) : String :=
+  "'" ++ s.replace "'" "'\\''" ++ "'"
+
+/-- The `nix-shell --run` string for `lake <args>`, every argument quoted with
+    `shellQuote`, so a space, a quote or a `$` in an argument reaches Lake as is. -/
+def nixShellRunString (args : Array String) : String :=
+  " ".intercalate ("lake" :: args.toList.map shellQuote)
 
 /-- Run a lake command, optionally wrapping it in nix-shell / nix develop
     when the project provides a Nix environment and nix is installed. -/
@@ -39,8 +42,7 @@ def runLakeCmd (args : Array String) (cwd : Option System.FilePath := none)
       "--command", "lake"] ++ args
     runCmd "nix" nixArgs cwd
   | some .shell =>
-    let cmdStr := " ".intercalate (["lake"] ++ args.toList)
-    runCmd "nix-shell" #["--run", cmdStr] cwd
+    runCmd "nix-shell" #["--run", nixShellRunString args] cwd
   | none =>
     runCmd "lake" args cwd
 

@@ -5922,6 +5922,33 @@ def runSuiteF (result : TestResult) : IO TestResult := do
   result ← testStepEnv result
   return result
 
+def testShellQuote (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing shellQuote and nixShellRunString..."
+  result ← test "plain word is wrapped" (shellQuote "build" == "'build'") result
+  result ← test "space stays inside the quotes" (shellQuote "a b" == "'a b'") result
+  result ← test "single quote is escaped" (shellQuote "it's" == "'it'\\''s'") result
+  result ← test "dollar is not expanded" (shellQuote "$HOME" == "'$HOME'") result
+  result ← test "run string quotes every argument"
+    (nixShellRunString #["build", "a b:leanArts", "+M'1", "$X"] ==
+      "lake 'build' 'a b:leanArts' '+M'\\''1' '$X'") result
+  return result
+
+def testRunCmdBothPipes (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing runCmd reads stdout and stderr together..."
+  let (out, err, code) ← runCmd "sh" #["-c", "head -c 200000 /dev/zero >&2; echo ok"]
+  result ← test "stdout arrives after a full stderr pipe" (out.trimAscii.toString == "ok") result
+  result ← test "all of stderr is read" (err.utf8ByteSize == 200000) result
+  result ← test "exit code 0" (code == 0) result
+  return result
+
+def runSuiteG (result : TestResult) : IO TestResult := do
+  let mut result := result
+  result ← testShellQuote result
+  result ← testRunCmdBothPipes result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
@@ -5930,6 +5957,7 @@ def main : IO UInt32 := do
   result ← runSuiteD result
   result ← runSuiteE result
   result ← runSuiteF result
+  result ← runSuiteG result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"
