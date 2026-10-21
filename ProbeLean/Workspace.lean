@@ -72,7 +72,8 @@ def runWorkspaceInfo : IO UInt32 := do
   return 0
 
 /-- The `workspace-owners` subcommand. `file` holds one name per line
-    (`encodeOwnerRequest`). Print one `OwnerInfo` JSON line per name. -/
+    (`encodeOwnerRequest`). Print one JSON array with one `OwnerInfo` per name, on
+    one line. -/
 def runWorkspaceOwners (file : System.FilePath) : IO UInt32 := do
   let names ← match decodeOwnerRequest (← IO.FS.readFile file) with
     | .ok ns => pure ns
@@ -82,10 +83,11 @@ def runWorkspaceOwners (file : System.FilePath) : IO UInt32 := do
   let (ws, _) ← match ← loadRootWorkspace with
     | .error code => return code
     | .ok r => pure r
-  for n in names do
+  let owners := names.map fun n =>
     let lib := (ws.root.findModule? n).map (·.lib.name)
     let exe := (ws.root.leanExes.find? (·.root.name == n)).map (·.name)
-    IO.println (toJson ({ module := n, lib, exe } : OwnerInfo)).compress
+    ({ module := n, lib, exe } : OwnerInfo)
+  IO.println (toJson owners).compress
   return 0
 
 /-- Run a helper subcommand if `args` names one. `main` calls this before the CLI

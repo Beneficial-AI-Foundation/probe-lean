@@ -39,7 +39,7 @@ structure WorkspaceInfo where
   exes : Array ExeInfo
   deriving ToJson, FromJson, Repr, Inhabited
 
-/-- One line of the answer of `workspace-owners`: the `lean_lib` that
+/-- One entry of the answer of `workspace-owners`: the `lean_lib` that
     `ws.root.findModule?` returns for `module`, and the `lean_exe` of the root
     package whose root is `module`. -/
 structure OwnerInfo where
@@ -66,30 +66,29 @@ def formatGithashMismatch (target probe : String) : String :=
     "probe-lean reads .olean files, which only the same Lean can read. Install the " ++
     "probe-lean build for the target's Lean with the installer's --from-project option."
 
-/-- Decode the answer of `workspace-info`: the last non-empty line of stdout. On a
-    failure, the error holds the raw output. -/
-def decodeWorkspaceInfo (stdout : String) : Except String WorkspaceInfo :=
+/-- Decode the answer of a helper subcommand: the last non-empty line of stdout,
+    one JSON value. The lines before it are skipped, because a Nix `shellHook` can
+    print to stdout before the helper runs. On a failure, the error holds the raw
+    output. -/
+def decodeLastLine [FromJson α] (command stdout : String) : Except String α :=
   let lines := (stdout.splitOn "\n").filter (!·.trimAscii.isEmpty)
-  let fail (e : String) : Except String WorkspaceInfo :=
-    .error s!"could not decode the output of workspace-info: {e}\nRaw output:\n{stdout}"
+  let fail (e : String) : Except String α :=
+    .error s!"could not decode the output of {command}: {e}\nRaw output:\n{stdout}"
   match lines.getLast? with
   | none => fail "no output"
   | some line =>
     match Json.parse line >>= fromJson? with
-    | .ok info => .ok info
+    | .ok a => .ok a
     | .error e => fail e
 
-/-- Decode the answer of `workspace-owners`: one `OwnerInfo` object per non-empty
-    line. On a failure, the error holds the raw output. -/
-def decodeOwners (stdout : String) : Except String (Array OwnerInfo) := do
-  let lines := (stdout.splitOn "\n").filter (!·.trimAscii.isEmpty)
-  let mut out := #[]
-  for line in lines do
-    match Json.parse line >>= fromJson? with
-    | .ok o => out := out.push o
-    | .error e =>
-      throw s!"could not decode the output of workspace-owners: {e}\nRaw output:\n{stdout}"
-  return out
+/-- Decode the answer of `workspace-info` (`decodeLastLine`). -/
+def decodeWorkspaceInfo (stdout : String) : Except String WorkspaceInfo :=
+  decodeLastLine "workspace-info" stdout
+
+/-- Decode the answer of `workspace-owners`: one JSON array of `OwnerInfo` objects
+    on the last line (`decodeLastLine`). -/
+def decodeOwners (stdout : String) : Except String (Array OwnerInfo) :=
+  decodeLastLine "workspace-owners" stdout
 
 /-- The answer of `workspace-owners` must hold exactly one object per requested
     name and no other object. -/

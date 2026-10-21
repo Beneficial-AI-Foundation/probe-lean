@@ -5603,10 +5603,10 @@ def testDecodeWorkspaceInfo (result : TestResult) : IO TestResult := do
 def testDecodeOwners (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println "Testing decodeOwners and checkOwnersComplete..."
-  let out := "{\"module\":\"A.B\",\"lib\":\"A\",\"exe\":null}\n{\"module\":\"Main\",\"exe\":\"«my-exe»\"}\n"
+  let out := "hello from shellHook\n[{\"module\":\"A.B\",\"lib\":\"A\",\"exe\":null},{\"module\":\"Main\",\"exe\":\"«my-exe»\"}]\n"
   match decodeOwners out with
   | .ok os =>
-    result ← test "two answers" (os.size == 2) result
+    result ← test "a banner line before the answer is skipped, two answers" (os.size == 2) result
     result ← test "lib owner" (os[0]! == { module := `A.B, lib := some `A }) result
     result ← test "exe owner, missing lib is none"
       (os[1]! == { module := `Main, exe := some (Lean.Name.mkSimple "my-exe") }) result
@@ -5616,8 +5616,12 @@ def testDecodeOwners (result : TestResult) : IO TestResult := do
     result ← test "duplicate answer fails"
       (checkOwnersComplete #[`A.B, `Main] (os.push os[0]!) matches .error _) result
   | .error e => result ← test s!"decodes owners ({e})" false result
-  result ← test "wrong field fails" (decodeOwners "{\"mod\":\"A\"}" matches .error _) result
+  result ← test "wrong field fails" (decodeOwners "[{\"mod\":\"A\"}]" matches .error _) result
+  result ← test "one object without the array fails"
+    (decodeOwners "{\"module\":\"A\"}" matches .error _) result
   result ← test "non-JSON owners fail" (decodeOwners "oops" matches .error _) result
+  result ← test "non-JSON last line fails" (decodeOwners "[]\noops" matches .error _) result
+  result ← test "empty owners output fails" (decodeOwners "\n" matches .error _) result
   let req := #[Lean.Name.mkSimple "a.b", `X.Y, (Lean.Name.mkSimple "Misc").str "Real-EReal"]
   result ← test "owner request round trip with «» names"
     ((decodeOwnerRequest (encodeOwnerRequest req)).toOption == some req) result

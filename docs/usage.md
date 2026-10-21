@@ -323,7 +323,7 @@ probe-lean extract .
 
 ### Build on every run
 
-`extract` and `check-axioms` run `lake build` on their targets on every run. A build with nothing to do takes a few seconds (3.2 s on curve25519-dalek), and the two workspace loads take about 0.3 s each on a `lakefile.toml` project. probe-lean 0.22 and earlier skipped the build by file modification time and wrote `.lake/probe-lean/build_output.txt`. probe-lean no longer reads or writes that directory, and you can delete it.
+`extract` and `check-axioms` run `lake build` on their targets on every run. A build with nothing to do takes a few seconds (3.2 s on curve25519-dalek), and the two workspace helper calls take about 2.5 s together (1.25 s each on curve25519-dalek, a `lakefile.toml` project). Each call is a `lake env` process, and `lake env` loads the workspace before the helper loads it again. probe-lean 0.22 and earlier skipped the build by file modification time and wrote `.lake/probe-lean/build_output.txt`. probe-lean no longer reads or writes that directory, and you can delete it.
 
 Lake's artifact cache (`LAKE_ARTIFACT_CACHE=true` or `enableArtifactCache`) can keep the `.olean` files out of `.lake/build` after a cache hit. probe-lean needs them there. If a target module has no `.olean` after the build, the run fails with `Error: after the build, <n> target module(s) have no .olean in .lake/build/lib/lean` and names the modules. To fix it, set `LAKE_RESTORE_ARTIFACTS=true` (Lean 4.31 or later), or set `restoreAllArtifacts = true` in the lakefile. A package that sets `restoreAllArtifacts = false` overrides the variable.
 

@@ -361,29 +361,29 @@ where
   /-- The import itself, with a readable hint for the known failures. -/
   importOrDiagnose (projectPath : System.FilePath) (pp : PreparedProject)
       (imports : Array Import) : IO (Except String Environment) := do
-  try
-    -- The import level is pinned: `.private` loads all olean data, theorem
-    -- proofs included. The exported level can present module-system theorems
-    -- without their proofs, which the pipeline downstream would read as empty
-    -- term-dependencies and status propagation would silently trust — the
-    -- same failure shape as the `ConstantInfo.value?` default that emptied
-    -- theorem proof edges. `.private` is the current upstream default; it is
-    -- spelled out so a future default change cannot regress soundness.
-    return .ok (← importModules imports {} 0 (level := OLeanLevel.private))
-  catch e =>
-    let msg := toString e
-    if containsSubstring msg "already contains" then
-      -- Two imported modules declare the same name, and the preflight above
-      -- found no collision among the project modules: a module-system
-      -- collision that the exported level hides, or one with a dependency.
-      let decl? := alreadyContainsName? msg
-      let mods := match decl? with
-        | some d => declaringModules pp.headers d
-        | none => #[]
-      return .error s!"Failed to import modules: {msg}{formatAlreadyContainsHint decl? mods}"
-    if containsSubstring msg "incompatible header" then
-      return .error s!"Failed to import modules: {msg}{← incompatibleHeaderHint projectPath}"
-    return .error s!"Failed to import modules: {msg}"
+    try
+      -- The import level is pinned: `.private` loads all olean data, theorem
+      -- proofs included. The exported level can present module-system theorems
+      -- without their proofs, which the pipeline downstream would read as empty
+      -- term-dependencies and status propagation would silently trust — the
+      -- same failure shape as the `ConstantInfo.value?` default that emptied
+      -- theorem proof edges. `.private` is the current upstream default; it is
+      -- spelled out so a future default change cannot regress soundness.
+      return .ok (← importModules imports {} 0 (level := OLeanLevel.private))
+    catch e =>
+      let msg := toString e
+      if containsSubstring msg "already contains" then
+        -- Two imported modules declare the same name, and the preflight above
+        -- found no collision among the project modules: a module-system
+        -- collision that the exported level hides, or one with a dependency.
+        let decl? := alreadyContainsName? msg
+        let mods := match decl? with
+          | some d => declaringModules pp.headers d
+          | none => #[]
+        return .error s!"Failed to import modules: {msg}{formatAlreadyContainsHint decl? mods}"
+      if containsSubstring msg "incompatible header" then
+        return .error s!"Failed to import modules: {msg}{← incompatibleHeaderHint projectPath}"
+      return .error s!"Failed to import modules: {msg}"
 
 /-- The warning for a declaration whose type `Meta.isProp` could not check. -/
 def formatSpecProofWarning (n : Name) : String :=
