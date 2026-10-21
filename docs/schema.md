@@ -233,7 +233,8 @@ where the value comes from: auto (computed from the environment), config
 
 ### Dependency arrays
 
-The module filter is every project module, or the `--module`/`--library` selection.
+The module filter is the emitted set: every project module of the import closure (P), the modules
+of P that the `--library` libraries own, or the `--module` selection.
 `dependencies` is exactly the union of `type-dependencies` and `term-dependencies`. Deduplication
 uses declaration identity before private mangling is stripped. Two distinct private declarations
 that print to the same name can therefore both appear. This is permitted and silent, and
@@ -318,7 +319,7 @@ reasons for each decision.
 
 A kernel walk decides `verification-status`. The build log and the emitted graph do not.
 `sorry` elaborates to the `sorryAx` axiom. The walk follows the constant graph of every constant of
-every built project module (the set P, see
+every project module of the import closure (the set P, see
 [Notation](verification-status.md#notation)), atoms or not. It stops at two boundaries:
 
 - the project boundary. Lean and every dependency package in `lake-manifest.json` are trusted

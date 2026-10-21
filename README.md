@@ -15,8 +15,10 @@ Analyze Lean 4 projects: extract dependency graphs with verification status and 
 probe-lean can analyze a Lean 4 project that meets these conditions:
 
 - The project uses Lean v4.28.0-rc1 or later.
-- The Lean library targets build. probe-lean needs only the `.olean` files. If an executable fails to link, use `--library <lib>` to build only the library.
-- All built modules load into one Lean environment. A preflight check stops extraction and lists the names that two modules declare. See [docs/usage.md](docs/usage.md), section "Troubleshooting".
+- The Lean library targets build. probe-lean needs only the `.olean` files. It builds a library as `<lib>:leanArts` and an executable as its root module (`+<root>`), so it never links an executable.
+- A `lean_lib` of the root package owns every project module that the import loads. A `lean_exe` root that another module imports breaks this rule. See [docs/usage.md](docs/usage.md), section "Stale build outputs".
+- The build directory is the default `.lake/build/lib/lean`.
+- The target modules and their imports load into one Lean environment. A preflight check stops extraction and lists the names that two modules declare. See [docs/usage.md](docs/usage.md), section "Troubleshooting".
 
 If the target project ships a `flake.nix` or `shell.nix`, probe-lean runs `lake` inside that Nix shell. This requires `nix` or `nix-shell` on your system. Without Nix, you must install the system libraries of the project yourself.
 
@@ -25,7 +27,8 @@ If the target project ships a `flake.nix` or `shell.nix`, probe-lean runs `lake`
 - Projects on Lean versions below v4.28.0-rc1.
 - Projects whose Lean libraries do not compile.
 - A probe-lean build for a different Lean version than the target. A minor-level difference (v4.28.0-rc1 and v4.29.0) also needs a matching build. Use the installer flag `--from-project` to select the correct version.
-- Projects in which two modules declare the same fully-qualified name. `--module <prefix>` can extract a subset with no conflict. See [docs/usage.md](docs/usage.md), section "Troubleshooting".
+- Projects in which two modules of the import closure declare the same fully-qualified name. `--module <prefix>` or `--library <lib>` can extract a subset with no conflict. See [docs/usage.md](docs/usage.md), section "Troubleshooting".
+- Projects with a custom `buildDir` or `leanLibDir`.
 
 ## Installation
 
@@ -65,6 +68,9 @@ probe-lean extract ./my-lean-project
 
 # Build and analyze only some libraries
 probe-lean extract ./my-lean-project --library "Extraction,Spqr"
+
+# Build and analyze every library, also those outside defaultTargets
+probe-lean extract ./my-lean-project --all-libraries
 ```
 
 The default output file is `<target-project>/.verilib/probes/lean_<pkg>_<ver>.json`. For a sample, see [examples/lean_ExampleProject_0.1.0.json](examples/lean_ExampleProject_0.1.0.json). For the field definitions, see [docs/schema.md](docs/schema.md).
@@ -81,9 +87,9 @@ For all flags and examples, see [docs/usage.md](docs/usage.md), section "Command
 
 ## How extract works
 
-1. Build: run `lake build` on `--library`, else `defaultTargets`, else all `[[lean_lib]]` entries. If the build cache is up to date, `extract` skips this step. If the project uses Mathlib and has no Mathlib `.olean` files, `extract` first runs `lake exe cache get`.
-2. Select modules: keep every built module that has a `.lean` source, then apply `--library` and `--module`. See [docs/usage.md](docs/usage.md), section "Commands".
-3. Atomize: import the modules into one environment and convert each declaration to an atom with type and term dependencies. Edges through auxiliary constants such as `X._proof_N` are folded into the caller. See [docs/schema.md](docs/schema.md), section "Auxiliary-dependency folding".
+1. Build: read the Lake workspace with Lake's own loader, then run `lake build` on every run. The targets are the libraries of `--library`, else every `lean_lib` with `--all-libraries`, else `defaultTargets`, else every `lean_lib`. If the project uses Mathlib and has no Mathlib `.olean` files, `extract` first runs `lake exe cache get`.
+2. Select modules: the target modules, narrowed by `--module`, are the import set. probe-lean reads the import closure from the `.olean` headers. Every project module in it must belong to a `lean_lib`, so that the build checked it in this run. See [docs/usage.md](docs/usage.md), sections "Commands" and "Stale build outputs".
+3. Atomize: import the import set into one environment and convert each declaration to an atom with type and term dependencies. Edges through auxiliary constants such as `X._proof_N` are folded into the caller. See [docs/schema.md](docs/schema.md), section "Auxiliary-dependency folding".
 4. Filter: apply the flags from `.verilib/probes/config.json` and mark generated code as hidden. See [docs/schema.md](docs/schema.md).
 5. Specs: compute `specs` and `primary-spec` from the `type-dependencies` of theorems. Only data `def`, `abbrev`, `instance`, `opaque` and `axiom` atoms receive them. Types, type aliases, projections, proofs and predicates do not. See [docs/spec-relationships.md](docs/spec-relationships.md).
 6. Status: a kernel walk decides `verification-status`. Direct `sorry` carriers read `"unverified"`. An atom that rests on an unexcused `sorry` below it reads `"verified"` with `"status-origin": "kernel-taint"`. Clean atoms read `"transitively-verified"`, or `"verified"` with no marker under `--skip-enrich`. Axioms and externally verified declarations read `"trusted"`, unless their statement rests on a project `sorry`. See [docs/verification-status.md](docs/verification-status.md).

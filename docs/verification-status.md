@@ -8,7 +8,10 @@ The CLI output for these cases is in [usage.md](usage.md#extract).
 
 ## Notation
 
-- P: every constant of every built project module, atoms or not.
+- P: every constant of every project module of the import closure, atoms or not. The import
+  closure is the set of modules that the import of the target modules (narrowed by `--module`)
+  loads. A project module is a module of the closure whose `.olean` is in `.lake/build/lib/lean`
+  of the project. See [Coverage of P](#coverage-of-p).
 - T: the trusted base, the constants of P that one of the three trust rules matches. See
   [The trusted base T in full](#the-trusted-base-t-in-full).
 - S: the standard axioms `propext`, `Classical.choice` and `Quot.sound`.
@@ -17,8 +20,8 @@ The CLI output for these cases is in [usage.md](usage.md#extract).
 ## The walk
 
 `sorry` elaborates to the `sorryAx` axiom. `extract` and `check-axioms` walk the constant graph of
-every constant of every built project module (the set P). The walk ignores `--module`/`--library`
-and includes constants that are never atoms: auxiliaries, constructors, and range-less
+every constant of every project module of the import closure (the set P). The walk includes the
+modules that `--library` does not emit, and constants that are never atoms: auxiliaries, constructors, and range-less
 `addDecl`/`impl_def` constants. The walk is memoized and stops at two boundaries:
 
 - The project boundary. Lean and every dependency package are trusted wholesale. This is
@@ -127,21 +130,30 @@ does not detect it.
 
 ## Coverage of P
 
-`extract` first tries to import all built project modules. If the full set cannot be co-imported,
-the walk runs over the selected modules and every project module they import transitively. Every
-emitted atom's dependency closure is then still inside P. The modules left out are outside that
-closure. Only the `check-axioms` audit misses them, and a `Warning: <n> project module(s) not
-imported (full import failed); …` line says so.
+`extract` imports the target modules, narrowed by `--module`. P is the set of project modules that
+this import loads. A constant can only reference constants of its own module's import closure, so
+every emitted atom's dependency closure is inside P.
+
+probe-lean builds the targets in the same run and requires that a `lean_lib` of the root package
+owns every module of P. For such a module, Lake records each import in the importer's trace, so
+the target build rechecked every module of P. A module of P that breaks the rule fails the run
+before the import, with one message that lists every such module and its reason:
+
+- No `lean_lib` of the root package owns it, for example after its `[[lean_lib]]` entry was
+  removed. Lake then reads its `.olean` without a check.
+- Only a `lean_exe` owns it, and another module of P imports it. Lake does not recheck such an
+  import.
+- A `lean_lib` module and a `lean_exe` root have its name.
+
+The root module of a target `lean_exe` that no module imports is accepted. See
+[usage.md](usage.md#stale-build-outputs).
 
 An atom whose Lean name is not in P is a bug signal, not "clean". It gets no status, and `extract`
 prints `Warning: atom <name> is not a project constant the kernel walk covered; no
 verification-status assigned`.
 
-Two conditions abort the extraction, because each one silently moves project code outside P:
-
-- a module-system olean whose split parts are missing (Lean's import fails on it).
-- a stale `.olean` with no `.lean` source that a kept module still imports. Otherwise it sits
-  outside P and is trusted like a dependency. Run `lake clean` in the target project and rebuild.
+A module-system olean whose split parts are missing aborts the extraction, because Lean's import
+fails on it.
 
 ## Merged declarations
 
@@ -156,6 +168,10 @@ identifies one project proof. The walk fails closed for such a name:
 - `extract` prints `Warning: <n> declaration name(s) are declared by more than one project module
   with the same statement, and Lean kept one proof: …`. To make the callers of the proved version
   read clean, give each variant its own namespace.
+
+These rules apply only if the import loads more than one version of the name. Then probe-lean
+takes the union of the versions. If the import set loads one version, for example under
+`--module`, probe-lean reports that version alone.
 
 The atom follows the same versions, not the one body the importer kept. Its four split dependency
 arrays are the union of the edges of every version, so the `sorryAx` edge behind its
