@@ -5671,20 +5671,20 @@ def testChooseTargets (result : TestResult) : IO TestResult := do
     ((chooseTargets ws (some #[`Extra]) false).toOption == some (#[.lib `Extra], #[])) result
   result ← test "--all-libraries: every lean_lib, no exe"
     ((chooseTargets ws none true).toOption == some (allLibs, #[])) result
-  result ← test "--all-libraries with --library is an error (R13)"
+  result ← test "--all-libraries with --library is an error"
     (chooseTargets ws (some #[`Core]) true matches .error _) result
   let unknown := match chooseTargets ws (some #[`Nope]) false with
     | .error e => containsSubstring e "no lean_lib" && containsSubstring e "Core"
     | .ok _ => false
-  result ← test "unknown --library name is an error listing the libs (R14)" unknown result
+  result ← test "unknown --library name is an error listing the libs" unknown result
   let exeErr := match chooseTargets ws (parseLibraryArg "my-exe") false with
     | .error e => containsSubstring e "is a lean_exe"
     | .ok _ => false
-  result ← test "--library with an exe name says it is a lean_exe (R14)" exeErr result
+  result ← test "--library with an exe name says it is a lean_exe" exeErr result
   let empty := match chooseTargets (sampleWorkspace #[`docs]) none false with
     | .error e => containsSubstring e "no lean_lib or lean_exe target" && containsSubstring e "docs"
     | .ok _ => false
-  result ← test "only custom default targets: error lists the skipped ones (R5)" empty result
+  result ← test "only custom default targets: error lists the skipped ones" empty result
   result ← test "build args: leanArts per lib, +root per exe"
     (buildArgs #[.lib `Core, .lib (Lean.Name.mkSimple "a.b"), exe] ==
       #["build", "Core:leanArts", "«a.b»:leanArts", "+Main"]) result
@@ -5699,7 +5699,7 @@ def testChooseTargets (result : TestResult) : IO TestResult := do
 
 def testLeanLibDirCheck (result : TestResult) : IO TestResult := do
   let mut result := result
-  IO.println "Testing checkLeanLibDir (R6)..."
+  IO.println "Testing checkLeanLibDir..."
   let root : System.FilePath := "/work/proj"
   result ← test "relative default" (checkLeanLibDir root ".lake/build/lib/lean" matches .ok _) result
   result ← test "./ prefixed default" (checkLeanLibDir root "./.lake/build/lib/lean" matches .ok _) result
@@ -5714,7 +5714,7 @@ def testLeanLibDirCheck (result : TestResult) : IO TestResult := do
 
 def testModulePrefix (result : TestResult) : IO TestResult := do
   let mut result := result
-  IO.println "Testing parseModulePrefix and filterModulePrefix (R12)..."
+  IO.println "Testing parseModulePrefix and filterModulePrefix..."
   let mods := #[`Core, `Core.Sub, `CoreX, Lean.Name.mkSimple "a.b", (Lean.Name.mkSimple "a").str "b"]
   let run (s : String) : Option (Array Lean.Name) :=
     (parseModulePrefix s).toOption.map (filterModulePrefix mods ·)
@@ -5732,7 +5732,7 @@ def testModulePrefix (result : TestResult) : IO TestResult := do
 
 def testOwnership (result : TestResult) : IO TestResult := do
   let mut result := result
-  IO.println "Testing classifyOwnership (R11)..."
+  IO.println "Testing classifyOwnership..."
   let owners : Array OwnerInfo := #[
     { module := `Lib.A, lib := some `Lib },
     { module := `Main, exe := some `app },
@@ -5742,12 +5742,12 @@ def testOwnership (result : TestResult) : IO TestResult := do
   let imported (n : Lean.Name) : Bool := n == `ExeOld || n == `Lib.A
   let cls (p : Array Lean.Name) (roots : Array Lean.Name := #[`Main]) :=
     classifyOwnership p owners roots imported
-  result ← test "1. lib owner only: accepted" (cls #[`Lib.A]).isEmpty result
-  result ← test "2. target exe root, not imported: accepted" (cls #[`Main]).isEmpty result
-  result ← test "3. exe-only module imported: rejected"
+  result ← test "lib owner only: accepted" (cls #[`Lib.A]).isEmpty result
+  result ← test "target exe root, not imported: accepted" (cls #[`Main]).isEmpty result
+  result ← test "exe-only module imported: rejected (exeImported)"
     (cls #[`ExeOld] #[`Main, `ExeOld] == #[(`ExeOld, .exeImported)]) result
-  result ← test "4. lib and exe: rejected" (cls #[`Shared] == #[(`Shared, .libAndExe)]) result
-  result ← test "5. no owner: rejected" (cls #[`Old] == #[(`Old, .unowned)]) result
+  result ← test "lib and exe: rejected (libAndExe)" (cls #[`Shared] == #[(`Shared, .libAndExe)]) result
+  result ← test "no owner: rejected (unowned)" (cls #[`Old] == #[(`Old, .unowned)]) result
   result ← test "exe root that is not a target and not imported: internal error"
     (cls #[`Main] #[] == #[(`Main, .internal)]) result
   let rs := cls #[`Lib.A, `Shared, `Old]
@@ -5755,15 +5755,15 @@ def testOwnership (result : TestResult) : IO TestResult := do
   result ← test "one message lists two rejected modules"
     (rs.size == 2 && containsSubstring msg "2 module(s)" && containsSubstring msg "Shared:" &&
      containsSubstring msg "Old:") result
-  result ← test "case 5 does not suggest lake clean"
+  result ← test "unowned does not suggest lake clean"
     (!containsSubstring (Rejection.unowned.reason) "lake clean") result
-  result ← test "case 3 says to move the module into a lean_lib"
+  result ← test "exeImported says to move the module into a lean_lib"
     (containsSubstring Rejection.exeImported.reason "Move the module into a lean_lib") result
   return result
 
 def testEmittedSet (result : TestResult) : IO TestResult := do
   let mut result := result
-  IO.println "Testing emittedSet (R15)..."
+  IO.println "Testing emittedSet..."
   let p := #[`Core, `Core.Sub, `Shared, `Main]
   let owners : Array OwnerInfo := #[{ module := `Core, lib := some `Core },
     { module := `Core.Sub, lib := some `Core }, { module := `Shared, lib := some `Shared },
@@ -5779,7 +5779,7 @@ def testEmittedSet (result : TestResult) : IO TestResult := do
 
 def testClosureWalk (result : TestResult) : IO TestResult := do
   let mut result := result
-  IO.println "Testing closureWalk (R9)..."
+  IO.println "Testing closureWalk..."
   -- A, B project modules; Dep a dependency; C imported by A and B.
   let graph : List (Lean.Name × Array Lean.Name) :=
     [(`A, #[`Dep, `C]), (`B, #[`C]), (`C, #[`Dep]), (`Bad, #[`Missing])]
@@ -5800,7 +5800,7 @@ def testClosureWalk (result : TestResult) : IO TestResult := do
 
 def testClosureFiles (result : TestResult) : IO TestResult := do
   let mut result := result
-  IO.println "Testing computeClosure and missingOleans on files (R8, R9)..."
+  IO.println "Testing computeClosure and missingOleans on files..."
   let tmp : System.FilePath := "/tmp/probe-lean-closure-" ++ toString (← IO.monoNanosNow)
   let build := tmp / "build"
   let other := tmp / "other"
@@ -5835,9 +5835,44 @@ def testClosureFiles (result : TestResult) : IO TestResult := do
   let miss ← missingOleans build #[`ProbeLean.WorkspaceInfo, `ProbeLean.Gone]
   result ← test "missingOleans names the module without .olean" (miss == #[`ProbeLean.Gone]) result
   let msg := formatMissingOleans miss
-  result ← test "R8 message gives both fixes"
+  result ← test "missing .olean message gives both fixes"
     (containsSubstring msg "ProbeLean.Gone" && containsSubstring msg "LAKE_RESTORE_ARTIFACTS=true" &&
      containsSubstring msg "restoreAllArtifacts = true") result
+  IO.FS.removeDirAll tmp
+  return result
+
+def testLibraryErrors (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing library listing errors in chooseTargets..."
+  let base := sampleWorkspace #[`Core]
+  let ws := { base with libs := base.libs.map fun l =>
+    if l.name == `Extra then { l with error := some "no such file or directory\n  file: ./Gen" } else l }
+  result ← test "a broken library that is not a target is ignored"
+    ((chooseTargets ws none false).toOption == some (#[.lib `Core], #[])) result
+  result ← test "--library of another library ignores it"
+    ((chooseTargets ws (some #[`Core]) false).toOption == some (#[.lib `Core], #[])) result
+  let named := match chooseTargets ws (some #[`Extra]) false with
+    | .error e => containsSubstring e "could not list the modules" && containsSubstring e "Extra:" &&
+        containsSubstring e "./Gen"
+    | .ok _ => false
+  result ← test "--library of the broken library is an error naming it" named result
+  result ← test "--all-libraries with a broken library is an error"
+    (chooseTargets ws none true matches .error _) result
+  return result
+
+def testClosureOutsideBuildDir (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing computeClosure on a target outside the build directory..."
+  let tmp : System.FilePath := "/tmp/probe-lean-outside-" ++ toString (← IO.monoNanosNow)
+  IO.FS.createDirAll (tmp / "build")
+  IO.FS.createDirAll (tmp / "other" / "Dep")
+  IO.FS.writeBinFile (tmp / "other" / "Dep" / "X.olean") "not read".toUTF8
+  let build ← IO.FS.realPath (tmp / "build")
+  let other ← IO.FS.realPath (tmp / "other")
+  let outside := match ← computeClosure build [build, other] #[`Dep.X] with
+    | .error e => containsSubstring e "1 target module(s) do not resolve" && containsSubstring e "Dep.X"
+    | .ok _ => false
+  result ← test "a target that resolves outside the build directory fails" outside result
   IO.FS.removeDirAll tmp
   return result
 
@@ -5856,6 +5891,8 @@ def testImportHints (result : TestResult) : IO TestResult := do
 def runSuiteH (result : TestResult) : IO TestResult := do
   let mut result := result
   result ← testChooseTargets result
+  result ← testLibraryErrors result
+  result ← testClosureOutsideBuildDir result
   result ← testLeanLibDirCheck result
   result ← testModulePrefix result
   result ← testOwnership result

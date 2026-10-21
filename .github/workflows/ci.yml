@@ -243,7 +243,8 @@ jobs:
       # Stale build outputs (#152): probe-lean builds the targets on every run and
       # imports only the closure of the target modules, every project module of
       # which a lean_lib must own. check.sh changes a copy of the fixture step by
-      # step: a stale library outside the closure, --library, --all-libraries,
+      # step: a stale library outside the closure, --library, --all-libraries, a
+      # symlinked .lake/build, a library with a missing glob directory,
       # defaultFacets = [], and the three ownership rejections.
       - name: End-to-end stale build outputs check
         run: |
@@ -267,11 +268,11 @@ jobs:
           python3 check.py
 
       # Lake's artifact cache: a cache hit without a restore keeps the .olean files
-      # out of .lake/build, and extract must fail with the R8 error.
+      # out of .lake/build, and extract must fail with the missing .olean error.
       - name: End-to-end artifact cache check
         run: bash tests/fixtures/stale/check-cache.sh .lake/build/bin/probe-lean
 
-      # The Lean version check (R2): a target on another Lean fails before any
+      # The Lean version check: a target on another Lean fails before any
       # build, also for a lakefile.lean project, whose load fails with another Lean.
       # NEWEST_LEAN is the newest supported Lean (LEAN_VERSION of test-newest).
       - name: End-to-end Lean version check
@@ -531,7 +532,8 @@ jobs:
       # Stale build outputs (#152): probe-lean builds the targets on every run and
       # imports only the closure of the target modules, every project module of
       # which a lean_lib must own. check.sh changes a copy of the fixture step by
-      # step: a stale library outside the closure, --library, --all-libraries,
+      # step: a stale library outside the closure, --library, --all-libraries, a
+      # symlinked .lake/build, a library with a missing glob directory,
       # defaultFacets = [], and the three ownership rejections.
       - name: End-to-end stale build outputs check
         run: |
@@ -555,7 +557,7 @@ jobs:
           python3 check.py
 
       # Lake's artifact cache: a cache hit without a restore keeps the .olean files
-      # out of .lake/build, and extract must fail with the R8 error.
+      # out of .lake/build, and extract must fail with the missing .olean error.
       - name: End-to-end artifact cache check
         run: bash tests/fixtures/stale/check-cache.sh .lake/build/bin/probe-lean
 

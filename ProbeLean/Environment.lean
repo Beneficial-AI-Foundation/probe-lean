@@ -48,7 +48,7 @@ def runLakeCmd (args : Array String) (cwd : Option System.FilePath := none)
     runCmd "lake" args cwd
 
 /-- The error for a failed helper call (`queryWorkspaceInfo`, `queryOwners`). Exit
-    code `helperGithashExit` means the target uses another Lean (R2), and the
+    code `helperGithashExit` means the target uses another Lean, and the
     helper's stderr then names both githashes. -/
 def formatHelperFailure (command : String) (exitCode : UInt32) (stderr : String) : String :=
   if exitCode == helperGithashExit then stderr.trimAscii.toString

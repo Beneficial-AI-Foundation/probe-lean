@@ -208,7 +208,7 @@ structure Selection where
   allLibraries : Bool := false
   moduleFilter : Option String := none
 
-/-- Steps R1 to R7: load the workspace, check the build directory, choose the
+/-- Load the workspace, check the build directory, choose the
     targets and build them. Returns the workspace, the targets and the real path of
     the project. -/
 private def loadAndBuild (projectPath : System.FilePath) (sel : Selection)
@@ -233,7 +233,7 @@ private def loadAndBuild (projectPath : System.FilePath) (sel : Selection)
     return .error s!"Lake build failed:\n{out}{err}"
   return .ok (info, targets, projectReal)
 
-/-- Steps R12, R8 and R9: the import set, its `.olean` check and the closure. -/
+/-- The import set, its `.olean` check and the closure. -/
 private def importClosure (info : WorkspaceInfo) (targets : Array Target)
     (projectReal : System.FilePath) (moduleFilter : Option String)
     : IO (Except String (Array Name × Option Name × Array ProjectHeader × SearchPath × System.FilePath)) := do
@@ -252,7 +252,10 @@ private def importClosure (info : WorkspaceInfo) (targets : Array Target)
     | none => targetMods).qsort (·.toString < ·.toString)
   if let some pre := pre? then
     if importSet.isEmpty then return .error (formatEmptyModuleFilter pre targetMods.size)
+  -- A real path, as the search path entries are (`resolveSearchPath`), so that a
+  -- symlinked `.lake` or `.lake/build` passes the prefix test of `isInBuildDir`.
   let buildDir := projectReal / ".lake" / "build" / "lib" / "lean"
+  let buildDir ← if ← buildDir.pathExists then IO.FS.realPath buildDir else pure buildDir
   let missing ← missingOleans buildDir importSet
   if !missing.isEmpty then return .error (formatMissingOleans missing)
   let sp ← resolveSearchPath projectReal info.leanPath
@@ -263,10 +266,11 @@ private def importClosure (info : WorkspaceInfo) (targets : Array Target)
 /-- Build the targets on every run and compute what to import and what to emit.
     Shared by `runExtractInProject` and `check-axioms` (`runCheckAxiomsInProject`)
     so the audit path and the extraction path cannot drift. Steps, in order: the
-    workspace load (R1, R2), the build directory check (R6), the targets (R4, R5,
-    R13, R14), `ensureMathlibCache`, the target build (R7), the `--module` filter
-    (R12), the `.olean` check (R8), the closure (R9), the owners (R10), the
-    ownership check (R11) and the emitted set (R15). Returns the
+    workspace load with the Lean version check, the build directory check
+    (`checkLeanLibDir`), the targets (`chooseTargets`), `ensureMathlibCache`, the
+    target build, the `--module` filter, the `.olean` check (`missingOleans`), the
+    closure (`computeClosure`), the owners (`queryOwners`), the ownership check
+    (`classifyOwnership`) and the emitted set (`emittedSet`). Returns the
     `PreparedProject` or the exit code to fail with. -/
 def prepareProject (projectPath : System.FilePath) (sel : Selection)
     : IO (Except UInt32 PreparedProject) := do

@@ -12,10 +12,13 @@ namespace ProbeLean
 
 open Lean
 
-/-- A `lean_lib` of the root package and the modules of `LeanLib.getModuleArray`. -/
+/-- A `lean_lib` of the root package and the modules of `LeanLib.getModuleArray`.
+    `error` holds the message if `getModuleArray` failed, and `modules` is then
+    empty. -/
 structure LibInfo where
   name : Name
   modules : Array Name
+  error : Option String := none
   deriving ToJson, FromJson, Repr, BEq, Inhabited
 
 /-- A `lean_exe` of the root package and the name of its root module. -/

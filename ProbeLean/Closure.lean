@@ -39,9 +39,9 @@ def findProbeLeanLib : IO (List System.FilePath) := do
 def resolveSearchPath (projectReal : System.FilePath) (leanPath : String)
     : IO SearchPath := do
   let mut out : Array System.FilePath := #[]
-  for e in leanPath.splitOn ":" do
-    if e.isEmpty then continue
-    let p : System.FilePath := if e.startsWith "/" then e else projectReal / e
+  for e in System.SearchPath.parse leanPath do
+    if e.toString.isEmpty then continue
+    let p := if e.isAbsolute then e else projectReal / e
     out := out.push (← if ← p.pathExists then IO.FS.realPath p else pure p)
   return out.toList ++ (← findProbeLeanLib)
 
@@ -49,7 +49,7 @@ def resolveSearchPath (projectReal : System.FilePath) (leanPath : String)
 def isInBuildDir (buildDir path : System.FilePath) : Bool :=
   path.toString.startsWith (buildDir.toString ++ "/")
 
-/-- The modules of `importSet` whose `.olean` is not in the build directory (R8). -/
+/-- The modules of `importSet` whose `.olean` is not in the build directory. -/
 def missingOleans (buildDir : System.FilePath) (importSet : Array Name) : IO (Array Name) :=
   importSet.filterM fun m => return !(← (modToFilePath buildDir m "olean").pathExists)
 
@@ -90,9 +90,22 @@ def closureWalk [Monad m] (roots : Array Name) (importsOf : α → Array Name)
           stack := stack.push (i, some n)
   return .ok out
 
-/-- R9: the headers of the project modules in the closure of `importSet`, sorted by
+/-- The modules of `importSet` that are not in `headers`. -/
+def targetsOutsideProject (importSet : Array Name) (headers : Array ProjectHeader) : Array Name :=
+  let p := Std.HashSet.ofArray (headers.map (·.name))
+  importSet.filter (!p.contains ·)
+
+/-- The error for `targetsOutsideProject`. -/
+def formatTargetsOutsideProject (buildDir : System.FilePath) (names : Array Name) : String :=
+  s!"Error: {names.size} target module(s) do not resolve to an .olean in the build \
+    directory {buildDir}: {", ".intercalate (names.map toString).toList}.\n\
+    The search path resolves them elsewhere, for example to a dependency with a \
+    directory of the same root name."
+
+/-- The headers of the project modules in the closure of `importSet`, sorted by
     name. Fails closed: an import that does not resolve, a project `.olean` that does
-    not exist and a header that cannot be read each fail the run. -/
+    not exist, a header that cannot be read and a module of `importSet` that resolves
+    outside the build directory each fail the run. -/
 def computeClosure (buildDir : System.FilePath) (sp : SearchPath) (importSet : Array Name)
     : IO (Except String (Array ProjectHeader)) := do
   let step (n : Name) : IO (Except String (Option ProjectHeader)) := do
@@ -104,7 +117,10 @@ def computeClosure (buildDir : System.FilePath) (sp : SearchPath) (importSet : A
       return (← readHeader n path).map some
   match ← closureWalk importSet (·.imports) step with
   | .error e => return .error s!"Error: the import closure cannot be read: {e}"
-  | .ok hs => return .ok (hs.qsort fun a b => a.name.toString < b.name.toString)
+  | .ok hs =>
+    let outside := targetsOutsideProject importSet hs
+    if !outside.isEmpty then return .error (formatTargetsOutsideProject buildDir outside)
+    return .ok (hs.qsort fun a b => a.name.toString < b.name.toString)
 
 /-- The modules that some header in `headers` imports. -/
 def importedNames (headers : Array ProjectHeader) : Std.HashSet Name :=
@@ -116,7 +132,7 @@ structure PreparedProject where
   importSet : Array Name
   /-- The headers of P, the project modules of the closure, sorted by name. -/
   headers : Array ProjectHeader
-  /-- The modules whose atoms the run reports (R15). -/
+  /-- The modules whose atoms the run reports (`emittedSet`). -/
   emitted : Array Name
   /-- The search path of the closure walk, set again for the import. -/
   searchPath : SearchPath

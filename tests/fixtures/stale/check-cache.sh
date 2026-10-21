@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# End-to-end check of Lake's artifact cache (R8 of issue #152).
+# End-to-end check of Lake's artifact cache (issue #152).
 #
 # Usage: check-cache.sh <probe-lean> [restore]
 #
 # Two fresh copies of this fixture share one artifact cache. The first copy is
 # built. In the second copy the build is a cache hit, and without a restore Lake
-# keeps the .olean files out of .lake/build, so `extract` must fail with the R8
-# error. With `restore` (Lean 4.31 or later), LAKE_RESTORE_ARTIFACTS=true is set
+# keeps the .olean files out of .lake/build, so `extract` must fail with the
+# missing .olean error. With `restore` (Lean 4.31 or later), LAKE_RESTORE_ARTIFACTS=true is set
 # and `extract` must succeed and analyze every module.
 set -u
 
@@ -42,6 +42,6 @@ else
   fi
   grep -qF "have no .olean in .lake/build/lib/lean" extract.err \
     && grep -qF "LAKE_RESTORE_ARTIFACTS=true" extract.err \
-    || { echo "  ✗ the error is not the R8 error"; cat extract.err; exit 1; }
-  echo "  ✓ extract fails with the R8 error on a cache hit without restore"
+    || { echo "  ✗ the error is not the missing .olean error"; cat extract.err; exit 1; }
+  echo "  ✓ extract fails with the missing .olean error on a cache hit without restore"
 fi

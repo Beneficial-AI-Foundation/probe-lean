@@ -408,6 +408,8 @@ In each of these cases, the run fails or Lake rebuilds the module before the imp
 | A module name is a `lean_lib` module and a `lean_exe` root. | The same error, with the reason `the name is both a lean_lib module and a lean_exe root`. |
 | Lake's artifact cache kept a target `.olean` out of `.lake/build`. | `Error: after the build, <n> target module(s) have no .olean in .lake/build/lib/lean` (see "Build on every run"). |
 | The project sets a custom `buildDir` or `leanLibDir`. | `Error: the build directory of the project is <dir>, not .lake/build/lib/lean`. |
+| A target module resolves to an `.olean` outside `.lake/build/lib/lean`, for example because a dependency has a directory with the same root name. | `Error: <n> target module(s) do not resolve to an .olean in the build directory`. A symlinked `.lake` or `.lake/build` is supported. |
+| Lake cannot list the modules of a target library, for example because a glob directory does not exist. | `Error: Lake could not list the modules of <n> target library(ies)`, with Lake's message for each library. A library that is not a target does not fail the run. |
 | The project uses another Lean version than probe-lean. | `Error: the target project uses a different Lean than probe-lean`, with both Lean githashes, before any build. |
 
 A failed run does not change an earlier output file.

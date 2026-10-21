@@ -11,12 +11,15 @@
 #   2. `--library` builds and emits the named libraries.
 #   3. No run writes `.lake/probe-lean/build_output.txt`.
 #   4. `--all-libraries` emits every library.
-#   5. A broken proof in `Core` fails the build, although `Core` sets
+#   5. `.lake/build` is a symlink: the same atoms as step 1.
+#   6. A library whose glob directory does not exist fails the run only if it
+#      is a target.
+#   7. A broken proof in `Core` fails the build, although `Core` sets
 #      `defaultFacets = []`.
-#   6. `Core` imports the executable root `ExeOld`: rejected (R11 case 3).
-#   7. `Shared` is also an executable root: rejected (R11 case 4).
-#   8. The `[[lean_lib]]` entry of `Old` is removed and its proof breaks:
-#      rejected (R11 case 5), and the output file stays unchanged.
+#   8. `Core` imports the executable root `ExeOld`: rejected (`exeImported`).
+#   9. `Shared` is also an executable root: rejected (`libAndExe`).
+#  10. The `[[lean_lib]]` entry of `Old` is removed and its proof breaks:
+#      rejected (`unowned`), and the output file stays unchanged.
 set -u
 
 PL=$(realpath "$1")
@@ -82,29 +85,45 @@ for a in core_thm shared_thm extra_thm old_thm; do
 done
 check "--all-libraries: no executable root" lacks s4.json exe_thm
 
-echo "5. A broken proof in Core fails the build"
+echo "5. A symlinked .lake/build"
+mv .lake/build "$WORK/build-store" && ln -s "$WORK/build-store" .lake/build
+check "extract . succeeds" run s5s extract . -o s5s.json
+check "every project module is analyzed" grep -qF "Analyzing 4 of 4 project modules" s5s.out
+check "same atoms as step 1" test "$(atoms s1.json | sort)" = "$(atoms s5s.json | sort)"
+rm .lake/build && mv "$WORK/build-store" .lake/build
+
+echo "6. A library whose glob directory does not exist"
+cp lakefile.toml lakefile.toml.orig
+printf '\n[[lean_lib]]\nname = "Gen"\nglobs = ["Generated.+"]\n' >>lakefile.toml
+check "extract . succeeds" run s6a extract . -o s6a.json
+check "extract . --library Core succeeds" run s6b extract . --library Core -o s6b.json
+check "extract . --library Gen fails" bash -c '! "$0" extract . --library Gen -o s6c.json >s6c.out 2>s6c.err' "$PL"
+check "the error names Gen" err_has s6c "  Gen: "
+mv lakefile.toml.orig lakefile.toml
+
+echo "7. A broken proof in Core fails the build"
 cp Core.lean Core.lean.orig
 echo 'theorem broken : (1 : Nat) = 2 := rfl' >>Core.lean
 check "extract . fails" bash -c '! "$0" extract . -o s5.json >s5.out 2>s5.err' "$PL"
 check "the error is the build error" err_has s5 "Lake build failed"
 mv Core.lean.orig Core.lean
 
-echo "6. Core imports the executable root ExeOld"
+echo "8. Core imports the executable root ExeOld"
 lake build +ExeOld >build.log 2>&1 || { cat build.log; exit 1; }
 cp Core.lean Core.lean.orig
 sed -i '1i import ExeOld' Core.lean
 check "extract . fails" bash -c '! "$0" extract . -o s6.json >s6.out 2>s6.err' "$PL"
-check "R11 case 3 names ExeOld" err_has s6 "  ExeOld: only a lean_exe owns this module, and another project module imports it."
+check "exeImported names ExeOld" err_has s6 "  ExeOld: only a lean_exe owns this module, and another project module imports it."
 mv Core.lean.orig Core.lean
 
-echo "7. Shared is also an executable root"
+echo "9. Shared is also an executable root"
 cp lakefile.toml lakefile.toml.orig
 printf '\n[[lean_exe]]\nname = "sharedexe"\nroot = "Shared"\n' >>lakefile.toml
 check "extract . fails" bash -c '! "$0" extract . -o s7.json >s7.out 2>s7.err' "$PL"
-check "R11 case 4 names Shared" err_has s7 "  Shared: the name is both a lean_lib module and a lean_exe root."
+check "libAndExe names Shared" err_has s7 "  Shared: the name is both a lean_lib module and a lean_exe root."
 mv lakefile.toml.orig lakefile.toml
 
-echo "8. The [[lean_lib]] entry of Old is removed"
+echo "10. The [[lean_lib]] entry of Old is removed"
 echo marker >marker.json
 python3 - <<'P'
 s = open("lakefile.toml").read()
@@ -113,10 +132,10 @@ open("lakefile.toml", "w").write(s)
 P
 sed -i 's/def s : Nat := 2/def s : Nat := 3/' Shared.lean
 check "extract . fails" bash -c '! "$0" extract . -o marker.json >s8.out 2>s8.err' "$PL"
-check "R11 case 5 names Old" err_has s8 "  Old: no lean_lib of the root package owns this module"
+check "unowned names Old" err_has s8 "  Old: no lean_lib of the root package owns this module"
 check "the output file is unchanged" test "$(cat marker.json)" = marker
 check "check-axioms . fails" bash -c '! "$0" check-axioms . >s8c.out 2>s8c.err' "$PL"
-check "check-axioms: R11 case 5 names Old" err_has s8c "  Old: no lean_lib of the root package owns this module"
+check "check-axioms: unowned names Old" err_has s8c "  Old: no lean_lib of the root package owns this module"
 check "build output not written" no_build_output
 
 echo

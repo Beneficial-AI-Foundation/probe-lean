@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A target on another Lean version fails before the build, with both Lean githashes and a pointer to the installer's `--from-project`.
 - If Lake's artifact cache keeps a target `.olean` out of `.lake/build`, the run fails and names `LAKE_RESTORE_ARTIFACTS=true` and `restoreAllArtifacts = true`.
 - A custom `buildDir` or `leanLibDir` is an error.
+- A target module whose `.olean` resolves outside `.lake/build/lib/lean` is an error. A symlinked `.lake` or `.lake/build` works.
+- A target library whose modules Lake cannot list (for example, a missing glob directory) is an error. Such a library that is not a target does not fail the run.
 
 ### Added
 

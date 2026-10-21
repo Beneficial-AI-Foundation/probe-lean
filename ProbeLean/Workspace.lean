@@ -54,8 +54,13 @@ def runWorkspaceInfo : IO UInt32 := do
   let root := ws.root
   let mut libs : Array LibInfo := #[]
   for lib in root.leanLibs do
-    let mods ← lib.getModuleArray
-    libs := libs.push { name := lib.name, modules := mods.map (·.name) }
+    -- `getModuleArray` reads the directories of the library's globs, and throws if
+    -- one is missing. Only a target library with an error fails the run
+    -- (`chooseTargets`), as `lake build` of the other libraries does not read them.
+    let entry : LibInfo ← try
+        pure { name := lib.name, modules := (← lib.getModuleArray).map (·.name) }
+      catch e => pure { name := lib.name, modules := #[], error := some (toString e) }
+    libs := libs.push entry
   let exes := root.leanExes.map fun exe => ({ name := exe.name, root := exe.root.name } : ExeInfo)
   let info : WorkspaceInfo := {
     leanGithash := githash

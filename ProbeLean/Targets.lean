@@ -37,12 +37,20 @@ def parseLibraryArg (s : String) : Array Name :=
   ((s.splitOn ",").map (·.trimAscii.toString)).filter (!·.isEmpty)
     |>.map stringToLegalOrSimpleName |>.toArray
 
-/-- The targets of the run and the default targets that were skipped, in the order
-    of R4: `--library`, `--all-libraries`, `defaultTargets`, every `lean_lib`. An
+/-- The error for target libraries whose modules Lake could not list
+    (`LibInfo.error`). -/
+def formatLibraryErrors (broken : Array (Name × String)) : String :=
+  let lines := broken.toList.map fun (n, e) => s!"  {n}: {e.trimAscii}"
+  s!"Error: Lake could not list the modules of {broken.size} target library(ies):\n" ++
+    "\n".intercalate lines
+
+/-- The targets of the run and the default targets that were skipped, in this
+    order: `--library`, `--all-libraries`, `defaultTargets`, every `lean_lib`. An
     empty `defaultTargets` means every `lean_lib`. A default target that is neither a
     `lean_lib` nor a `lean_exe` (a custom `target`, an `extern_lib`) is skipped. An
     empty result is an error, because `lake build` without arguments builds the
-    default targets, custom targets and executables included. -/
+    default targets, custom targets and executables included. A target library
+    whose modules Lake could not list (`LibInfo.error`) is an error too. -/
 def chooseTargets (info : WorkspaceInfo) (libraries : Option (Array Name)) (allLibs : Bool)
     : Except String (Array Target × Array Name) := do
   let libNames := info.libs.map (·.name)
@@ -71,6 +79,11 @@ def chooseTargets (info : WorkspaceInfo) (libraries : Option (Array Name)) (allL
     let note := if skipped.isEmpty then ""
       else s!" Skipped default targets: {", ".intercalate (skipped.map toString).toList}."
     throw s!"Error: no lean_lib or lean_exe target was found.{note}"
+  let broken := targets.filterMap fun
+    | .lib n => (info.libs.find? (·.name == n)).bind fun l => l.error.map (n, ·)
+    | .exe .. => none
+  unless broken.isEmpty do
+    throw (formatLibraryErrors broken)
   return (targets, skipped)
 
 /-- The arguments of `lake build`: `<lib>:leanArts` for a library, so the build does
@@ -102,18 +115,18 @@ private def dropDotComponents (p : System.FilePath) : String :=
   let parts := (p.normalize.toString.splitOn "/").filter (· != ".")
   "/".intercalate parts
 
-/-- R6: the build directory `leanLibDir` (as Lake stores it, usually relative) must
+/-- The build directory `leanLibDir` (as Lake stores it, usually relative) must
     be `.lake/build/lib/lean` of the project. `projectReal` is the real path of the
     project directory. The build directory itself need not exist. -/
 def checkLeanLibDir (projectReal : System.FilePath) (leanLibDir : String) : Except String Unit :=
-  let dir : System.FilePath :=
-    if leanLibDir.startsWith "/" then leanLibDir else projectReal / leanLibDir
+  let dir : System.FilePath := leanLibDir
+  let dir := if dir.isAbsolute then dir else projectReal / dir
   let expected := projectReal / ".lake" / "build" / "lib" / "lean"
   if dropDotComponents dir == dropDotComponents expected then .ok ()
   else .error s!"Error: the build directory of the project is {leanLibDir}, not \
     .lake/build/lib/lean. probe-lean does not support a custom buildDir or leanLibDir."
 
-/-- R12: parse the `--module` prefix as a module name. `String.toName` returns
+/-- Parse the `--module` prefix as a module name. `String.toName` returns
     `.anonymous` for a string that does not parse, and `.anonymous` is a prefix of
     every name, so it is an error. -/
 def parseModulePrefix (s : String) : Except String Name :=
@@ -121,7 +134,7 @@ def parseModulePrefix (s : String) : Except String Name :=
   if n.isAnonymous then .error s!"Error: --module {s}: not a module name."
   else .ok n
 
-/-- R12: the modules of `mods` whose name is `pre` or starts with `pre.`, compared as
+/-- The modules of `mods` whose name is `pre` or starts with `pre.`, compared as
     `Name` components. -/
 def filterModulePrefix (mods : Array Name) (pre : Name) : Array Name :=
   mods.filter pre.isPrefixOf
@@ -132,7 +145,7 @@ def formatEmptyModuleFilter (pre : Name) (targetCount : Nat) : String :=
     --module filters the modules of the targets. For a module of another lean_lib, \
     name that library with --library."
 
-/-- Why the ownership check (R11) rejects a project module. -/
+/-- Why the ownership check (`classifyOwnership`) rejects a project module. -/
 inductive Rejection where
   /-- Only a `lean_exe` owns the module, and another project module imports it. -/
   | exeImported
@@ -145,7 +158,7 @@ inductive Rejection where
   | internal
   deriving BEq, Repr, Inhabited
 
-/-- R11: classify each project module by its owners. `targetExeRoots` are the roots
+/-- The ownership check: classify each project module by its owners. `targetExeRoots` are the roots
     of the target executables, `imported` says whether a module of P imports the
     module. Returns the rejected modules with their reason, in the order of `p`. -/
 def classifyOwnership (p : Array Name) (owners : Array OwnerInfo) (targetExeRoots : Array Name)
@@ -176,13 +189,13 @@ def Rejection.reason : Rejection → String
   | .internal => "internal error: an executable root that is not a target and that no \
       module imports is in the import closure. Please report this."
 
-/-- One message for every rejected module (R11). -/
+/-- One message for every rejected module. -/
 def formatRejections (rs : Array (Name × Rejection)) : String :=
   let lines := rs.toList.map fun (m, r) => s!"  {m}: {r.reason}"
   s!"Error: {rs.size} module(s) in the import closure fail the ownership check:\n" ++
     "\n".intercalate lines
 
-/-- R15: the modules whose atoms the run reports. With `--module`, the import set.
+/-- The modules whose atoms the run reports. With `--module`, the import set.
     Else with `--library`, the modules of P whose `lean_lib` owner is a named
     library. Else every module of P. -/
 def emittedSet (importSet p : Array Name) (owners : Array OwnerInfo)
