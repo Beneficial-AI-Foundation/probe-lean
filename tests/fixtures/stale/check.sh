@@ -60,6 +60,7 @@ check "exe_thm (executable root, not a target) is not emitted" lacks s1.json exe
 check "build output not written" no_build_output
 (cd .. && "$PL" extract stale -o "$WORK/parent.json" >/dev/null 2>"$WORK/parent.err")
 check "extract from the parent directory succeeds" test -s "$WORK/parent.json"
+[ -s "$WORK/parent.json" ] || cat "$WORK/parent.err"
 check "same atoms from the parent directory" \
   test "$(atoms s1.json | sort)" = "$(atoms "$WORK/parent.json" | sort)"
 

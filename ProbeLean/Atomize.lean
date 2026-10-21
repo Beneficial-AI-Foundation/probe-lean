@@ -334,7 +334,9 @@ def checkLoadedProjectModules (env : Environment) (pp : PreparedProject)
     both see the exact same environment. -/
 def importProjectEnv (projectPath : System.FilePath) (pp : PreparedProject)
     : IO (Except String Environment) := do
-  Lean.initSearchPath (← Lean.findSysroot)
+  -- The search path holds the toolchain's own library through `LEAN_PATH` of
+  -- `lake env`. `Lean.findSysroot` is not called: it runs `lean` in probe-lean's
+  -- working directory, which can resolve to another toolchain, or to none.
   Lean.searchPathRef.set pp.searchPath
 
   -- Preflight: abort with an actionable diagnostic if the modules cannot
