@@ -5793,7 +5793,7 @@ def testStepRule2 (result : TestResult) : IO TestResult := do
 def testStepRule3 (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
-  IO.println "Testing primary-spec rule 3 with .spec names and the head guard..."
+  IO.println "Testing primary-spec rule 3 with .spec names..."
   let f := mkSpecAtom "probe:f" .def #[]
   let dotSpec := stepThm "probe:f.spec" #["probe:f"]
   let aux := stepThm "probe:f_aux" #["probe:f"]
@@ -5803,12 +5803,17 @@ def testStepRule3 (result : TestResult) : IO TestResult := do
     (pickSpec #[f, dotSpec, underSpec, aux] "probe:f" == none) result
   let dotG := stepThm "probe:f.spec" #["probe:f"] (some `g) true
   let thmH := stepThm "probe:h_spec" #["probe:f"] (some `h) true
-  result ← test "a tagged f.spec about g does not win rule 3"
-    (pickSpec #[f, dotG, thmH] "probe:f" == none) result
+  result ← test "a tagged f.spec about g wins rule 3"
+    (pickSpec #[f, dotG, thmH] "probe:f" == some "probe:f.spec") result
   let underG := stepThm "probe:f_spec" #["probe:f"] (some `g)
   let dotF := stepThm "probe:f.spec" #["probe:f"] (some `f)
-  result ← test "f_spec about g next to f.spec about f picks f.spec"
+  result ← test "both names fall through to rule 4, which picks f.spec"
     (pickSpec #[f, underG, dotF] "probe:f" == some "probe:f.spec") result
+  let one := mkSpecAtom "probe:one" .def #[]
+  let oneSpec := stepThm "probe:one_spec" #["probe:one"] (some `Aeneas.Std.Result.ok) true
+  let other := stepThm "probe:two_spec" #["probe:one"] (some `two) true
+  result ← test "a tagged one_spec over ok one wins rule 3"
+    (pickSpec #[one, oneSpec, other] "probe:one" == some "probe:one_spec") result
   let solo := stepThm "probe:g_correct" #["probe:f"] (some `g) true
   result ← test "rule 5: the sole spec of f about g still wins"
     (pickSpec #[f, solo] "probe:f" == some "probe:g_correct") result

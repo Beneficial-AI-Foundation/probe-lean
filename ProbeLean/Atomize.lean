@@ -117,13 +117,15 @@ private def specNameMatches (n : Name) (last : String) : Bool :=
     with spec names `specs`. `specAtom` looks up the atom of a spec name.
 
     A spec is about another function when its step program head is known and differs
-    from `t.leanName`. Rules 2 and 3 skip such a spec. Without that, a step theorem
+    from `t.leanName`. Rule 2 skips such a spec. Rule 4 requires the head to be `t`.
+    Rules 3 and 5 do not check the head. Without rule 2's check, a step theorem
     whose postcondition names `t` counts for `t` (`to_edwards_spec` for `invert`,
-    #132), and a theorem named `<T>.spec` about another function wins rule 3 once
-    rule 2 rejects all tagged candidates. A tagged spec with head `none` stays a rule 2
-    candidate. Rule 4 ignores the namespace, so it needs the program head: the same
-    short name exists in other namespaces. Rule 5 has no head check, so the only spec
-    of `t` wins even if it is about another function.
+    #132). A tagged spec with head `none` stays a rule 2 candidate. Rule 3 trusts the
+    exact name whatever the head: SPQR `GF16.ONE_spec` is written over `ok ONE`. A
+    misnamed theorem is the author's mistake, and `@[primary_spec]` overrides it.
+    Rule 4 ignores the namespace, so it needs the program head: the same short name
+    exists in other namespaces. Rule 5 has no head check, so the only spec of `t` wins
+    even if it is about another function.
 
     Several candidates at a rule never resolve arbitrarily: the next rule decides.
 
@@ -142,11 +144,8 @@ def heuristicPrimarySpec (t : Atom) (specs : Array String)
     | some s => hasKnownSpecAttribute s.attributes && !aboutOther s
     | none => false
   if tagged.size == 1 then return some tagged[0]!
-  -- Rule 3: exactly one of `<T>_spec` and `<T>.spec`, not about another function
-  let exact := #[t.name ++ "_spec", t.name ++ ".spec"].filter fun n =>
-    specs.contains n && match specAtom n with
-      | some s => !aboutOther s
-      | none => true
+  -- Rule 3: exactly one of `<T>_spec` and `<T>.spec`, whatever its head
+  let exact := #[t.name ++ "_spec", t.name ++ ".spec"].filter specs.contains
   if exact.size == 1 then return some exact[0]!
   -- Rule 4: the only spec about `t` whose name ends in `<last>.spec` or `<last>_spec`
   if let .str _ last := privateToUserName t.leanName then
@@ -166,7 +165,7 @@ def heuristicPrimarySpec (t : Atom) (specs : Array String)
     1. `@[primary_spec]` attribute (always wins)
     2. The only framework-tagged spec (`primarySpecAttributes`) that is not about
        another function (`heuristicPrimarySpec`)
-    3. The exact name `<T>_spec` or `<T>.spec`, unless about another function
+    3. The exact name `<T>_spec` or `<T>.spec`
     4. The only spec about `T` whose name ends in `<last>.spec` or `<last>_spec`
     5. Sole-spec inference (exactly one spec)
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-10-21
+
+### Fixed
+
+- `primary-spec` rule 3 no longer skips a theorem named `<T>_spec` or `<T>.spec` whose step program head is another constant (#159). Rule 2 still skips a theorem about another function, and rule 4 still requires the head to be the target. SPQR `GF16.ONE` and `GF16.ZERO` get `GF16.ONE_spec` and `GF16.ZERO_spec` back, which 0.22.0 dropped: their statements are over `ok ONE` and `ok ZERO`. A misnamed theorem wins rule 3 again, as in 0.21.0. Tag the right theorem `@[primary_spec]` to fix it.
+
 ## [0.22.0] - 2026-10-20
 
 ### Fixed
