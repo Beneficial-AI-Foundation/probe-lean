@@ -26,6 +26,7 @@ EXPECTED = {
     "Step.append": "Step.append.spec",  # rule 3, <T>.spec
     "Step.hkdf": None,  # the axiom companion is about to_slice, to_vec_spec about to_vec
     "Step.to_slice": "Step.to_slice_spec.mvcgen_spec",  # rule 2, the axiom companion
+    "Step.one": "Step.one_spec",  # rule 3, program head is some
 }
 
 failures = []

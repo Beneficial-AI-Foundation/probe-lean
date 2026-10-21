@@ -57,4 +57,11 @@ def to_vec (x : Nat) : Option Nat := some (hkdf x)
 @[step] theorem to_slice_spec.mvcgen_spec (x : Nat) : to_slice x = some (hkdf x) := rfl
 @[step] theorem to_vec_spec (x : Nat) : spec (to_vec x) (fun r => r = hkdf x) := trivial
 
+-- A constant whose step spec is written over the wrapped value, as SPQR `GF16.ONE_spec`
+-- is over `ok ONE`. The program head is `some`, so rule 2 skips the theorem, and rule 3
+-- picks it by name.
+def one : Nat := 1
+@[step] theorem one_spec : spec (some one) (fun r => r = 1) := trivial
+theorem one_eq : one = 1 := rfl
+
 end Step

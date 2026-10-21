@@ -110,8 +110,8 @@ Known limitations:
 2. a theorem with a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`, also
    with `local` or `scoped`), only when exactly one such theorem in `specs` is not about another
    function.
-3. the theorem named exactly `<T>_spec` or `<T>.spec`, where `<T>` is the atom's own name, unless
-   it is about another function. If both names are present and count, rule 3 picks nothing.
+3. the theorem named exactly `<T>_spec` or `<T>.spec`, where `<T>` is the atom's own name. If
+   both names are present, rule 3 picks nothing.
 4. the only theorem about `T` whose name ends in `<last>.spec` or `<last>_spec`, where `<last>`
    is the last component of `T`. The namespace of the theorem does not matter.
 5. the only theorem in `specs`.
@@ -128,18 +128,21 @@ tactic indexes the theorem under `f`, its step program head. probe-lean reads th
 theorem's type, not from the attribute and not from the Aeneas data in the `.olean`:
 `@[local step]` registrations never reach the `.olean`. An untagged theorem of this shape also has
 a head. It can win rule 4, but it is never a rule 2 candidate, because rule 2 requires the author's
-tag. A theorem of any other shape has no head. Rules 2 and 3 never skip it for its head.
+tag. A theorem of any other shape has no head. Rule 2 never skips it for its head.
 
-If the head of a theorem is known and is not `T`, the theorem is about another function. Rules 2
-and 3 skip such a theorem:
+If the head of a theorem is known and is not `T`, the theorem is about another function. Rule 2
+skips such a theorem. A step theorem lands in `specs` of every function that its statement names.
+In curve25519-dalek, the postcondition of `MontgomeryPoint.to_edwards_spec` names
+`FieldElement51.invert`, so `invert` had two tagged candidates and no `primary-spec` (#132). The
+step theorem of `constants.LFACTOR` was `Scalar52.part1_spec`, a theorem about
+`montgomery_reduce.part1` (#129). With the head rule, `invert` gets its own step theorem and
+`LFACTOR` gets `constants.LFACTOR_spec` by rule 3.
 
-- Rule 2. A step theorem lands in `specs` of every function that its statement names. In
-  curve25519-dalek, the postcondition of `MontgomeryPoint.to_edwards_spec` names
-  `FieldElement51.invert`, so `invert` had two tagged candidates and no `primary-spec` (#132).
-  The step theorem of `constants.LFACTOR` was `Scalar52.part1_spec`, a theorem about
-  `montgomery_reduce.part1` (#129). With the head rule, `invert` gets its own step theorem and
-  `LFACTOR` gets `constants.LFACTOR_spec` by rule 3.
-- Rule 3. A theorem named `f.spec` whose program is `g` does not win rule 3 for `f`.
+Rule 3 trusts the exact name. If the head of an exact-name theorem is another constant, rule 3
+still counts it. In SPQR, the spec of the constant `GF16::ONE` is `GF16.ONE_spec`, written over
+`ok ONE`. Its head is `Aeneas.Std.Result.ok`, and rule 3 picks it for `GF16.ONE`. A theorem named
+`f_spec` whose program is `g` also wins rule 3 for `f`. Tag the right theorem `@[primary_spec]` to
+fix such a name.
 
 Rule 4 ignores the namespace, so it requires the head: the same short name exists in other
 namespaces. In SymCRust-lean, `Symcrust.Properties.MLKEM.mlkem.ntt.mont_mul.spec` is the spec of

@@ -207,7 +207,7 @@ structure Atom where
       declarations that publish to the same string cannot swap statuses. -/
   leanName : Lean.Name := .anonymous
   /-- Step program head of a theorem (see `stepProgramHeadOf`): raw Lean name, private
-      prefix kept. Not serialised, like `leanName`. Rules 2 to 4 of the primary-spec
+      prefix kept. Not serialised, like `leanName`. Rules 2 and 4 of the primary-spec
       precedence compare it with the target's `leanName`. -/
   stepProgramHead : Option Lean.Name := none
   displayName : String
