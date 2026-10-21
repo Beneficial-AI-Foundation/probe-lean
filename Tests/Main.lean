@@ -2382,218 +2382,6 @@ def testFindProbeLeanLibPaths (result : TestResult) : IO TestResult := do
 
   return result
 
-def testParseLeanLibs (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing parseLeanLibsFromToml..."
-
-  let multiLib := "name = \"Spqr\"\ndefaultTargets = [\"Spqr\"]\n\n[[lean_lib]]\nname = \"Extraction\"\n\n[[lean_lib]]\nname = \"Spqr\"\n"
-  let r1 := parseLeanLibsFromToml multiLib
-  result ← test "multi-lib: finds two libraries" (r1.size == 2) result
-  result ← test "multi-lib: first is Extraction" (r1[0]? == some "Extraction") result
-  result ← test "multi-lib: second is Spqr" (r1[1]? == some "Spqr") result
-
-  let singleLib := "name = \"Curve25519Dalek\"\n\n[[lean_lib]]\nname = \"Curve25519Dalek\"\n"
-  let r2 := parseLeanLibsFromToml singleLib
-  result ← test "single-lib: finds one library" (r2.size == 1) result
-  result ← test "single-lib: name is Curve25519Dalek" (r2[0]? == some "Curve25519Dalek") result
-
-  let noLib := "name = \"MyProject\"\nversion = \"0.1.0\"\n"
-  let r3 := parseLeanLibsFromToml noLib
-  result ← test "no lean_lib: returns empty" (r3.size == 0) result
-
-  let withSpaces := "name = \"Foo\"\n\n[[ lean_lib ]]\nname = \"Bar\"\n"
-  let r4 := parseLeanLibsFromToml withSpaces
-  result ← test "spaces in header: finds library" (r4.size == 1) result
-  result ← test "spaces in header: name is Bar" (r4[0]? == some "Bar") result
-
-  let otherSection := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"Lib1\"\n\n[[lean_exe]]\nname = \"NotALib\"\n\n[[lean_lib]]\nname = \"Lib2\"\n"
-  let r5 := parseLeanLibsFromToml otherSection
-  result ← test "mixed sections: finds two libs" (r5.size == 2) result
-  result ← test "mixed sections: skips lean_exe" (!r5.toList.contains "NotALib") result
-  result ← test "mixed sections: has Lib1" (r5[0]? == some "Lib1") result
-  result ← test "mixed sections: has Lib2" (r5[1]? == some "Lib2") result
-
-  return result
-
-def testParseDefaultTargets (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing parseDefaultTargetsFromToml..."
-
-  let withDefault := "name = \"Curve25519Dalek\"\ndefaultTargets = [\"Curve25519Dalek\"]\n\n[[lean_lib]]\nname = \"Curve25519Dalek\"\n\n[[lean_lib]]\nname = \"Utils\"\n"
-  let d1 := parseDefaultTargetsFromToml withDefault
-  result ← test "defaultTargets: finds one target" (d1.size == 1) result
-  result ← test "defaultTargets: target is Curve25519Dalek" (d1[0]? == some "Curve25519Dalek") result
-
-  let multiDefault := "name = \"Pkg\"\ndefaultTargets = [\"Lib1\", \"Lib2\"]\n\n[[lean_lib]]\nname = \"Lib1\"\n"
-  let d2 := parseDefaultTargetsFromToml multiDefault
-  result ← test "multi defaultTargets: finds two targets" (d2.size == 2) result
-  result ← test "multi defaultTargets: first is Lib1" (d2[0]? == some "Lib1") result
-  result ← test "multi defaultTargets: second is Lib2" (d2[1]? == some "Lib2") result
-
-  let noDefault := "name = \"Pkg\"\nversion = \"0.1.0\"\n\n[[lean_lib]]\nname = \"Pkg\"\n"
-  let d3 := parseDefaultTargetsFromToml noDefault
-  result ← test "no defaultTargets: returns empty" (d3.size == 0) result
-
-  let emptyDefault := "name = \"Pkg\"\ndefaultTargets = []\n"
-  let d4 := parseDefaultTargetsFromToml emptyDefault
-  result ← test "empty defaultTargets: returns empty" (d4.size == 0) result
-
-  IO.println ""
-  IO.println "Testing getLeanLibs priority (defaultTargets > lean_lib)..."
-
-  let tmpBase : System.FilePath := "/tmp/probe-lean-test-libs-" ++ toString (← IO.monoNanosNow)
-  IO.FS.createDirAll tmpBase
-
-  IO.FS.writeFile (tmpBase / "lakefile.toml") withDefault
-  let l1 ← getLeanLibs tmpBase
-  result ← test "getLeanLibs prefers defaultTargets" (l1.size == 1 && l1[0]? == some "Curve25519Dalek") result
-
-  IO.FS.writeFile (tmpBase / "lakefile.toml") noDefault
-  let l2 ← getLeanLibs tmpBase
-  result ← test "getLeanLibs falls back to lean_lib" (l2.size == 1 && l2[0]? == some "Pkg") result
-
-  try IO.FS.removeDirAll tmpBase catch _ => pure ()
-  return result
-
-def testParseSrcDirs (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing parseSrcDirsFromToml..."
-
-  let noSrcDir := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"Pkg\"\n"
-  result ← test "no srcDir: returns empty" ((parseSrcDirsFromToml noSrcDir).size == 0) result
-
-  let oneSrcDir := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"Gen\"\nsrcDir = \"generated\"\n"
-  let s1 := parseSrcDirsFromToml oneSrcDir
-  result ← test "one srcDir: finds it" (s1.size == 1 && s1[0]? == some "generated") result
-
-  let twoSrcDirs := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"A\"\nsrcDir = \"src\"\n\n[[lean_lib]]\nname = \"B\"\nsrcDir = \"gen\"\n"
-  let s2 := parseSrcDirsFromToml twoSrcDirs
-  result ← test "two srcDirs: finds both" (s2.size == 2 && s2[0]? == some "src" && s2[1]? == some "gen") result
-
-  let spaced := "name = \"Pkg\"\n\n[[lean_lib]]\nname = \"A\"\nsrcDir=\"weird\"\n"
-  result ← test "srcDir without spaces around =" ((parseSrcDirsFromToml spaced)[0]? == some "weird") result
-
-  IO.println ""
-  IO.println "Testing getSourceRoots..."
-  let tmpBase : System.FilePath := "/tmp/probe-lean-test-srcroots-" ++ toString (← IO.monoNanosNow)
-  IO.FS.createDirAll tmpBase
-
-  IO.FS.writeFile (tmpBase / "lakefile.toml") twoSrcDirs
-  let r1 ← getSourceRoots tmpBase
-  result ← test "getSourceRoots includes '.'" (r1.contains ".") result
-  result ← test "getSourceRoots includes srcDirs" (r1.contains "src" && r1.contains "gen") result
-
-  -- No lakefile.toml → just "."
-  let emptyBase := tmpBase / "empty"
-  IO.FS.createDirAll emptyBase
-  let r2 ← getSourceRoots emptyBase
-  result ← test "getSourceRoots defaults to ['.'] without toml" (r2 == #["."]) result
-
-  try IO.FS.removeDirAll tmpBase catch _ => pure ()
-  return result
-
-def testOrphanOleanFilter (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing partitionBySource (orphan olean filtering)..."
-
-  let tmpBase : System.FilePath := "/tmp/probe-lean-test-orphan-" ++ toString (← IO.monoNanosNow)
-  -- Live sources at the default root.
-  IO.FS.createDirAll (tmpBase / "Pkg" / "Code")
-  IO.FS.writeFile (tmpBase / "Pkg" / "Lib.lean") ""
-  IO.FS.writeFile (tmpBase / "Pkg" / "Code" / "Live.lean") ""
-  -- A library with a custom srcDir.
-  IO.FS.createDirAll (tmpBase / "generated" / "Gen")
-  IO.FS.writeFile (tmpBase / "generated" / "Gen" / "Out.lean") ""
-
-  -- Olean entries as collectOleanFiles would produce them: (module name, relPath).
-  let oleans : Array (Lean.Name × String) := #[
-    (`Pkg.Lib, "Pkg/Lib"),
-    (`Pkg.Code.Live, "Pkg/Code/Live"),
-    (`Pkg.Code.Orphan, "Pkg/Code/Orphan"),   -- renamed/deleted: no source
-    (`Gen.Out, "Gen/Out")                     -- source only under srcDir "generated"
-  ]
-
-  let (kept0, orphans0) ← partitionBySource tmpBase #["."] oleans
-  result ← test "default root: orphan dropped" (!kept0.any (·.1 == `Pkg.Code.Orphan) && orphans0.contains `Pkg.Code.Orphan) result
-  result ← test "default root: live modules kept" (kept0.any (·.1 == `Pkg.Lib) && kept0.any (·.1 == `Pkg.Code.Live)) result
-  result ← test "default root: custom-srcDir module dropped (no '.' source)" (orphans0.contains `Gen.Out) result
-  result ← test "default root: kept entries keep their relPath pairing"
-    (kept0.any fun (n, p) => n == `Pkg.Code.Live && p == "Pkg/Code/Live") result
-
-  let (kept1, orphans1) ← partitionBySource tmpBase #[".", "generated"] oleans
-  result ← test "with srcDir: custom-srcDir module kept" (kept1.any (·.1 == `Gen.Out)) result
-  result ← test "with srcDir: orphan still dropped" (orphans1.contains `Pkg.Code.Orphan) result
-  result ← test "with srcDir: only the orphan is dropped" (orphans1.size == 1) result
-
-  -- Empty sourceRoots falls back to ["."].
-  let (kept2, _) ← partitionBySource tmpBase #[] oleans
-  result ← test "empty roots fall back to '.'" (kept2.any (·.1 == `Pkg.Lib) && !kept2.any (·.1 == `Pkg.Code.Orphan)) result
-
-  try IO.FS.removeDirAll tmpBase catch _ => pure ()
-  return result
-
-/-- Build a `ProjectModule` whose olean path is derived from its name, so
-    tests can verify filters keep each name paired with its own path. -/
-def mkTestModule (n : String) : ProjectModule :=
-  { name := n.toName, oleanPath := System.FilePath.mk (n.replace "." "/" ++ ".olean") }
-
-/-- Every module still carries the olean path it was constructed with. -/
-def pathsPreserved (modules : Array ProjectModule) : Bool :=
-  modules.all fun m => m.oleanPath.toString == m.name.toString.replace "." "/" ++ ".olean"
-
-def testSelectModules (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing selectModules (module filtering)..."
-
-  -- A typical layout: a `MyLib` library, its submodule, an executable root
-  -- `Main`, and a test module whose library declares a custom root.
-  let modules : Array ProjectModule :=
-    #[mkTestModule "MyLib", mkTestModule "MyLib.Core.Widget",
-      mkTestModule "Main", mkTestModule "Tests.Helper"]
-
-  -- No explicit --library: analyze every collected module. This is the
-  -- regression for the bug where a non-library build target (a `lean_exe` name
-  -- from `defaultTargets`) was used as a filter and dropped all modules.
-  let allMods := selectModules modules none none
-  result ← test "no library filter: keeps all modules" (allMods.size == 4) result
-
-  -- Explicit --library matching the library's module root keeps only its modules.
-  let libMods := selectModules modules (some #["MyLib"]) none
-  result ← test "library MyLib: keeps lib + submodule" (libMods.size == 2) result
-  result ← test "library MyLib: keeps MyLib" (libMods.any (·.name == "MyLib".toName)) result
-  result ← test "library MyLib: keeps submodule" (libMods.any (·.name == "MyLib.Core.Widget".toName)) result
-  result ← test "library MyLib: drops Main" (!libMods.any (·.name == "Main".toName)) result
-  result ← test "library MyLib: olean paths preserved" (pathsPreserved libMods) result
-
-  -- A filter that matches nothing yields empty (the caller turns this into a
-  -- loud error rather than silently writing 0 atoms). Case-sensitive: a
-  -- lowercase executable name matches no `MyLib.*` module.
-  let exeNameFilter := selectModules modules (some #["mylib"]) none
-  result ← test "library mylib (exe name): matches nothing" (exeNameFilter.isEmpty) result
-
-  -- --module narrows by name prefix on top of the (default) all-modules set.
-  let coreOnly := selectModules modules none (some "MyLib.Core")
-  result ← test "module filter MyLib.Core: keeps only submodule" (coreOnly.size == 1) result
-  result ← test "module filter MyLib.Core: is the widget module"
-    (coreOnly[0]?.map (·.name) == some "MyLib.Core.Widget".toName) result
-  result ← test "module filter MyLib.Core: olean path preserved" (pathsPreserved coreOnly) result
-
-  -- Documented limitation (tracked in #40): `--library` matches by module-name
-  -- prefix, so a library whose `roots` differ from its name cannot be selected by
-  -- name. `--module` is the escape hatch for those.
-  let byLibName := selectModules modules (some #["HelperSuite"]) none
-  result ← test "library by name with custom roots: does not match (known limitation)"
-    (byLibName.isEmpty) result
-  let byModuleRoot := selectModules modules none (some "Tests.Helper")
-  result ← test "module filter reaches custom-root module" (byModuleRoot.size == 1) result
-
-  return result
-
 /-- Test theorem with the given statement (proof body is irrelevant here). -/
 def mkTestThm (n : Lean.Name) (ty : Lean.Expr) : Lean.ConstantInfo :=
   .thmInfo { name := n, levelParams := [], type := ty, value := ty, all := [n] }
@@ -2704,46 +2492,40 @@ def testCoimportFormat (result : TestResult) : IO TestResult := do
 
   let mods : Array Lean.Name := #[`H1.problem, `H1.solution]
   let c1 : DeclCollision := { declName := `Admissible, modules := mods }
-  let msg := formatCoimportError #[c1] #[]
+  let msg := formatCoimportError #[c1]
   result ← test "format: names the declaration" (containsSubstring msg "Admissible") result
   result ← test "format: names both modules" (containsSubstring msg "H1.problem" && containsSubstring msg "H1.solution") result
   result ← test "format: suggests a --module example" (containsSubstring msg "--module H1.problem") result
   result ← test "format: notes --module prefix semantics" (containsSubstring msg "--module also selects submodules") result
-  result ← test "format: notes --library limitation" (containsSubstring msg "--library matches module-name roots") result
+  result ← test "format: --library takes lean_lib names" (containsSubstring msg "--library takes lean_lib names") result
   result ← test "format: suggests namespaces" (containsSubstring msg "namespace") result
   result ← test "format: references README requirement" (containsSubstring msg "Supported Projects") result
   result ← test "format: does NOT suggest lake clean" (!containsSubstring msg "lake clean") result
-  result ← test "format: no skipped note when none skipped" (!containsSubstring msg "could not be scanned") result
 
   let many : Array DeclCollision := (Array.range 15).map fun i =>
     { declName := Lean.Name.mkSimple s!"Dup{i}", modules := mods }
-  let msgMany := formatCoimportError many #[]
+  let msgMany := formatCoimportError many
   result ← test "format: caps the displayed list" (containsSubstring msgMany "and 5 more duplicated name(s)") result
   result ← test "format: reports the true total" (containsSubstring msgMany "15 declaration name(s)") result
 
   let hidden : DeclCollision := { declName := `_hidden, modules := mods }
-  let msgInt := formatCoimportError #[c1, hidden] #[]
+  let msgInt := formatCoimportError #[c1, hidden]
   result ← test "format: internal name not displayed" (!containsSubstring msgInt "_hidden") result
   result ← test "format: internal name still counted" (containsSubstring msgInt "2 declaration name(s)") result
   result ← test "format: internal names noted in aggregate" (containsSubstring msgInt "1 internal/auxiliary") result
 
   -- Hidden-only collisions: the internal names are the only evidence, so
   -- they must be shown rather than leaving the message with no names.
-  let msgHiddenOnly := formatCoimportError #[hidden] #[]
+  let msgHiddenOnly := formatCoimportError #[hidden]
   result ← test "format: hidden-only collision still lists the name" (containsSubstring msgHiddenOnly "_hidden") result
 
   -- Root/submodule collision: suggesting the root would re-select the
   -- colliding submodule (--module is a prefix filter), so the example must
   -- pick the member that is not a prefix of another.
   let rootSub : DeclCollision := { declName := `Clash, modules := #[`A, `A.B] }
-  let msgRootSub := formatCoimportError #[rootSub] #[]
+  let msgRootSub := formatCoimportError #[rootSub]
   result ← test "format: root/submodule collision suggests the non-prefix member"
     (containsSubstring msgRootSub "--module A.B") result
-
-  let skipped : Array ProjectModule := #[{ name := `Broken.Mod, oleanPath := "Broken/Mod.olean" }]
-  let msgSkip := formatCoimportError #[c1] skipped
-  result ← test "format: skipped modules are named" (containsSubstring msgSkip "Broken.Mod") result
-  result ← test "format: partial scan flagged" (containsSubstring msgSkip "may be incomplete") result
 
   return result
 
@@ -2920,99 +2702,6 @@ def testVersionConsistency (result : TestResult) : IO TestResult := do
   result ← test "ProbeLean.version matches lakefile.toml"
     (lakefileVersion == some ProbeLean.version) result
 
-  return result
-
-def testCacheValidity (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing isCacheValid..."
-
-  let tmpBase : System.FilePath := "/tmp/probe-lean-test-cache-" ++ toString (← IO.monoNanosNow)
-  IO.FS.createDirAll tmpBase
-
-  -- No cache file at all → invalid
-  let v1 ← isCacheValid tmpBase
-  result ← test "no cache file → invalid" (!v1) result
-
-  -- Create cache file but no build dir → invalid
-  let cacheDir := tmpBase / ".lake" / "probe-lean"
-  IO.FS.createDirAll cacheDir
-  IO.FS.writeFile (cacheDir / "build_output.txt") "cached"
-  let v2 ← isCacheValid tmpBase
-  result ← test "cache file but no build dir → invalid" (!v2) result
-
-  -- Create empty build dir (post-`lake clean` scenario) → invalid
-  let buildDir := tmpBase / ".lake" / "build" / "lib" / "lean"
-  IO.FS.createDirAll buildDir
-  let v3 ← isCacheValid tmpBase
-  result ← test "empty build dir (post lake clean) → invalid" (!v3) result
-
-  -- Add an .olean → valid
-  IO.FS.writeFile (buildDir / "Foo.olean") ""
-  let v3b ← isCacheValid tmpBase
-  result ← test "cache file + build dir with .olean → valid" v3b result
-
-  -- Remove the .olean (simulating lake clean leaving the dir behind) → invalid
-  IO.FS.removeFile (buildDir / "Foo.olean")
-  let v3c ← isCacheValid tmpBase
-  result ← test "olean removed but dir kept → invalid" (!v3c) result
-
-  -- Restore .olean for the remaining timestamp-based assertions
-  IO.FS.writeFile (buildDir / "Foo.olean") ""
-
-  -- Touch lean-toolchain after cache → invalid
-  IO.sleep 1100
-  IO.FS.writeFile (tmpBase / "lean-toolchain") "leanprover/lean4:v4.28.0\n"
-  let v4 ← isCacheValid tmpBase
-  result ← test "lean-toolchain newer than cache → invalid" (!v4) result
-
-  -- Refresh cache after toolchain change → valid again
-  IO.sleep 1100
-  IO.FS.writeFile (cacheDir / "build_output.txt") "cached-v2"
-  let v5 ← isCacheValid tmpBase
-  result ← test "refreshed cache after toolchain change → valid" v5 result
-
-  -- Touch lakefile.toml after cache → invalid
-  IO.sleep 1100
-  IO.FS.writeFile (tmpBase / "lakefile.toml") "name = \"test\"\n"
-  let v6 ← isCacheValid tmpBase
-  result ← test "lakefile.toml newer than cache → invalid" (!v6) result
-
-  try IO.FS.removeDirAll tmpBase catch _ => pure ()
-  return result
-
-def testCheckFilesSkipsDotDirs (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing checkFilesNewerThan skips dot-directories..."
-
-  let tmpBase : System.FilePath := "/tmp/probe-lean-test-dotdir-" ++ toString (← IO.monoNanosNow)
-  IO.FS.createDirAll tmpBase
-
-  -- Write a cache timestamp file, then wait
-  let tsFile := tmpBase / "timestamp"
-  IO.FS.writeFile tsFile ""
-  IO.sleep 1100
-  let tsMeta ← tsFile.metadata
-  let cacheTime := tsMeta.modified
-
-  -- Create a .lean file inside a dot-directory (should be ignored)
-  let dotDir := tmpBase / ".lake"
-  IO.FS.createDirAll dotDir
-  IO.FS.writeFile (dotDir / "Foo.lean") "def foo := 1"
-
-  let r1 ← checkFilesNewerThan tmpBase cacheTime
-  result ← test ".lean in dot-dir is ignored" (!r1) result
-
-  -- Create a .lean file in a normal directory (should be detected)
-  let srcDir := tmpBase / "src"
-  IO.FS.createDirAll srcDir
-  IO.FS.writeFile (srcDir / "Bar.lean") "def bar := 2"
-
-  let r2 ← checkFilesNewerThan tmpBase cacheTime
-  result ← test ".lean in normal dir is detected" r2 result
-
-  try IO.FS.removeDirAll tmpBase catch _ => pure ()
   return result
 
 def testNixEnv (result : TestResult) : IO TestResult := do
@@ -3367,8 +3056,6 @@ def testPathToModuleName (result : TestResult) : IO TestResult := do
     (pathToModuleName "Analysis/Misc/Real-EReal-ENNReal" == `Analysis.Misc.«Real-EReal-ENNReal») result
   result ← test "guillemet segment is not anonymous"
     (!(pathToModuleName "Analysis/Misc/Real-EReal-ENNReal").isAnonymous) result
-  result ← test "guillemet module belongs to its library root"
-    (moduleInLibraries (pathToModuleName "Analysis/Misc/Real-EReal-ENNReal") #["Analysis"]) result
   result ← test "digit-only segment stays a string component, never numeric"
     (pathToModuleName "A/123" == Lean.Name.mkStr (.mkStr .anonymous "A") "123") result
   result ← test "segment containing a dot stays one component"
@@ -4236,11 +3923,6 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
   let mut result := result
   IO.println ""
   IO.println "Testing taint diagnostics formatting..."
-  result ← test "fallback warning"
-    (formatFallbackWarning 3 ==
-      "Warning: 3 project module(s) not imported (full import failed); they are outside the \
-       selection's import closure, so no emitted status depends on them, but check-axioms \
-       does not audit them") result
   result ← test "unknown atom warning"
     (formatUnknownAtomWarning "probe:x" ==
       "Warning: atom probe:x is not a project constant the kernel walk covered; \
@@ -4274,8 +3956,7 @@ def testTaintFormatting (result : TestResult) : IO TestResult := do
     (formatTagOnlyLine `later ==
       "Note(tag): later is tagged externally_verified by an `attribute` command or a macro; its \
        header does not show the tag; the tag set decides trust") result
-  let pl : Array ProjectModule := #[{ name := `M.B, oleanPath := "b.olean" }, { name := `M.A, oleanPath := "a.olean" }]
-  let pe := formatProoflessError pl
+  let pe := formatProoflessError #[`M.B, `M.A]
   result ← test "proofless error names the modules, sorted, and the cause"
     (pe.startsWith "2 module-system module(s) have no `.olean.private`/`.olean.server` part next to their `.olean`: M.A, M.B." &&
      (pe.splitOn "missing data file").length == 2 && (pe.splitOn "lake build").length == 2) result
@@ -4541,45 +4222,6 @@ def testTagSetLiterals (result : TestResult) : IO TestResult := do
     (tagAttributeRegistration? (mkAppN (mkConst ``registerParametricAttribute) #[mkStr1 "a", str "d", .fvar ⟨`v⟩, mkStr1 "r"]) == none) result
   result ← test "registration: mdata around the application is transparent"
     (tagAttributeRegistration? (.mdata {} full) == some (`externally_verified, `myAttr)) result
-  return result
-
-def testLoadedProjectModules (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing loadedProjectModules (P under the import fallback)..."
-  let m (n : Lean.Name) : ProjectModule := { name := n, oleanPath := s!"{n}.olean" }
-  let all := #[m `App.A, m `App.B, m `App.Common, m `App.Main]
-  let names (ms : Array ProjectModule) := ms.map (·.name)
-  result ← test "transitively loaded project modules are in P, colliding ones are not"
-    (names (loadedProjectModules all #[`Init, `App.Common, `App.Main]) == #[`App.Common, `App.Main]) result
-  result ← test "inventory order is kept"
-    (names (loadedProjectModules all #[`App.Main, `App.A]) == #[`App.A, `App.Main]) result
-  result ← test "everything loaded → all of the inventory"
-    ((loadedProjectModules all (names all)).size == all.size) result
-  result ← test "nothing loaded → empty" (loadedProjectModules all #[`Init]).isEmpty result
-  result ← test "fallback failure keeps the full import's diagnosis after the selection's"
-    (formatFallbackFailure "1 module-system module(s) have no part: App.B." "missing data file" ==
-      "missing data file\n\nThe import of all project modules had already failed:\n\
-       1 module-system module(s) have no part: App.B.") result
-  return result
-
-def testLoadedOrphans (result : TestResult) : IO TestResult := do
-  let mut result := result
-  IO.println ""
-  IO.println "Testing loadedOrphans (stale oleans the import loaded anyway)..."
-  let orphans := #[`App.Old, `App.Gone]
-  result ← test "no orphans → nothing" (loadedOrphans #[] #[`Init, `App.Main]).isEmpty result
-  result ← test "orphans nothing imported → nothing"
-    (loadedOrphans orphans #[`Init, `App.Main]).isEmpty result
-  result ← test "an imported orphan is reported"
-    (loadedOrphans orphans #[`Init, `App.Main, `App.Old] == #[`App.Old]) result
-  result ← test "sorted by name"
-    (loadedOrphans orphans #[`App.Old, `App.Gone] == #[`App.Gone, `App.Old]) result
-  result ← test "message names the modules and the remedy"
-    (formatLoadedOrphansError #[`App.Gone, `App.Old] ==
-      "2 stale module(s) with no .lean source were imported by a live module: App.Gone, \
-       App.Old. Their constants would sit outside the project boundary and be trusted. Run \
-       `lake clean` in the target project and rebuild.") result
   return result
 
 -- ============================================================
@@ -5262,17 +4904,10 @@ def runSuiteC (result : TestResult) : IO TestResult := do
   result ← testToolchainVersionParsing result
   result ← testFindProbeLeanLibPaths result
   result ← testLeanInvariants result
-  result ← testParseLeanLibs result
-  result ← testParseDefaultTargets result
-  result ← testParseSrcDirs result
-  result ← testOrphanOleanFilter result
-  result ← testSelectModules result
   result ← testCoimportSubsumes result
   result ← testCoimportCollisions result
   result ← testCoimportFormat result
   result ← testVersionConsistency result
-  result ← testCacheValidity result
-  result ← testCheckFilesSkipsDotDirs result
   result ← testNixEnv result
   result ← testTransitiveVerificationJson result
   result ← testCoversRange result
@@ -5306,8 +4941,6 @@ def runSuiteD (result : TestResult) : IO TestResult := do
   result ← testTaintFormatting result
   result ← testAttributeScan result
   result ← testAttributeScanNegatives result
-  result ← testLoadedProjectModules result
-  result ← testLoadedOrphans result
   result ← testTagSetLiterals result
   result ← testMergedDecls result
   result ← testHeaderMerges result
@@ -6015,6 +5648,223 @@ def runSuiteG (result : TestResult) : IO TestResult := do
   result ← testRunCmdBothPipes result
   return result
 
+/-- A workspace answer for the target and selection tests. -/
+def sampleWorkspace (defaults : Array Lean.Name) : WorkspaceInfo := {
+  leanGithash := "g", leanPath := "", leanLibDir := ".lake/build/lib/lean"
+  defaultTargets := defaults
+  libs := #[{ name := `Core, modules := #[`Core, `Core.Sub] },
+            { name := `Extra, modules := #[`Extra] },
+            { name := Lean.Name.mkSimple "a.b", modules := #[Lean.Name.mkSimple "a.b"] }]
+  exes := #[{ name := Lean.Name.mkSimple "my-exe", root := `Main }] }
+
+def testChooseTargets (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing chooseTargets and buildArgs..."
+  let allLibs := #[Target.lib `Core, .lib `Extra, .lib (Lean.Name.mkSimple "a.b")]
+  let exe := Target.exe (Lean.Name.mkSimple "my-exe") `Main
+  let ws := sampleWorkspace #[`Core, Lean.Name.mkSimple "my-exe", `docs]
+  result ← test "defaultTargets: libs and exes, custom target skipped"
+    ((chooseTargets ws none false).toOption == some (#[.lib `Core, exe], #[`docs])) result
+  result ← test "empty defaultTargets: every lean_lib"
+    ((chooseTargets (sampleWorkspace #[]) none false).toOption == some (allLibs, #[])) result
+  result ← test "--library wins over defaultTargets"
+    ((chooseTargets ws (some #[`Extra]) false).toOption == some (#[.lib `Extra], #[])) result
+  result ← test "--all-libraries: every lean_lib, no exe"
+    ((chooseTargets ws none true).toOption == some (allLibs, #[])) result
+  result ← test "--all-libraries with --library is an error (R13)"
+    (chooseTargets ws (some #[`Core]) true matches .error _) result
+  let unknown := match chooseTargets ws (some #[`Nope]) false with
+    | .error e => containsSubstring e "no lean_lib" && containsSubstring e "Core"
+    | .ok _ => false
+  result ← test "unknown --library name is an error listing the libs (R14)" unknown result
+  let exeErr := match chooseTargets ws (parseLibraryArg "my-exe") false with
+    | .error e => containsSubstring e "is a lean_exe"
+    | .ok _ => false
+  result ← test "--library with an exe name says it is a lean_exe (R14)" exeErr result
+  let empty := match chooseTargets (sampleWorkspace #[`docs]) none false with
+    | .error e => containsSubstring e "no lean_lib or lean_exe target" && containsSubstring e "docs"
+    | .ok _ => false
+  result ← test "only custom default targets: error lists the skipped ones (R5)" empty result
+  result ← test "build args: leanArts per lib, +root per exe"
+    (buildArgs #[.lib `Core, .lib (Lean.Name.mkSimple "a.b"), exe] ==
+      #["build", "Core:leanArts", "«a.b»:leanArts", "+Main"]) result
+  result ← test "build args always name a target" ((buildArgs #[.lib `Core]).size == 2) result
+  result ← test "parseLibraryArg: comma list, trimmed"
+    (parseLibraryArg " Core , Extra" == #[`Core, `Extra]) result
+  result ← test "parseLibraryArg: «a.b» is one component"
+    (parseLibraryArg "«a.b»" == #[Lean.Name.mkSimple "a.b"]) result
+  result ← test "target modules: libs then exe roots, no repeats"
+    (targetModules ws #[.lib `Core, exe, .lib `Core] == #[`Core, `Core.Sub, `Main]) result
+  return result
+
+def testLeanLibDirCheck (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing checkLeanLibDir (R6)..."
+  let root : System.FilePath := "/work/proj"
+  result ← test "relative default" (checkLeanLibDir root ".lake/build/lib/lean" matches .ok _) result
+  result ← test "./ prefixed default" (checkLeanLibDir root "./.lake/build/lib/lean" matches .ok _) result
+  result ← test "absolute default" (checkLeanLibDir root "/work/proj/.lake/build/lib/lean" matches .ok _) result
+  let custom := match checkLeanLibDir root "build/lib/lean" with
+    | .error e => containsSubstring e "custom buildDir"
+    | .ok _ => false
+  result ← test "custom buildDir is an error" custom result
+  result ← test "other project's build dir is an error"
+    (checkLeanLibDir root "/work/other/.lake/build/lib/lean" matches .error _) result
+  return result
+
+def testModulePrefix (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing parseModulePrefix and filterModulePrefix (R12)..."
+  let mods := #[`Core, `Core.Sub, `CoreX, Lean.Name.mkSimple "a.b", (Lean.Name.mkSimple "a").str "b"]
+  let run (s : String) : Option (Array Lean.Name) :=
+    (parseModulePrefix s).toOption.map (filterModulePrefix mods ·)
+  result ← test "Core keeps Core and Core.Sub, not CoreX" (run "Core" == some #[`Core, `Core.Sub]) result
+  result ← test "Core.Sub keeps itself" (run "Core.Sub" == some #[`Core.Sub]) result
+  result ← test "«a.b» is the atomic name, not a.b"
+    (run "«a.b»" == some #[Lean.Name.mkSimple "a.b"]) result
+  result ← test "a keeps a.b, not «a.b»" (run "a" == some #[(Lean.Name.mkSimple "a").str "b"]) result
+  result ← test "Foo/Bar is an error" (parseModulePrefix "Foo/Bar" matches .error _) result
+  result ← test "bad prefix is an error" (parseModulePrefix "bad prefix" matches .error _) result
+  result ← test "empty string is an error" (parseModulePrefix "" matches .error _) result
+  result ← test "empty result message suggests --library"
+    (containsSubstring (formatEmptyModuleFilter `Nope 3) "--library") result
+  return result
+
+def testOwnership (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing classifyOwnership (R11)..."
+  let owners : Array OwnerInfo := #[
+    { module := `Lib.A, lib := some `Lib },
+    { module := `Main, exe := some `app },
+    { module := `ExeOld, exe := some `oldexe },
+    { module := `Shared, lib := some `Shared, exe := some `sharedexe },
+    { module := `Old } ]
+  let imported (n : Lean.Name) : Bool := n == `ExeOld || n == `Lib.A
+  let cls (p : Array Lean.Name) (roots : Array Lean.Name := #[`Main]) :=
+    classifyOwnership p owners roots imported
+  result ← test "1. lib owner only: accepted" (cls #[`Lib.A]).isEmpty result
+  result ← test "2. target exe root, not imported: accepted" (cls #[`Main]).isEmpty result
+  result ← test "3. exe-only module imported: rejected"
+    (cls #[`ExeOld] #[`Main, `ExeOld] == #[(`ExeOld, .exeImported)]) result
+  result ← test "4. lib and exe: rejected" (cls #[`Shared] == #[(`Shared, .libAndExe)]) result
+  result ← test "5. no owner: rejected" (cls #[`Old] == #[(`Old, .unowned)]) result
+  result ← test "exe root that is not a target and not imported: internal error"
+    (cls #[`Main] #[] == #[(`Main, .internal)]) result
+  let rs := cls #[`Lib.A, `Shared, `Old]
+  let msg := formatRejections rs
+  result ← test "one message lists two rejected modules"
+    (rs.size == 2 && containsSubstring msg "2 module(s)" && containsSubstring msg "Shared:" &&
+     containsSubstring msg "Old:") result
+  result ← test "case 5 does not suggest lake clean"
+    (!containsSubstring (Rejection.unowned.reason) "lake clean") result
+  result ← test "case 3 says to move the module into a lean_lib"
+    (containsSubstring Rejection.exeImported.reason "Move the module into a lean_lib") result
+  return result
+
+def testEmittedSet (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing emittedSet (R15)..."
+  let p := #[`Core, `Core.Sub, `Shared, `Main]
+  let owners : Array OwnerInfo := #[{ module := `Core, lib := some `Core },
+    { module := `Core.Sub, lib := some `Core }, { module := `Shared, lib := some `Shared },
+    { module := `Main, exe := some `app }]
+  result ← test "no flags: every module of P" (emittedSet #[`Core] p owners none none == p) result
+  result ← test "--library: modules of P owned by the named libs"
+    (emittedSet #[`Core, `Core.Sub] p owners none (some #[`Core]) == #[`Core, `Core.Sub]) result
+  result ← test "--module: the import set"
+    (emittedSet #[`Core.Sub] p owners (some `Core.Sub) none == #[`Core.Sub]) result
+  result ← test "--module with --library: the import set"
+    (emittedSet #[`Core.Sub] p owners (some `Core.Sub) (some #[`Core]) == #[`Core.Sub]) result
+  return result
+
+def testClosureWalk (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing closureWalk (R9)..."
+  -- A, B project modules; Dep a dependency; C imported by A and B.
+  let graph : List (Lean.Name × Array Lean.Name) :=
+    [(`A, #[`Dep, `C]), (`B, #[`C]), (`C, #[`Dep]), (`Bad, #[`Missing])]
+  let step (n : Lean.Name) : Id (Except String (Option (Array Lean.Name))) :=
+    if n == `Dep then .ok none
+    else if n == `Missing then .error "no .olean"
+    else match graph.lookup n with
+      | some is => .ok (some is)
+      | none => .error "unknown"
+  let names (r : Except String (Array (Array Lean.Name))) := r.toOption.map (·.size)
+  result ← test "dependency not followed, shared module once"
+    (names (closureWalk #[`A, `B] id step) == some 3) result
+  let walkErr := match Id.run (closureWalk #[`A, `Bad] id step) with
+    | .error e => containsSubstring e "Missing" && containsSubstring e "imported by Bad"
+    | .ok _ => false
+  result ← test "an error stops the walk and names the importer" walkErr result
+  return result
+
+def testClosureFiles (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing computeClosure and missingOleans on files (R8, R9)..."
+  let tmp : System.FilePath := "/tmp/probe-lean-closure-" ++ toString (← IO.monoNanosNow)
+  let build := tmp / "build"
+  let other := tmp / "other"
+  IO.FS.createDirAll (build / "ProbeLean")
+  IO.FS.createDirAll (other / "ProbeLean")
+  let own : System.FilePath := ".lake/build/lib/lean/ProbeLean"
+  IO.FS.writeBinFile (build / "ProbeLean" / "WorkspaceInfo.olean") (← IO.FS.readBinFile (own / "WorkspaceInfo.olean"))
+  IO.FS.writeBinFile (build / "ProbeLean" / "Environment.olean") (← IO.FS.readBinFile (own / "Environment.olean"))
+  IO.FS.writeBinFile (build / "Garbage.olean") "not an olean".toUTF8
+  IO.FS.writeBinFile (other / "ProbeLean" / "NixEnv.olean") "shadowed".toUTF8
+  let build ← IO.FS.realPath build
+  let other ← IO.FS.realPath other
+  let sp : Lean.SearchPath := [build, other, (← Lean.findSysroot) / "lib" / "lean"]
+  match ← computeClosure build sp #[`ProbeLean.WorkspaceInfo] with
+  | .ok hs =>
+    result ← test "one project module, Lean is a dependency"
+      (hs.map (·.name) == #[`ProbeLean.WorkspaceInfo] && hs[0]!.imports.contains `Lean) result
+  | .error e => result ← test s!"closure of a real header ({e})" false result
+  let missing := match ← computeClosure build sp #[`ProbeLean.Environment] with
+    | .error e => containsSubstring e "ProbeLean.NixEnv" && containsSubstring e "does not exist" &&
+        containsSubstring e "imported by ProbeLean.Environment"
+    | .ok _ => false
+  result ← test "missing transitive .olean fails; the earlier root directory shadows the later one" missing result
+  let garbage := match ← computeClosure build sp #[`Garbage] with
+    | .error e => containsSubstring e "could not read"
+    | .ok _ => false
+  result ← test "unreadable header fails" garbage result
+  let unresolved := match ← computeClosure build [build] #[`Nowhere.Mod] with
+    | .error e => containsSubstring e "no .olean on the search path"
+    | .ok _ => false
+  result ← test "unresolved import fails" unresolved result
+  let miss ← missingOleans build #[`ProbeLean.WorkspaceInfo, `ProbeLean.Gone]
+  result ← test "missingOleans names the module without .olean" (miss == #[`ProbeLean.Gone]) result
+  let msg := formatMissingOleans miss
+  result ← test "R8 message gives both fixes"
+    (containsSubstring msg "ProbeLean.Gone" && containsSubstring msg "LAKE_RESTORE_ARTIFACTS=true" &&
+     containsSubstring msg "restoreAllArtifacts = true") result
+  IO.FS.removeDirAll tmp
+  return result
+
+def testImportHints (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println "Testing the import failure hint..."
+  result ← test "declaration name from Lean's message"
+    (alreadyContainsName? "import failed, environment already contains 'dup' from ModColl.A" == some `dup) result
+  result ← test "no name in another message" (alreadyContainsName? "boom" == none) result
+  let h := formatAlreadyContainsHint (some `dup) #[`ModColl.A, `ModColl.B]
+  result ← test "hint names the colliding modules and suggests --module or --library"
+    (containsSubstring h "ModColl.A, ModColl.B" && containsSubstring h "--module" &&
+     containsSubstring h "--library") result
+  return result
+
+def runSuiteH (result : TestResult) : IO TestResult := do
+  let mut result := result
+  result ← testChooseTargets result
+  result ← testLeanLibDirCheck result
+  result ← testModulePrefix result
+  result ← testOwnership result
+  result ← testEmittedSet result
+  result ← testClosureWalk result
+  result ← testClosureFiles result
+  result ← testImportHints result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
@@ -6024,6 +5874,7 @@ def main : IO UInt32 := do
   result ← runSuiteE result
   result ← runSuiteF result
   result ← runSuiteG result
+  result ← runSuiteH result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

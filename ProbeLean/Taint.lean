@@ -534,14 +534,6 @@ def computeProjectTaint (env : Environment) (projectPath : System.FilePath)
             axiomVersions },
           attrs)
 
-/-- Printed when the import of the full project module set fails. The modules left
-    out are outside the selection's import closure, so no emitted status rests on
-    them. The `check-axioms` audit does not cover them. -/
-def formatFallbackWarning (notImported : Nat) : String :=
-  s!"Warning: {notImported} project module(s) not imported (full import failed); they are \
-    outside the selection's import closure, so no emitted status depends on them, but \
-    check-axioms does not audit them"
-
 /-- Printed for an atom whose Lean name is not in P: the walk never assessed it, so it
     gets no `verification-status`. Every emitted atom is a project constant by
     construction. So this message signals a bug, and the atom is never silently

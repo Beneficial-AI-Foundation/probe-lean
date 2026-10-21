@@ -78,14 +78,9 @@ structure ProjectFilter where
   names : Std.HashSet Name := {}
 
 /-- Precompute the module indices of exactly `projectModules`. Membership is by module
-    identity, not by name prefix. The callers pass the full inventory of built project
-    modules (`getProjectModules`, narrowed by `--module`/`--library` through
-    `selectModules`). So every project module is named and nothing else is one. The
-    earlier ancestry test (`projMod.isPrefixOf modName`) gave the same set on every
-    environment Lean can import. `SearchPath.findWithExt` resolves a module root to
-    the first search-path entry holding its directory. So a dependency cannot supply
-    `Foo.Bar` next to the project's `Foo`. But P's definition is the
-    inventory, and this function does not rest on that argument. -/
+    identity, not by name prefix. The callers pass P, the project modules of the
+    import closure (`Closure.computeClosure`), or the emitted set. So every project
+    module is named and nothing else is one. -/
 def mkProjectFilter (env : Environment) (projectModules : Array Name) : ProjectFilter :=
   Id.run do
     let project := Std.HashSet.ofArray projectModules

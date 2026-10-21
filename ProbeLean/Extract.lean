@@ -9,6 +9,7 @@ import ProbeLean.Environment
 import ProbeLean.Metadata
 import ProbeLean.Atomize
 import ProbeLean.Transitive
+import ProbeLean.Targets
 
 namespace ProbeLean
 
@@ -20,7 +21,8 @@ structure ExtractConfig where
   outputPath : Option System.FilePath
   moduleFilter : Option String
   skipVerify : Bool
-  libraries : Option (Array String) := none
+  libraries : Option (Array Name) := none
+  allLibraries : Bool := false
   skipEnrich : Bool := false
   deriving Repr
 
@@ -82,33 +84,6 @@ def isContaminatedGenerated (atom : UnifiedAtom) : Bool :=
 def unhideContaminatedGenerated (atoms : Array UnifiedAtom) : Array UnifiedAtom :=
   atoms.map fun atom =>
     if isContaminatedGenerated atom then { atom with isHidden := false } else atom
-
-/-- Check whether a module belongs to one of the given library roots.
-    A module `A.B.C` belongs to library `A` if its name equals `A` or starts with `A.`. -/
-def moduleInLibraries (m : Lean.Name) (libs : Array String) : Bool :=
-  libs.any fun lib => m.toString == lib || m.toString.startsWith (lib ++ ".")
-
-/-- Choose which collected modules to analyze.
-
-    Restricts to `libraries` ONLY when they are explicitly provided (via the
-    `--library` flag). Auto-detected build targets are deliberately NOT used as a
-    module filter here. `defaultTargets` can name a `lean_exe`, and a `lean_lib`
-    can declare custom `roots` that differ from its name. Filtering by them can
-    silently drop every module. `.lake/build/lib/lean` already contains only the
-    project's own modules, so the default is to analyze all of them. A single
-    `moduleFilter` (`--module`) further narrows the result by name prefix.
-    Filters operate on whole `ProjectModule` records so each module keeps the
-    olean path it was discovered with. -/
-def selectModules (modules : Array ProjectModule) (libraries : Option (Array String))
-    (moduleFilter : Option String) : Array ProjectModule :=
-  let byLib := match libraries with
-    | some libs => modules.filter fun m => moduleInLibraries m.name libs
-    | none => modules
-  match moduleFilter with
-  | some filter =>
-    let filterName := String.toName filter
-    byLib.filter fun m => m.name == filterName || m.name.toString.startsWith (filter ++ ".")
-  | none => byLib
 
 /-- Check if project depends on Mathlib and auto-download the olean cache if missing.
     Without the pre-built cache, `lake build` compiles Mathlib from source (hours). -/
@@ -212,102 +187,119 @@ def warnAmbiguousPrimarySpecs (atoms : Array Atom) : IO Unit := do
   for c in ambiguousPrimarySpecs atoms do
     IO.eprintln (formatPrimarySpecWarning c)
 
-/-- What `prepareProject` hands to the pipeline. -/
-structure PreparedProject where
-  /-- Every built project module: P, the taint walk's domain, whatever was selected. -/
-  allModules : Array ProjectModule
-  /-- The `--library`/`--module` selection: which declarations become atoms. -/
-  selectedModules : Array ProjectModule
-  /-- Oleans discovery dropped for lack of a `.lean` source. If the import loads one
-      of them anyway, the extraction aborts (`Atomize.loadedOrphans`). -/
-  orphans : Array Lean.Name := #[]
-  nixMode : Option NixMode
+/-- Detect the Nix environment of the project. -/
+private def detectNixMode (projectPath : System.FilePath) : IO (Option NixMode) := do
+  match ← detectNixShell projectPath with
+  | some mode =>
+    if ← isNixAvailable mode then
+      IO.println s!"Nix environment detected ({mode}.nix), lake commands will run inside it."
+      IO.println "  (first run may be slow while Nix downloads dependencies)"
+      return some mode
+    else
+      let bin := match mode with | .flake => "nix" | .shell => "nix-shell"
+      IO.eprintln s!"Warning: Project has {mode}.nix but `{bin}` is not installed."
+      IO.eprintln "  System dependencies may be missing. Install Nix or install deps manually."
+      return none
+  | none => return none
 
-/-- Build (honouring the cache) and discover/select the project's modules. Shared by
-    `runExtractInProject` and `check-axioms` (`runCheckAxiomsInProject`) so the audit
-    path and the extraction path cannot drift on nix detection, build, or module
-    selection. Returns the `PreparedProject` or the exit code to fail with. -/
-def prepareProject (projectPath : System.FilePath) (libraries : Option (Array String))
-    (moduleFilter : Option String) : IO (Except UInt32 PreparedProject) := do
+/-- The selection flags of `extract` and `check-axioms`. -/
+structure Selection where
+  libraries : Option (Array Name) := none
+  allLibraries : Bool := false
+  moduleFilter : Option String := none
+
+/-- Steps R1 to R7: load the workspace, check the build directory, choose the
+    targets and build them. Returns the workspace, the targets and the real path of
+    the project. -/
+private def loadAndBuild (projectPath : System.FilePath) (sel : Selection)
+    (nixMode : Option NixMode)
+    : IO (Except String (WorkspaceInfo × Array Target × System.FilePath)) := do
+  IO.println "Reading the Lake workspace..."
+  let info ← match ← queryWorkspaceInfo projectPath nixMode with
+    | .error e => return .error e
+    | .ok i => pure i
+  let projectReal ← IO.FS.realPath projectPath
+  if let .error e := checkLeanLibDir projectReal info.leanLibDir then return .error e
+  let (targets, skipped) ← match chooseTargets info sel.libraries sel.allLibraries with
+    | .error e => return .error e
+    | .ok r => pure r
+  for d in skipped do
+    IO.eprintln s!"Note: default target {d} is not a lean_lib or lean_exe, skipped."
+  ensureMathlibCache projectPath nixMode
+  let args := buildArgs targets
+  IO.println s!"Building at {projectPath}: lake {" ".intercalate args.toList}"
+  let (out, err, code) ← runLakeCmd args (some projectPath) nixMode
+  if code != 0 then
+    return .error s!"Lake build failed:\n{out}{err}"
+  return .ok (info, targets, projectReal)
+
+/-- Steps R12, R8 and R9: the import set, its `.olean` check and the closure. -/
+private def importClosure (info : WorkspaceInfo) (targets : Array Target)
+    (projectReal : System.FilePath) (moduleFilter : Option String)
+    : IO (Except String (Array Name × Option Name × Array ProjectHeader × SearchPath × System.FilePath)) := do
+  let targetMods := targetModules info targets
+  if targetMods.isEmpty then
+    return .error "Error: No modules found in the target libraries."
+  let pre? ← match moduleFilter with
+    | none => pure none
+    | some s => match parseModulePrefix s with
+      | .error e => return .error e
+      | .ok n => pure (some n)
+  -- Sorted by name, for a deterministic import order (P14). The order decides
+  -- which module a merged declaration's name goes to.
+  let importSet := (match pre? with
+    | some pre => filterModulePrefix targetMods pre
+    | none => targetMods).qsort (·.toString < ·.toString)
+  if let some pre := pre? then
+    if importSet.isEmpty then return .error (formatEmptyModuleFilter pre targetMods.size)
+  let buildDir := projectReal / ".lake" / "build" / "lib" / "lean"
+  let missing ← missingOleans buildDir importSet
+  if !missing.isEmpty then return .error (formatMissingOleans missing)
+  let sp ← resolveSearchPath projectReal info.leanPath
+  match ← computeClosure buildDir sp importSet with
+  | .error e => return .error e
+  | .ok headers => return .ok (importSet, pre?, headers, sp, buildDir)
+
+/-- Build the targets on every run and compute what to import and what to emit.
+    Shared by `runExtractInProject` and `check-axioms` (`runCheckAxiomsInProject`)
+    so the audit path and the extraction path cannot drift. Steps, in order: the
+    workspace load (R1, R2), the build directory check (R6), the targets (R4, R5,
+    R13, R14), `ensureMathlibCache`, the target build (R7), the `--module` filter
+    (R12), the `.olean` check (R8), the closure (R9), the owners (R10), the
+    ownership check (R11) and the emitted set (R15). Returns the
+    `PreparedProject` or the exit code to fail with. -/
+def prepareProject (projectPath : System.FilePath) (sel : Selection)
+    : IO (Except UInt32 PreparedProject) := do
   if !(← isLakeProject projectPath) then
     IO.eprintln s!"Error: Not a Lake project: {projectPath}"
     return .error 1
-
-  let nixMode ← do
-    match ← detectNixShell projectPath with
-    | some mode =>
-      if ← isNixAvailable mode then
-        IO.println s!"Nix environment detected ({mode}.nix), lake commands will run inside it."
-        IO.println "  (first run may be slow while Nix downloads dependencies)"
-        pure (some mode)
-      else
-        let bin := match mode with | .flake => "nix" | .shell => "nix-shell"
-        IO.eprintln s!"Warning: Project has {mode}.nix but `{bin}` is not installed."
-        IO.eprintln "  System dependencies may be missing. Install Nix or install deps manually."
-        pure none
-    | none => pure none
-
-  let probeLeanVersion := Lean.versionString
+  let nixMode ← detectNixMode projectPath
   let targetTC ← readToolchain projectPath
   let targetVersionStr := match targetTC with
     | some tc => parseToolchainVersion tc
     | none    => "unknown (no lean-toolchain file)"
-  IO.println s!"probe-lean built with Lean {probeLeanVersion}, target project uses {targetVersionStr}"
-
-  let libs ← match libraries with
-    | some ls => pure ls
-    | none => getLeanLibs projectPath
-
-  if ← isCacheValid projectPath then
-    IO.println "Build cache is up-to-date, skipping lake build..."
-  else
-    ensureMathlibCache projectPath nixMode
-    let buildArgs := if libs.isEmpty then #["build"] else #["build"] ++ libs
-    if !libs.isEmpty then
-      IO.println s!"Building libraries: {", ".intercalate libs.toList}"
-    IO.println s!"Building project at {projectPath}..."
-    let (buildStdout, buildStderr, buildExit) ← runLakeCmd buildArgs (some projectPath) nixMode
-    if buildExit != 0 then
-      IO.eprintln s!"Lake build failed:\n{buildStderr}"
-      return .error 1
-    saveCache projectPath (buildStdout ++ "\n" ++ buildStderr)
-
-  IO.println "Getting project modules..."
-  let sourceRoots ← getSourceRoots projectPath
-  let (modules, orphans) ← match ← getProjectModules projectPath nixMode sourceRoots with
-    | .error msg =>
-      IO.eprintln msg
-      return .error 1
+  IO.println s!"probe-lean built with Lean {Lean.versionString}, target project uses {targetVersionStr}"
+  let fail (e : String) : IO (Except UInt32 PreparedProject) := do
+    IO.eprintln e
+    return .error 1
+  let (info, targets, projectReal) ← match ← loadAndBuild projectPath sel nixMode with
+    | .error e => return ← fail e
     | .ok r => pure r
-
-  if modules.isEmpty then
-    IO.eprintln "Error: No modules found in project"
-    return .error 1
-
-  let filteredModules := selectModules modules libraries moduleFilter
-
-  -- Warn about any explicit `--library` entry that matched no built module, so a
-  -- partial filter (e.g. one good name + one typo, or a name that differs from
-  -- the library's actual module root) isn't applied silently. Note `--library`
-  -- matches by module-name prefix, so it cannot select a library whose `roots`
-  -- differ from its name (use `--module <root>` for those).
-  if let some libs := libraries then
-    for lib in libs do
-      if !(modules.any fun m => moduleInLibraries m.name #[lib]) then
-        IO.eprintln s!"Warning: --library {lib} matched no built module (it is not a module-name root)."
-
-  -- Fail loudly instead of silently writing 0 atoms: if we built modules but
-  -- every one was filtered out, the `--library`/`--module` selection didn't
-  -- match anything that was built.
-  if filteredModules.isEmpty && !modules.isEmpty then
-    IO.eprintln "Error: every project module was filtered out by --library/--module."
-    IO.eprintln s!"  {modules.size} module(s) were built but none matched the requested filter."
-    let roots := (modules.map fun m => (m.name.toString.splitOn ".").headD m.name.toString).toList.eraseDups
-    IO.eprintln s!"  Available top-level module roots: {", ".intercalate roots}"
-    return .error 1
-
-  IO.println s!"Analyzing {filteredModules.size} modules..."
-  return .ok { allModules := modules, selectedModules := filteredModules, orphans, nixMode }
+  let (importSet, pre?, headers, sp, buildDir) ←
+    match ← importClosure info targets projectReal sel.moduleFilter with
+    | .error e => return ← fail e
+    | .ok r => pure r
+  let p := headers.map (·.name)
+  let owners ← match ← queryOwners projectPath nixMode p with
+    | .error e => return ← fail e
+    | .ok o => pure o
+  let exeRoots := targets.filterMap fun | .exe _ root => some root | .lib _ => none
+  let imported := importedNames headers
+  let rejected := classifyOwnership p owners exeRoots imported.contains
+  if !rejected.isEmpty then return ← fail (formatRejections rejected)
+  let emitted := emittedSet importSet p owners pre? sel.libraries
+  IO.println s!"Analyzing {emitted.size} of {p.size} project modules..."
+  return .ok { importSet, headers, emitted, searchPath := sp, buildDir, nixMode }
 
 /-- Step 2. The kernel walk decides the status. This step prints how many atoms
     are direct carriers. -/
@@ -338,7 +330,9 @@ private def runEnrichStep (config : ExtractConfig) (atoms : Array UnifiedAtom) :
     markAtomFlags → specs → verify (direct carrier count) → merge (status from the
     taint pass) → enrich (status counts) → envelope → write -/
 def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
-  let prepared ← match ← prepareProject config.projectPath config.libraries config.moduleFilter with
+  let sel : Selection := { libraries := config.libraries, allLibraries := config.allLibraries,
+                           moduleFilter := config.moduleFilter }
+  let prepared ← match ← prepareProject config.projectPath sel with
     | .error code => return code
     | .ok r => pure r
 
@@ -348,8 +342,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   let userConfig ← loadUserConfig config.projectPath
   let crate := loadRelevantCrate userConfig
 
-  let (atoms, pt) ← match ← runAnalysisViaLakeEnv config.projectPath prepared.allModules
-      prepared.selectedModules crate prepared.nixMode prepared.orphans
+  let (atoms, pt) ← match ← runAnalysisViaLakeEnv config.projectPath prepared crate
       (computeAssumptions := !config.skipVerify) with
     | .error msg =>
       IO.eprintln s!"Analysis failed: {msg}"

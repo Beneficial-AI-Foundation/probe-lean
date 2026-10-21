@@ -30,8 +30,7 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
   let outputPath := parsed.flag? "output" |>.map (·.as! String) |>.map System.FilePath.mk
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
   let skipVerify := parsed.hasFlag "skip-verify"
-  let libraries := parsed.flag? "library" |>.map fun f =>
-    (f.as! String).splitOn "," |>.map (fun s => s.trimAscii.toString) |>.toArray
+  let libraries := parsed.flag? "library" |>.map fun f => parseLibraryArg (f.as! String)
   let skipEnrich := parsed.hasFlag "skip-enrich"
 
   let config : ExtractConfig := {
@@ -40,6 +39,7 @@ def runExtract (parsed : Parsed) : IO UInt32 := do
     moduleFilter := moduleFilter
     skipVerify := skipVerify
     libraries := libraries
+    allLibraries := parsed.hasFlag "all-libraries"
     skipEnrich := skipEnrich
   }
 
@@ -52,9 +52,10 @@ def extractCmd : Cmd := `[Cli|
 
   FLAGS:
     o, output : String; "Output file path (default: .verilib/probes/lean_<pkg>_<ver>.json)"
-    m, module : String; "Filter to specific module prefix"
+    m, module : String; "Import and emit only the target modules under this module-name prefix"
     "skip-verify"; "Omit verification-status (trusted atoms keep it)"
-    l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
+    l, library : String; "Comma-separated lean_lib names. Build them and emit their modules. Omit to build defaultTargets (else every lean_lib)"
+    "all-libraries"; "Build every lean_lib of the root package and emit every project module that the import loads"
     "skip-enrich"; "No upgrade to transitively-verified (clean atoms read verified), generated atoms stay hidden"
 
   ARGS:
@@ -65,9 +66,9 @@ def extractCmd : Cmd := `[Cli|
 def runCheckAxioms (parsed : Parsed) : IO UInt32 := do
   let projectPath := normalizePath (parsed.positionalArg! "projectPath" |>.as! String)
   let moduleFilter := parsed.flag? "module" |>.map (·.as! String)
-  let libraries := parsed.flag? "library" |>.map fun f =>
-    (f.as! String).splitOn "," |>.map (fun s => s.trimAscii.toString) |>.toArray
-  runCheckAxiomsInProject projectPath libraries moduleFilter
+  let libraries := parsed.flag? "library" |>.map fun f => parseLibraryArg (f.as! String)
+  runCheckAxiomsInProject projectPath
+    { libraries, allLibraries := parsed.hasFlag "all-libraries", moduleFilter }
 
 /-- The check-axioms subcommand -/
 def checkAxiomsCmd : Cmd := `[Cli|
@@ -75,8 +76,9 @@ def checkAxiomsCmd : Cmd := `[Cli|
   "Audit a Lean 4 project: report declarations whose transitive closure depends on `sorryAx`"
 
   FLAGS:
-    m, module : String; "Filter to specific module prefix"
-    l, library : String; "Comma-separated library names to build AND restrict analysis to (by module-name prefix). Omit to build auto-detected targets and analyze all built modules"
+    m, module : String; "Import and emit only the target modules under this module-name prefix"
+    l, library : String; "Comma-separated lean_lib names. Build them and emit their modules. Omit to build defaultTargets (else every lean_lib)"
+    "all-libraries"; "Build every lean_lib of the root package and emit every project module that the import loads"
 
   ARGS:
     projectPath : String; "Path to the Lean 4 project to audit"

@@ -2,7 +2,7 @@
   `check-axioms` command: a standalone `sorry` audit.
 
   Builds and imports a target project (via the shared `prepareProject` +
-  `importProjectEnvWithFallback` used by `extract`) and runs the same kernel taint
+  `importProjectEnv` used by `extract`) and runs the same kernel taint
   pass (`Taint.computeProjectTaint`) that decides `verification-status`, then lists
   every project constant that rests on an unexcused project `sorry` — atoms and
   non-atoms alike, followed by the trusted base T itself and the names in the
@@ -64,25 +64,23 @@ def printTaintReport (env : Environment) (pt : ProjectTaint) (emitted : Std.Hash
 
 /-- Build, import, and report declarations that rest on an unexcused project `sorry`.
     Returns a process exit code. -/
-def runCheckAxiomsInProject (projectPath : System.FilePath)
-    (libraries : Option (Array String) := none) (moduleFilter : Option String := none)
+def runCheckAxiomsInProject (projectPath : System.FilePath) (sel : Selection := {})
     : IO UInt32 := do
-  let prepared ← match ← prepareProject projectPath libraries moduleFilter with
+  let prepared ← match ← prepareProject projectPath sel with
     | .error code => return code
     | .ok r => pure r
 
-  let (env, imported) ← match ← importProjectEnvWithFallback projectPath
-      prepared.allModules prepared.selectedModules prepared.nixMode prepared.orphans with
+  let env ← match ← importProjectEnv projectPath prepared with
     | .error msg => IO.eprintln s!"Import failed: {msg}"; return 1
-    | .ok r => pure r
+    | .ok env => pure env
 
-  let pFilter := mkProjectFilter env (imported.map (·.name))
-  let selFilter := mkProjectFilter env (prepared.selectedModules.map (·.name))
+  let pFilter := mkProjectFilter env prepared.projectModules
+  let selFilter := mkProjectFilter env prepared.emitted
   let consts := projectConstants env pFilter
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, _) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (moduleCount := imported.size)
+    (moduleCount := prepared.headers.size)
   reportTaintWarnings pt
   let emitted := (getProjectDeclsFrom env consts selFilter pt.mergedVersions).foldl
     (init := ({} : Std.HashSet Name)) fun s d => s.insert d.name

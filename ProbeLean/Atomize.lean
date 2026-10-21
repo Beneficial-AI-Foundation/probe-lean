@@ -6,6 +6,7 @@ import Lean
 import ProbeLean.Types
 import ProbeLean.Environment
 import ProbeLean.Coimport
+import ProbeLean.Closure
 import ProbeLean.Analysis
 import ProbeLean.SpecFramework
 import ProbeLean.Taint
@@ -259,76 +260,105 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
     | some ps => { a with primarySpec := some ps }
     | none => a
 
-/-- Resolve a potentially relative path against a base directory -/
-def resolvePath (basePath : System.FilePath) (path : System.FilePath) : IO System.FilePath := do
-  let pathStr := path.toString
-  if pathStr.startsWith "/" then
-    return path
-  else
-    let resolved := basePath / path
-    if ← resolved.pathExists then
-      return resolved
-    else
-      return resolved
+/-- The modules that declare `decl` in `headers`, sorted. -/
+def declaringModules (headers : Array ProjectHeader) (decl : Name) : Array Name :=
+  ((headers.filter fun h => h.consts.any (·.1 == decl)).map (·.name)).qsort
+    (·.toString < ·.toString)
 
-/-- Locate probe-lean's own .olean files so the interpreter can resolve
-    ProbeLean modules at runtime (required by `supportInterpreter`). Checks:
-    1. Lake build layout:       `<bin>/../lib/lean/`
-    2. Versioned installed layout: `<bin>/../lib/probe-lean-v<version>/`
-    3. Legacy installed layout:  `<bin>/../lib/probe-lean/` -/
-def findProbeLeanLib : IO (List System.FilePath) := do
-  let appPath ← IO.appPath
-  let binDir := appPath.parent.getD "."
-  let lakeBuildLib := binDir / ".." / "lib" / "lean"
-  let versionedLib := binDir / ".." / "lib" / s!"probe-lean-v{Lean.versionString}"
-  let installedLib := binDir / ".." / "lib" / "probe-lean"
-  let mut paths : List System.FilePath := []
-  if ← installedLib.pathExists then paths := installedLib :: paths
-  if ← versionedLib.pathExists then paths := versionedLib :: paths
-  if ← lakeBuildLib.pathExists then paths := lakeBuildLib :: paths
-  return paths
+/-- The declaration name of Lean's `environment already contains 'X'` message. -/
+def alreadyContainsName? (msg : String) : Option Name :=
+  match (msg.splitOn "already contains '").drop 1 with
+  | rest :: _ => match rest.splitOn "'" with
+    | n :: _ => if n.isEmpty then none else some n.toName
+    | [] => none
+  | [] => none
 
-/-- Import the target project's built modules into a single `Environment`, with the
-    same LEAN_PATH / search-path setup and co-import preflight the analysis uses.
-    Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command so both see the
-    exact same environment. -/
-def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectModule)
-    (nixMode : Option NixMode := none) : IO (Except String Environment) := do
-  let absProjectPath ← IO.FS.realPath projectPath
+/-- The hint for an import that fails on a duplicate declaration that the
+    preflight did not see. `modules` are the project modules that declare it, if
+    known. -/
+def formatAlreadyContainsHint (decl? : Option Name) (modules : Array Name) : String :=
+  let who := match decl?, modules.size with
+    | some d, _+2 => s!"{d} is declared in: {", ".intercalate (modules.map toString).toList}.\n"
+    | _, _ => ""
+  "\n\nDuplicate declaration across imported modules. " ++ who ++
+    "All modules of the import closure must be co-importable into a single Lean environment\n" ++
+    "(see README \"Supported Projects\"). Narrow the import with --module <module> or\n" ++
+    "--library <lean_lib> so that it does not load both modules."
 
+/-- The hint for an `incompatible header` import failure. -/
+private def incompatibleHeaderHint (projectPath : System.FilePath) : IO String := do
+  let targetTC ← readToolchain projectPath
+  let probeLeanVersion := Lean.versionString
+  return match targetTC with
+    | some tc =>
+      let targetVersion := (parseToolchainVersion tc).dropPrefix "v" |>.toString
+      if targetVersion == probeLeanVersion then
+        s!"\n\nStale .olean files: probe-lean and the target project both use Lean {probeLeanVersion},\n" ++
+        "but the build artifacts were compiled by a different Lean version.\n" ++
+        s!"Fix: run `lake clean` in the target project, then re-run extract."
+      else
+        s!"\n\nToolchain mismatch: probe-lean was built with Lean {probeLeanVersion}, " ++
+        s!"but the target project uses {tc}.\n" ++
+        "The .olean binary format is not compatible across Lean versions.\n" ++
+        "Fix: install probe-lean for the target's Lean version, or update the target project."
+    | none => s!"\n\nThis may be a toolchain mismatch. probe-lean was built with Lean {probeLeanVersion}.\n" ++
+        "Ensure the target project uses the same Lean version, or update probe-lean to match."
+
+/-- The loaded modules whose `.olean` is in the build directory must be exactly P.
+    The closure walk resolves imports as the import does, so a difference is a bug.
+    Only a loaded module whose root component names an entry of the build directory
+    can resolve there, so only those are resolved again. -/
+def checkLoadedProjectModules (env : Environment) (pp : PreparedProject)
+    : IO (Except String Unit) := do
+  let p := Std.HashSet.ofArray pp.projectModules
+  let loaded := env.allImportedModuleNames
+  let loadedSet := Std.HashSet.ofArray loaded
+  for m in pp.projectModules do
+    unless loadedSet.contains m do
+      return .error s!"internal error: project module {m} was not loaded by the import"
+  let entries ← if ← pp.buildDir.pathExists then pp.buildDir.readDir else pure #[]
+  let roots : Std.HashSet String := entries.foldl (init := {}) fun s e =>
+    s.insert (if e.fileName.endsWith ".olean" then (e.fileName.dropEnd 6).toString else e.fileName)
+  for m in loaded do
+    if p.contains m then continue
+    unless roots.contains (m.getRoot.toString (escape := false)) do continue
+    if let some path ← pp.searchPath.findWithExt "olean" m then
+      if isInBuildDir pp.buildDir path then
+        return .error s!"internal error: the import loaded {m} from the build directory, \
+          but the closure walk did not find it"
+  return .ok ()
+
+/-- Import the import set of the prepared project into one `Environment`. The search
+    path is the one of the closure walk. The co-import preflight runs on the headers
+    of P first. Shared by `runAnalysisViaLakeEnv` and the `check-axioms` command, so
+    both see the exact same environment. -/
+def importProjectEnv (projectPath : System.FilePath) (pp : PreparedProject)
+    : IO (Except String Environment) := do
   Lean.initSearchPath (← Lean.findSysroot)
-
-  let probeLeanPaths ← findProbeLeanLib
-
-  let (leanPathOut, _, exitCode) ← runLakeCmd #["env", "printenv", "LEAN_PATH"] (some absProjectPath) nixMode
-  if exitCode != 0 then
-    return .error "Failed to get LEAN_PATH from target project"
-
-  let leanPath := leanPathOut.trimAscii.toString
-
-  let paths := leanPath.splitOn ":"
-  let mut searchPaths : Array System.FilePath := #[]
-  for p in paths do
-    let resolved ← resolvePath absProjectPath p
-    searchPaths := searchPaths.push resolved
-
-  Lean.searchPathRef.set (searchPaths.toList ++ probeLeanPaths)
+  Lean.searchPathRef.set pp.searchPath
 
   -- Preflight: abort with an actionable diagnostic if the modules cannot
   -- coexist in one environment, instead of paying for the import and
   -- surfacing a raw kernel error.
-  let pre ← detectCoimportCollisions modules
-
+  let pre := detectCoimportCollisions pp.headers
   if !pre.proofless.isEmpty then
     return .error (formatProoflessError pre.proofless)
   if !pre.collisions.isEmpty then
-    return .error (formatCoimportError pre.collisions pre.skipped)
+    return .error (formatCoimportError pre.collisions)
 
-  let moduleNames := modules.map (·.name)
-  let imports := moduleNames.map fun m => { module := m : Import }
+  let imports := pp.importSet.map fun m => { module := m : Import }
+  IO.println s!"Importing {imports.size} modules ({pp.headers.size} project modules in the closure)..."
 
-  IO.println s!"Importing {imports.size} modules..."
-
+  let env ← match ← importOrDiagnose projectPath pp imports with
+    | .error e => return .error e
+    | .ok env => pure env
+  match ← checkLoadedProjectModules env pp with
+  | .error e => return .error e
+  | .ok () => return .ok env
+where
+  /-- The import itself, with a readable hint for the known failures. -/
+  importOrDiagnose (projectPath : System.FilePath) (pp : PreparedProject)
+      (imports : Array Import) : IO (Except String Environment) := do
   try
     -- The import level is pinned: `.private` loads all olean data, theorem
     -- proofs included. The exported level can present module-system theorems
@@ -342,127 +372,16 @@ def importProjectEnv (projectPath : System.FilePath) (modules : Array ProjectMod
     let msg := toString e
     if containsSubstring msg "already contains" then
       -- Two imported modules declare the same name, and the preflight above
-      -- found no collision among the scanned project modules. The duplicate
-      -- therefore involves something the scan cannot see: a dependency
-      -- module, an olean it had to skip, or a stale orphan olean under a custom
-      -- `srcDir` that `getProjectModules`'s source check could not resolve.
-      let hint := "\n\nDuplicate declaration across imported modules. All built modules must be\n" ++
-        "co-importable into a single Lean environment (see README \"Supported Projects\").\n" ++
-        "Possible causes: a stale .olean from a renamed or deleted module that Lake\n" ++
-        "did not remove (fix: run `lake clean` in the target project, then re-run\n" ++
-        "extract), or a duplicate the preflight check cannot see. A non-conflicting\n" ++
-        "subset can be extracted manually with `--module <exact.module.name>`." ++
-        skippedModulesNote pre.skipped
-      return .error s!"Failed to import modules: {msg}{hint}"
+      -- found no collision among the project modules: a module-system
+      -- collision that the exported level hides, or one with a dependency.
+      let decl? := alreadyContainsName? msg
+      let mods := match decl? with
+        | some d => declaringModules pp.headers d
+        | none => #[]
+      return .error s!"Failed to import modules: {msg}{formatAlreadyContainsHint decl? mods}"
     if containsSubstring msg "incompatible header" then
-      let targetTC ← readToolchain projectPath
-      let probeLeanVersion := Lean.versionString
-      let hint := match targetTC with
-        | some tc =>
-          let targetVersion := (parseToolchainVersion tc).dropPrefix "v" |>.toString
-          if targetVersion == probeLeanVersion then
-            s!"\n\nStale .olean files: probe-lean and the target project both use Lean {probeLeanVersion},\n" ++
-            "but the build artifacts were compiled by a different Lean version.\n" ++
-            s!"Fix: run `lake clean` in the target project, then re-run extract."
-          else
-            s!"\n\nToolchain mismatch: probe-lean was built with Lean {probeLeanVersion}, " ++
-            s!"but the target project uses {tc}.\n" ++
-            "The .olean binary format is not compatible across Lean versions.\n" ++
-            "Fix: install probe-lean for the target's Lean version, or update the target project."
-        | none => s!"\n\nThis may be a toolchain mismatch. probe-lean was built with Lean {probeLeanVersion}.\n" ++
-            "Ensure the target project uses the same Lean version, or update probe-lean to match."
-      return .error s!"Failed to import modules: {msg}{hint}"
+      return .error s!"Failed to import modules: {msg}{← incompatibleHeaderHint projectPath}"
     return .error s!"Failed to import modules: {msg}"
-
-/-- The project modules an environment actually holds: `all` restricted to
-    `loaded` (`env.allImportedModuleNames`). Importing a selection loads every
-    project module in its import closure too, and those must be in P. A constant can
-    only reference constants of its own module's import closure. With P built this
-    way, every emitted atom's whole dependency closure is inside P, even when only the
-    selection imports. Building P from the selection itself left a transitively
-    loaded sorried module outside P, where it was blocked and so read as clean. -/
-def loadedProjectModules (all : Array ProjectModule) (loaded : Array Name)
-    : Array ProjectModule :=
-  let set := Std.HashSet.ofArray loaded
-  all.filter fun m => set.contains m.name
-
-/-- The orphan modules (oleans discovery dropped for lack of a source,
-    `getProjectModules`) that the import loaded anyway, sorted by name. If a kept
-    module imports a dropped module, `importModules` still loads it. Such a module is
-    then outside P, so it is blocked and trusted like a dependency package, and a
-    `sorry` in it shields its callers. A non-empty result means the extraction must
-    abort (`formatLoadedOrphansError`): the artifact is stale and there is no source
-    to build its atoms from. -/
-def loadedOrphans (orphans loaded : Array Name) : Array Name :=
-  let set := Std.HashSet.ofArray loaded
-  (orphans.filter set.contains).qsort fun a b => a.toString < b.toString
-
-/-- The abort message for a non-empty `loadedOrphans`. -/
-def formatLoadedOrphansError (names : Array Name) : String :=
-  s!"{names.size} stale module(s) with no .lean source were imported by a live module: \
-    {", ".intercalate (names.map (·.toString)).toList}. Their constants would sit outside \
-    the project boundary and be trusted. Run `lake clean` in the target project and rebuild."
-
-/-- The error when the fallback import of the selection fails too: the selection's
-    own error first, then the full import's. The full import's message holds the
-    readable diagnosis: the preflight's collision list, or `formatProoflessError` for
-    a module missing its split parts. The selection's message can be Lean's raw form
-    of the same fault (`missing data file` for a part-less module inside the
-    selection's import closure). That message alone does not say what to rebuild. -/
-def formatFallbackFailure (fullMsg selectedMsg : String) : String :=
-  s!"{selectedMsg}\n\nThe import of all project modules had already failed:\n{fullMsg}"
-
-/-- Import the project for the taint walk. This imports **all** built project modules,
-    because P must cover the whole project, whatever `--module`/`--library` selected
-    for output. If the full set does not import, it falls back to the selected modules.
-    Returns the environment and the project modules it holds (`loadedProjectModules`).
-
-    The full import runs only when the cheap olean-header preflight passes. A project
-    that relies on the selection to avoid a collision then pays one preflight, not a
-    failed import. The fallback runs whatever the full import failed on: a preflight
-    collision, an import-time duplicate the preflight cannot see, or an unselected
-    library's stale or part-less oleans (`formatProoflessError`). `--library` builds
-    only the selected libraries, so an unselected one can have stale artifacts.
-
-    The argument that makes the fallback sound does not depend on the fault. The
-    modules left out are exactly those outside the selection's import closure. No
-    emitted status can depend on them, and only the `check-axioms` audit loses them
-    (`formatFallbackWarning`). A fault *inside* the closure fails the selection's
-    import too (`formatFallbackFailure`).
-
-    This is the import without the orphan check. `importProjectEnvWithFallback` adds it. -/
-private def importProjectEnvSelecting (projectPath : System.FilePath)
-    (all selected : Array ProjectModule) (nixMode : Option NixMode)
-    : IO (Except String (Environment × Array ProjectModule)) := do
-  if selected.size == all.size then
-    return (← importProjectEnv projectPath all nixMode).map fun env => (env, all)
-  match ← importProjectEnv projectPath all nixMode with
-  | .ok env => return .ok (env, all)
-  | .error msg =>
-    match ← importProjectEnv projectPath selected nixMode with
-    | .error e => return .error (formatFallbackFailure msg e)
-    | .ok env =>
-      let imported := loadedProjectModules all env.allImportedModuleNames
-      if imported.size < all.size then
-        IO.eprintln (formatFallbackWarning (all.size - imported.size))
-      IO.eprintln s!"  (full import failed: {(msg.splitOn "\n").headD msg})"
-      return .ok (env, imported)
-
-/-- `importProjectEnvSelecting` (all modules, falling back to the selection), then the
-    orphan check. Whichever import succeeded, an orphan module among `orphans` that it
-    loaded (`loadedOrphans`) is fatal (see `formatLoadedOrphansError`). Returns the
-    environment and the project modules it holds. -/
-def importProjectEnvWithFallback (projectPath : System.FilePath)
-    (all selected : Array ProjectModule) (nixMode : Option NixMode := none)
-    (orphans : Array Name := #[])
-    : IO (Except String (Environment × Array ProjectModule)) := do
-  match ← importProjectEnvSelecting projectPath all selected nixMode with
-  | .error e => return .error e
-  | .ok r =>
-    let stale := loadedOrphans orphans r.1.allImportedModuleNames
-    if !stale.isEmpty then
-      return .error (formatLoadedOrphansError stale)
-    return .ok r
 
 /-- The warning for a declaration whose type `Meta.isProp` could not check. -/
 def formatSpecProofWarning (n : Name) : String :=
@@ -539,29 +458,26 @@ private def reportFoldStats (auxCache : AuxDepCache) : IO Unit := do
     for n in names do
       IO.eprintln s!"  {n}"
 
-/-- Import the project, run the kernel taint pass over all of it, and build the
-    atoms for the selected modules. `all` is every built project module (P), `selected`
-    the `--module`/`--library` selection that decides which declarations become atoms
-    and which dependencies count as project-internal. Atoms carry `leanName`, the
-    join key for `applyTaintStatus`. -/
-def runAnalysisViaLakeEnv (projectPath : System.FilePath) (all selected : Array ProjectModule)
-    (crate : String) (nixMode : Option NixMode := none) (orphans : Array Name := #[])
-    (computeAssumptions : Bool := true)
+/-- Import the project, run the kernel taint pass over P, and build the atoms of
+    the emitted set (`PreparedProject.emitted`), which decides which declarations
+    become atoms and which dependencies count as project-internal. Atoms carry
+    `leanName`, the join key for `applyTaintStatus`. -/
+def runAnalysisViaLakeEnv (projectPath : System.FilePath) (pp : PreparedProject)
+    (crate : String) (computeAssumptions : Bool := true)
     : IO (Except String (Array Atom × ProjectTaint)) := do
-  let (env, imported) ← match ← importProjectEnvWithFallback projectPath all selected
-      nixMode orphans with
+  let env ← match ← importProjectEnv projectPath pp with
     | .error msg => return .error msg
-    | .ok r => pure r
-  -- P is decided by the imported project modules; emission by the selection.
-  let pFilter := mkProjectFilter env (imported.map (·.name))
-  let selFilter := mkProjectFilter env (selected.map (·.name))
+    | .ok env => pure env
+  -- P is the project modules of the closure; emission is the emitted set.
+  let pFilter := mkProjectFilter env pp.projectModules
+  let selFilter := mkProjectFilter env pp.emitted
 
   IO.println "Extracting declarations..."
   let consts := projectConstants env pFilter
   let fileCache : FileCache ← IO.mkRef {}
   let pathCache : ModulePathCache ← IO.mkRef {}
   let (pt, attrs) ← computeProjectTaint env projectPath pFilter fileCache pathCache consts
-    (moduleCount := imported.size) (computeAssumptions := computeAssumptions)
+    (moduleCount := pp.headers.size) (computeAssumptions := computeAssumptions)
   let decls := getProjectDeclsFrom env consts selFilter pt.mergedVersions
   IO.println s!"Found {decls.size} declarations"
   IO.println (formatTaintSummary pt)
