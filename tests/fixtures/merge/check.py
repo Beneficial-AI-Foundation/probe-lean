@@ -22,9 +22,11 @@ The walk must not be steered clean by whichever body survived: it follows the un
 of both versions' dependencies, so `shared` reads `unverified` and both callers read
 `verified`, and a warning names the merged declaration.
 
-The atom's edges are that same union, and a `--module` run selecting either
-declaring module emits `shared`, located in the selected module's file: the
-importer's choice of body and owner must not decide the output either.
+The atom's edges are that same union. A `--module` run imports only the closure of
+the selected modules, so it loads one version of `shared`: `--module Merge.Good`
+reports the proved version (the `True.intro` edge only), `--module Merge.Bad` the
+sorried one (the `sorryAx` edge only). Each locates `shared` in the selected
+module's file.
 
 `Merge.Fix.mutual` (issue #135) is merged the same way. `Merge.FixAdd` adds it with no
 declaration range and owns it, `Merge.FixRestate` states it in source. `extract`
@@ -97,14 +99,19 @@ def main():
           both_bodies(data.get("probe:shared", {})))
 
     print("--module runs: either declaring module emits the merged theorem")
-    for m in ("Good", "Bad"):
+    # A --module run imports only the closure of the selected modules, so the
+    # environment holds one version of `shared`, and the run reports that version.
+    for m, st, edge in (("Good", "transitively-verified", "probe:True.intro"),
+                        ("Bad", "unverified", "probe:sorryAx")):
         shared = selected[m].get("probe:shared", {})
-        check(f"--module Merge.{m}: shared is emitted, unverified",
-              shared.get("verification-status") == "unverified")
+        check(f"--module Merge.{m}: shared is emitted, {st}",
+              shared.get("verification-status") == st)
         check(f"--module Merge.{m}: shared is located in Merge/{m}.lean",
               shared.get("code-module") == f"Merge.{m}"
               and shared.get("code-path") == f"Merge/{m}.lean")
-        check(f"--module Merge.{m}: shared's edges are both versions'", both_bodies(shared))
+        ext = shared.get("term-dependencies-external", [])
+        check(f"--module Merge.{m}: shared's edges are the loaded version's only",
+              edge in ext and not both_bodies(shared))
     check("--module Merge.Bad: nothing but shared is emitted", list(selected["Bad"]) == ["probe:shared"])
     # `Merge.Good.Sub` is selected by the `Merge.Good` prefix; `Merge.Bad`, which owns
     # `shared` in the environment, is not. The emitted `shared` must still be the
@@ -116,8 +123,8 @@ def main():
           "probe:shared" in sub.get("term-dependencies", [])
           and "probe:shared" in sub.get("dependencies", [])
           and "probe:shared" not in sub.get("term-dependencies-external", []))
-    check("--module Merge.Good: callerSub is verified (fail closed)",
-          sub.get("verification-status") == "verified")
+    check("--module Merge.Good: callerSub is transitively-verified (only the proved version is loaded)",
+          sub.get("verification-status") == "transitively-verified")
 
     print("Merged .mutual name: an emitted atom, so its edges stay")
     fix = "probe:Merge.Fix.mutual"

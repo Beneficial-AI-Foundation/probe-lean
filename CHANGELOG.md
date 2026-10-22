@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-21
+
+### Fixed
+
+- **A stale `.olean` can no longer pass as verified** (#152). Before, `extract` imported every `.olean` under `.lake/build/lib/lean` that had a `.lean` source, and it skipped `lake build` by file modification time. A theorem in a library outside `defaultTargets` read `transitively-verified` after a change in a library that it imports made it false. Now `extract` and `check-axioms` build their targets on every run and import only the target modules and their imports. A `lean_lib` of the root package must own every project module of that closure, so the target build checked all of them. A module that breaks the rule fails the run before the import.
+- A `lakefile.lean` project builds its `defaultTargets` by name, and its `srcDir` libraries are analyzed (#123). Before, their modules were dropped as orphans. A package-level `srcDir` works too.
+- `runCmd` reads stdout and stderr of a subprocess at the same time. Before, a child that filled the stderr pipe blocked.
+- In a Nix shell, `runLakeCmd` quotes every argument of the `nix-shell --run` string.
+
+### Changed
+
+- probe-lean reads the workspace with Lake's own `loadWorkspace`, in a hidden subcommand under `lake env`. So `lakefile.toml` comments, multi-line arrays and quoted names work, and probe-lean no longer parses the lakefile.
+- A library builds as `<lib>:leanArts`, and an executable target as its root module (`+<root>`). An executable in `defaultTargets` is no longer linked. A library whose `defaultFacets` holds `static` or `shared` no longer builds native code.
+- Without `--library` or `--all-libraries`, a library that no target imports (tests, docs, examples) is no longer reported. A fresh clone already got this output. VeriLib can pass `--all-libraries` to keep the old output for projects with libraries outside `defaultTargets`.
+- `--library` takes `lean_lib` names. An unknown name or a `lean_exe` name is an error. Before, it matched module-name prefixes. `--module` covers that use.
+- `--module` now narrows the import and the `check-axioms` walk to the closure of the selected modules. The prefix filters the project modules that the target modules import. Before, it filtered every module on disk, and the walk covered all of them. A prefix that matches no such module is an error.
+- With `--library` or `--module`, P is the closure of the import set. If two project modules declare the same name and only one of them is in the import set, the run reports that module's version alone. Before, it reported the union of both versions.
+- A project module of the closure that no `lean_lib` owns, that is an executable root imported by another module, or whose name is also an executable root fails the run. Before, if it had a source, probe-lean imported it.
+- A target on another Lean version fails before the build, with both Lean githashes and a pointer to the installer's `--from-project`.
+- If Lake's artifact cache keeps a target `.olean` out of `.lake/build`, the run fails and names `LAKE_RESTORE_ARTIFACTS=true` and `restoreAllArtifacts = true`.
+- A custom `buildDir` or `leanLibDir` is an error.
+- A target module whose `.olean` resolves outside `.lake/build/lib/lean` is an error. A symlinked `.lake` or `.lake/build` works.
+- A target library whose modules Lake cannot list (for example, a missing glob directory) is an error. Such a library that is not a target does not fail the run.
+
+### Added
+
+- `--all-libraries` for `extract` and `check-axioms`: build every `lean_lib` of the root package and emit every project module of the closure.
+- `docs/usage.md`, section "Stale build outputs": what probe-lean detects, with the error of each case, and its limits.
+
+### Removed
+
+- The build cache: probe-lean no longer reads or writes `.lake/probe-lean/build_output.txt`. You can delete `.lake/probe-lean`.
+- The orphan check and the import fallback to the `--module`/`--library` selection. The `Ignoring <n> orphan module(s)` line and the `Warning: <n> project module(s) not imported (full import failed)` line are gone.
+
 ## [0.22.1] - 2026-10-21
 
 ### Fixed

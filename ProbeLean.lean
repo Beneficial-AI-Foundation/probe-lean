@@ -1,6 +1,9 @@
 import ProbeLean.Types
 import ProbeLean.NixEnv
+import ProbeLean.WorkspaceInfo
 import ProbeLean.Environment
+import ProbeLean.Targets
+import ProbeLean.Closure
 import ProbeLean.Coimport
 import ProbeLean.SpecFramework
 import ProbeLean.Analysis

@@ -104,22 +104,25 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`). |
-| `--module <PREFIX>` | `-m` | Filter to a module prefix. The kernel walk still imports every built project module, so a narrow selection is not faster than a full run. |
-| `--library <LIBS>` | `-l` | Comma-separated library names to build and restrict analysis to. probe-lean keeps the modules whose names start with one of these library roots. Without the flag, the build uses `defaultTargets` from `lakefile.toml` (or all `[[lean_lib]]` entries), and all built modules are analyzed. The detected targets are not a module filter, because `defaultTargets` can name a `lean_exe` and a library can declare custom `roots`. |
+| `--module <PREFIX>` | `-m` | Import and emit only the project modules whose name is `<PREFIX>` or starts with `<PREFIX>.` (compared by name component). The prefix filters every project module that the target modules import, not only the modules that the lakefile lists, so a submodule of a library with the default glob matches. The kernel walk covers the import closure of the matching modules. If no project module matches, the run fails. For a module of a library that no target imports, use `--library` or `--all-libraries`. |
+| `--library <LIBS>` | `-l` | Comma-separated `lean_lib` names. probe-lean builds these libraries and emits the project modules that they own. An unknown name or a `lean_exe` name is an error. |
+| `--all-libraries` | | Build every `lean_lib` of the root package and emit every project module that the import loads. Executables are not built. Cannot be used with `--library`. |
 | `--skip-verify` | | Omit `verification-status` and `assumptions`. Trusted atoms keep their status (`"trusted"`). |
 | `--skip-enrich` | | No upgrade to `"transitively-verified"` (clean atoms read `"verified"`). Generated atoms stay hidden. |
 
+Without `--library` and `--all-libraries`, the targets are the `defaultTargets` of the lakefile. probe-lean skips a default target that is not a `lean_lib` or a `lean_exe`, and prints a note. Without `defaultTargets`, the targets are every `lean_lib`. A library that no target imports, for example a test or docs library, is not reported. Use `--all-libraries` or `--library` for it.
+
+probe-lean builds the targets on every run, a library as `lake build <lib>:leanArts` and an executable as its root module, `lake build +<root>`. So the build does not depend on the library's `defaultFacets`, and no executable is linked. It reads the workspace with Lake's own loader, in a hidden subcommand under `lake env`, so it reads `lakefile.toml` and `lakefile.lean` the same way.
+
 #### Co-importability preflight
 
-Before the import, `extract` reads each built module's declarations from its `.olean` header. If two modules declare the same fully-qualified name, `extract` stops and lists the names and their modules (see "Co-importability check failed" under Troubleshooting).
-
-With `--module` or `--library`, `extract` first tries to import all built project modules, because the kernel walk needs the whole project. If that fails, it imports the selection only and prints `Warning: <n> project module(s) not imported (full import failed); ...`. The modules left out are outside the selection's import closure, so no emitted status depends on them. `check-axioms` does not audit them.
+Before the import, `extract` reads the declarations of each project module of the import closure from its `.olean` header. If two modules declare the same fully-qualified name, `extract` stops and lists the names and their modules (see "Co-importability check failed" under Troubleshooting).
 
 Lean accepts two modules that restate a theorem with the same name and statement, and keeps one proof. `extract` and `check-axioms` print a `Warning:` or `Note:` line for such merged declarations. The policy is in [verification-status.md](verification-status.md), section "Merged declarations".
 
 #### Verification status
 
-A kernel walk over every constant of every built project module decides `verification-status`. The walk does not use the build log or the emitted dependency graph. It stops at the project boundary. For a member of the trusted base (axioms, the `externally_verified` tag set, and non-proofs in `*External` modules), it follows the statement and not the proof. A `sorry` in the proof of a trusted declaration does not taint its callers. A `sorry` behind its statement does. The walk prints its totals:
+A kernel walk over every constant of every project module that the import loads (the set P) decides `verification-status`. The walk does not use the build log or the emitted dependency graph. It stops at the project boundary. For a member of the trusted base (axioms, the `externally_verified` tag set, and non-proofs in `*External` modules), it follows the statement and not the proof. A `sorry` in the proof of a trusted declaration does not taint its callers. A `sorry` behind its statement does. The walk prints its totals:
 
 ```
 Project constants: 11293 in 231 module(s) | trusted: 149 | direct sorry carriers: 3 | tainted: 112
@@ -140,9 +143,9 @@ Every atom with a status also has `assumptions`: the axioms and trusted constant
 
 To check an artifact against the `check-axioms` report in both directions, run `tools/audit/check-status-consistency.py .verilib/probes/lean_*.json check-axioms.out`. For a `--skip-verify` artifact, add `--allow-missing`: the script then accepts atoms without a status and requires that no atom has `assumptions`. See [tools/audit/README.md](../tools/audit/README.md).
 
-#### Module-system and stale oleans
+#### Module-system oleans
 
-`extract` imports a module-system module (`module` header) from its `.olean.private` part, so it sees the proofs of its `public theorem`s. If such a module has no split parts, `extract` stops before the import and asks you to rebuild. `extract` ignores a stale `.olean` that has no backing `.lean` source. If a live module imports such an `.olean`, `extract` stops. In that case, run `lake clean` in the target project and rebuild.
+`extract` imports a module-system module (`module` header) from its `.olean.private` part, so it sees the proofs of its `public theorem`s. If such a module has no split parts, `extract` stops before the import and asks you to rebuild. For stale `.olean` files, see "Stale build outputs".
 
 #### Other atom fields
 
@@ -160,8 +163,9 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--module <PREFIX>` | `-m` | Restrict which constants count as emitted (the `[not emitted]` marker). The walk always covers every built module it can import. |
-| `--library <LIBS>` | `-l` | Comma-separated library names to build and restrict the emitted set to. |
+| `--module <PREFIX>` | `-m` | Import only the project modules under `<PREFIX>`, as for `extract`. The walk covers their import closure. The other constants of the closure carry the `[not emitted]` marker. |
+| `--library <LIBS>` | `-l` | Comma-separated `lean_lib` names to build. The constants of other libraries carry the `[not emitted]` marker. |
+| `--all-libraries` | | Build every `lean_lib` of the root package. |
 
 Output on `tests/fixtures/aux-fold` (shortened, the full report has one line per listed constant):
 
@@ -289,7 +293,7 @@ With `--from-project`, the installer picks the binary from the project's `lean-t
 
 ### Projects with `lakefile.lean`
 
-Some projects, such as [VCV-io](https://github.com/Verified-zkEVM/VCV-io), use `lakefile.lean` instead of `lakefile.toml`. probe-lean cannot read library names from `lakefile.lean`. It runs `lake build` with no explicit targets, which builds the project's `@[default_target]` targets.
+Some projects, such as [VCV-io](https://github.com/Verified-zkEVM/VCV-io), use `lakefile.lean` instead of `lakefile.toml`. probe-lean reads both with Lake's own loader. So the `@[default_target]` targets, a package or library `srcDir`, and names with `«»` quotes work as in `lakefile.toml`. Loading a `lakefile.lean` takes about one second longer than a `lakefile.toml`.
 
 ### Fresh machine
 
@@ -317,9 +321,11 @@ probe-lean extract .
 
 ## Performance
 
-### Build cache
+### Build on every run
 
-If its saved build output is newer than every `.lean` file, `lean-toolchain`, `lakefile.toml` and `lakefile.lean` in the project, `extract` skips `lake build`. The kernel walk reads the `.olean` files, so it does not need a fresh build log. Nothing reads the saved output for the status.
+`extract` and `check-axioms` run `lake build` on their targets on every run. A build with nothing to do takes a few seconds (3.2 s on curve25519-dalek), and the two workspace helper calls take about 2.5 s together (1.25 s each on curve25519-dalek, a `lakefile.toml` project). Each call is a `lake env` process, and `lake env` loads the workspace before the helper loads it again. probe-lean 0.22 and earlier skipped the build by file modification time and wrote `.lake/probe-lean/build_output.txt`. probe-lean no longer reads or writes that directory, and you can delete it.
+
+Lake's artifact cache (`LAKE_ARTIFACT_CACHE=true` or `enableArtifactCache`) can keep the `.olean` files out of `.lake/build` after a cache hit. probe-lean needs them there. If a target module has no `.olean` after the build, the run fails with `Error: after the build, <n> target module(s) have no .olean in .lake/build/lib/lean` and names the modules. To fix it, set `LAKE_RESTORE_ARTIFACTS=true` (Lean 4.31 or later), or set `restoreAllArtifacts = true` in the lakefile. A package that sets `restoreAllArtifacts = false` overrides the variable.
 
 ### `--skip-verify`
 
@@ -347,7 +353,7 @@ To iterate on one module:
 probe-lean extract ./my-project -m MyProject.Core
 ```
 
-The output then holds only atoms from that module prefix. The run is not faster, because the kernel walk imports every built module.
+The output then holds only atoms from that module prefix. The import and the kernel walk cover the import closure of the selected modules only, so a module near the bottom of the import graph gives a faster run.
 
 ---
 
@@ -384,6 +390,41 @@ Example `.verilib/probes/config.json`:
 
 ---
 
+## Stale build outputs
+
+Lean does not check the age of an `.olean` file when it imports it. So probe-lean imports only modules that Lake checked in the same run. It builds the targets on every run and imports only the target modules and their imports (the import closure). A `lean_lib` of the root package must own every project module of the closure. A project module is a module whose `.olean` is in `.lake/build/lib/lean` of the project. For a module that a `lean_lib` owns, Lake records each import in the importer's trace, so the target build rechecked the whole closure.
+
+### What probe-lean detects
+
+In each of these cases, the run fails or Lake rebuilds the module before the import:
+
+| Case | What happens |
+|------|--------------|
+| A library outside the targets has a stale `.olean`. | The import does not load it, and no atom of it is emitted. |
+| A source of a target module or of a module in its closure changed. | Lake rebuilds it in the target build. |
+| A module that a target module imports was deleted. | `lake build` fails and names the missing file. |
+| A module of the closure lost its `[[lean_lib]]` entry, but its source and `.olean` stay. | `Error: <n> module(s) in the import closure fail the ownership check`, with the reason `no lean_lib of the root package owns this module`. |
+| A module of the closure is an executable root (`lean_exe`) that another project module imports. | The same error, with the reason `only a lean_exe owns this module, and another project module imports it`. Lake does not recheck such a module, and a fresh clone does not build this layout. Move the module into a `lean_lib`. |
+| A module name is a `lean_lib` module and a `lean_exe` root. | The same error, with the reason `the name is both a lean_lib module and a lean_exe root`. |
+| Lake's artifact cache kept a target `.olean` out of `.lake/build`. | `Error: after the build, <n> target module(s) have no .olean in .lake/build/lib/lean` (see "Build on every run"). |
+| The project sets a custom `buildDir` or `leanLibDir`. | `Error: the build directory of the project is <dir>, not .lake/build/lib/lean`. |
+| A target module resolves to an `.olean` outside `.lake/build/lib/lean`, for example because a dependency has a directory with the same root name. | `Error: <n> target module(s) do not resolve to an .olean in the build directory`. A symlinked `.lake` or `.lake/build` is supported. |
+| Lake cannot list the modules of a target library, for example because a glob directory does not exist. | `Error: Lake could not list the modules of <n> target library(ies)`, with Lake's message for each library. A library that is not a target does not fail the run. |
+| The project uses another Lean version than probe-lean. | `Error: the target project uses a different Lean than probe-lean`, with both Lean githashes, before any build. |
+
+A failed run does not change an earlier output file.
+
+### Limitations
+
+probe-lean does not detect these cases:
+
+- An edit to the project, or another `lake build` in it, while probe-lean runs.
+- A failure while probe-lean writes the output file. The file can then be truncated.
+
+Other unusual Lake layouts can exist in which probe-lean cannot detect a stale `.olean`. If a result looks wrong, run `lake clean` in the target project, then run `extract` again.
+
+---
+
 ## Troubleshooting
 
 ### Build takes hours
@@ -392,22 +433,25 @@ If the automatic cache download fails (see "Mathlib cache" above), `lake build` 
 
 ### "Co-importability check failed"
 
-Lake compiles each module on its own, so a project can build even if two modules declare the same fully-qualified name. probe-lean imports all built modules into one Lean environment, and Lean forbids duplicate declarations there.
+Lake compiles each module on its own, so a project can build even if two modules declare the same fully-qualified name. probe-lean imports the target modules and their imports into one Lean environment, and Lean forbids duplicate declarations there.
 
-probe-lean finds the duplicates before the import and lists them with their modules. Lakefile grouping does not help: `defaultTargets` and `[[lean_lib]]` splits change only what is built, and probe-lean analyzes every built `.olean` on disk.
+probe-lean finds the duplicates before the import and lists them with their modules. Lakefile grouping helps: the import loads only the target modules and their imports, so two conflicting modules in different libraries do not collide unless one run targets both.
 
 Fixes, best first:
 
 1. Restructure the project. Give each variant family its own namespace, or make the dependent module `import` the shared module instead of restating its definitions. This is the only fix for automated consumers such as verilib, which cannot pass per-project flags.
-2. For manual runs only, extract a subset with no conflict using `--module`, for example `probe-lean extract . --module H1.solution`. `--module` selects the named module and its submodules, so for a clash between a root and its submodule, name the deepest module. `--library` matches module-name roots, not lakefile library names, so it usually cannot separate this kind of split.
+2. Split the conflicting modules into separate `lean_lib` entries, and keep only one of them in `defaultTargets`.
+3. For manual runs only, extract a subset with no conflict using `--module` or `--library`, for example `probe-lean extract . --module H1.solution`. `--module` selects the named module and its submodules, so for a clash between a root and its submodule, name the deepest module.
 
-### "environment already contains '...'" after you rename or delete a file
+If two modules of the module system (`module` header) export the same `public def`, the preflight does not see the conflict, and the import fails with `environment already contains '<name>'`. probe-lean then names the modules that declare it. The fixes are the same.
 
-An orphan `.olean` from the old module is still on disk (Lake does not remove oleans of deleted or renamed sources). It declares a name that another module now owns. probe-lean drops orphan oleans by checking each module for its `.lean` source, but a live module can still import the orphan. Run `lake clean && lake build` in the target project, then run `extract` again.
+### "Lake build failed" after you rename or delete a file
 
-### Live modules listed as orphans
+A module that a target module imports has no source anymore, so `lake build` fails and names the missing file. Lake does not remove the `.olean` of a deleted or renamed source, but probe-lean imports only the closure of the target modules, so an `.olean` that nothing imports does not matter. Fix the import, then run `extract` again.
 
-probe-lean looks for a module's `.lean` source under the project root and under each `srcDir` declared in `lakefile.toml`. It does not read `lakefile.lean`. If a `lakefile.lean` library has a custom `srcDir`, probe-lean does not find the sources of its modules. It lists them under `Ignoring <n> orphan module(s)` and leaves them out of the analysis. If a kept module imports one of them, `extract` stops with `stale module(s) with no .lean source were imported by a live module`. `lake clean` does not fix this. Move the sources to the default root, or declare the library in `lakefile.toml` with its `srcDir`.
+### "fail the ownership check"
+
+A module of the import closure has no `lean_lib` owner in the root package, or it is an executable root. See "Stale build outputs" for each reason and its fix.
 
 ### "Failed to import modules"
 
@@ -422,7 +466,7 @@ lake build
 
 ### Toolchain mismatch
 
-If you see `.olean` version errors, reinstall probe-lean for the target project:
+If you see `Error: the target project uses a different Lean than probe-lean` or `.olean` version errors, reinstall probe-lean for the target project:
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/probe-lean/main/tools/bash/install.sh \

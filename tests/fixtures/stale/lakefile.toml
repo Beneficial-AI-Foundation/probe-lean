@@ -1,0 +1,24 @@
+name = "stale"
+defaultTargets = ["Core"]
+
+# `Core` is the only default target, and it sets `defaultFacets = []`, so a bare
+# `lake build Core` builds nothing: probe-lean must build `Core:leanArts`. `Core`
+# imports `Shared`, `Shared.Hidden` (owned by `Shared`, but not imported by the
+# root `Shared`) and `Old`. Nothing imports `Extra` or `ExeOld`. check.sh changes
+# this project step by step; see the steps there.
+[[lean_lib]]
+name = "Core"
+defaultFacets = []
+
+[[lean_lib]]
+name = "Shared"
+
+[[lean_lib]]
+name = "Extra"
+
+[[lean_lib]]
+name = "Old"
+
+[[lean_exe]]
+name = "oldexe"
+root = "ExeOld"

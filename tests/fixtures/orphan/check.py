@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
-"""End-to-end assertions for the stale-orphan abort.
+"""End-to-end assertions for a deleted module that a target module imports.
 
 Run from this directory, after
 
     lake build
     probe-lean extract . 2>extract.stderr          # succeeds; thm is verified
     rm Orph/Dep.lean
-    probe-lean extract . 2>extract2.stderr         # must fail
+    probe-lean extract . -o .verilib/after.json 2>extract2.stderr     # must fail
     probe-lean check-axioms . >check-axioms2.out 2>check-axioms2.err   # must fail
     git checkout -- Orph/Dep.lean
     python3 check.py
 
 `Orph.Main` imports `Orph.Dep`, whose `bad` is a `sorry`. After `Orph/Dep.lean` is
-deleted, the build cache is still valid (nothing is newer than it), so `lake build` is
-skipped; discovery drops `Orph.Dep` as an orphan; importing `Orph.Main` loads the stale
-`Orph.Dep.olean` anyway. Without the post-import check `Orph.Dep` would sit outside P,
-blocked, and `thm` would read `transitively-verified`. Both commands must abort instead.
+deleted, its `.olean` stays in the build directory. probe-lean builds the targets on
+every run, so `lake build` fails and names the missing file, and both commands fail
+before the import. Without the build, importing `Orph.Main` would load the stale
+`Orph.Dep.olean`, and `thm` would rest on a module that has no source.
 """
 
 import glob
 import json
+import os
 import sys
 
 failures = []
-
-STALE = "1 stale module(s) with no .lean source were imported by a live module: Orph.Dep."
 
 
 def check(name, ok):
@@ -52,22 +51,21 @@ def main():
           data.get("probe:bad", {}).get("verification-status") == "unverified")
 
     print("Second extract (Orph/Dep.lean deleted)")
-    check("extract aborted through the import path naming the stale module",
-          f"Analysis failed: {STALE}" in stderr2)
-    check("the remedy is stated", "Run `lake clean` in the target project and rebuild." in stderr2)
-    check("no Divergence line was printed (nothing was stamped)",
-          "Divergence(" not in stderr2)
+    check("extract failed in the build, which names Orph/Dep.lean",
+          "Lake build failed" in stderr2 and "Orph/Dep.lean" in stderr2)
+    check("no output file was written", not os.path.exists(".verilib/after.json"))
 
     print("check-axioms (Orph/Dep.lean deleted)")
-    check("check-axioms aborted naming the stale module", f"Import failed: {STALE}" in axerr2)
+    check("check-axioms failed in the build, which names Orph/Dep.lean",
+          "Lake build failed" in axerr2 and "Orph/Dep.lean" in axerr2)
 
     print()
     if failures:
-        print(f"stale-orphan end-to-end check: {len(failures)} assertion(s) failed:")
+        print(f"deleted-module end-to-end check: {len(failures)} assertion(s) failed:")
         for f in failures:
             print(f"  {f}")
         return 1
-    print("stale-orphan end-to-end check: all assertions passed")
+    print("deleted-module end-to-end check: all assertions passed")
     return 0
 
 

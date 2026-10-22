@@ -61,7 +61,7 @@ CI (`.github/workflows/ci.yml`, on push and PR to `main`) runs these jobs:
 
 - `build`: builds the project.
 - `shell-tests`: the Lean version-policy and installer helper tests, and the tests of `tools/audit/check-graph.py`.
-- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`, `step-spec`). The job also regenerates the example fixture and fails on any diff.
+- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`, `step-spec`, `stale`, `lakefile-lean`). `tests/fixtures/stale` also holds the artifact cache check and the Lean version check. The job also regenerates the example fixture and fails on any diff.
 - `test-newest`: the same suite and fixture checks on the newest supported Lean (`LEAN_VERSION` in the job).
 - `check-version`: `ProbeLean/Version.lean` matches `lakefile.toml`.
 - `check-extract`: runs `probe-extract-check` on the example fixture.
@@ -79,7 +79,7 @@ Check the effect of every change on `lake build` time. Each `x ← ...` bind in 
 
 ## Running extract on target projects
 
-`probe-lean extract <target-project>` builds the target and skips the build if the build cache is up to date. If the target depends on Mathlib and has no Mathlib cache, extract downloads it (`ensureMathlibCache` in `ProbeLean/Extract.lean`). The probe-lean binary must match the target's Lean version. The installer picks it with `--from-project`. See [docs/usage.md](docs/usage.md).
+`probe-lean extract <target-project>` builds the targets on every run and imports only the closure of the target modules. If the target depends on Mathlib and has no Mathlib cache, extract downloads it (`ensureMathlibCache` in `ProbeLean/Extract.lean`). The probe-lean binary must match the target's Lean version. The installer picks it with `--from-project`. See [docs/usage.md](docs/usage.md).
 
 ## Versioning
 
@@ -93,7 +93,7 @@ Do **not** hardcode version strings anywhere else. Use `ProbeLean.version` (or `
 
 ### Extract pipeline
 
-`probe-lean extract` runs: `build → atomize (+ kernel taint pass, + assumption sets) → markAtomFlags → specs → verify (direct carrier count) → merge (status and assumptions from the taint pass) → enrich (status counts) → envelope → write`
+`probe-lean extract` runs: `workspace load → build → closure + ownership check → atomize (+ kernel taint pass, + assumption sets) → markAtomFlags → specs → verify (direct carrier count) → merge (status and assumptions from the taint pass) → enrich (status counts) → envelope → write`
 
 - `ProbeLean/Main.lean`: CLI entry point for `extract`, `check-axioms` and `viewify`.
 - `ProbeLean/Extract.lean`: orchestrates the pipeline and produces `UnifiedAtom` output.
@@ -106,9 +106,13 @@ Do **not** hardcode version strings anywhere else. Use `ProbeLean.version` (or `
 - `ProbeLean/TagSet.lean`: reads the `@[externally_verified]` tag set statically from the target's olean entries.
 - `ProbeLean/Transitive.lean`: applies the taint pass result to atoms (`applyTaintStatus`, status and `assumptions`) and counts the final statuses.
 - `ProbeLean/Coimport.lean`: preflight check that finds duplicate declarations across project modules in `.olean` headers before import.
-- `ProbeLean/Environment.lean`: Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), build cache, `ProjectModule` discovery.
+- `ProbeLean/Environment.lean`: Lake project detection, subprocess commands (`runCmd`, `runLakeCmd`), and the client calls of the workspace helper (`queryWorkspaceInfo`, `queryOwners`).
+- `ProbeLean/Workspace.lean`: the hidden workspace helper subcommands `workspace-info` and `workspace-owners`. They run under `lake env`, check the Lean githash and load the workspace with Lake's `loadWorkspace`. The only module that imports `Lake`.
+- `ProbeLean/WorkspaceInfo.lean`: the output types of the workspace helper and their decoders.
+- `ProbeLean/Targets.lean`: the pure selection rules: the targets, the `lake build` arguments, the `--module` filter, the ownership check of the closure and the emitted set.
+- `ProbeLean/Closure.lean`: the import closure read from the `.olean` headers, the search path, the missing `.olean` check, and `PreparedProject`.
 - `ProbeLean/NixEnv.lean`: Nix environment detection (`NixMode`, `detectNixShell`, `isNixAvailable`).
-- `ProbeLean/Metadata.lean`: envelope metadata from git and `lakefile.toml`, and output path construction.
+- `ProbeLean/Metadata.lean`: envelope metadata from git and `lakefile.toml` (package name and version), and output path construction.
 - `ProbeLean/Loader.lean`: loads probe-lean output files, bare-dict or enveloped.
 - `ProbeLean/Types.lean`: all data structures and JSON serialization.
 - `ProbeLean/View.lean`: the `viewify` command (filters atoms → molecules for the web UI).

@@ -1,7 +1,7 @@
 /-
   Coimport: preflight co-importability check.
 
-  Atomize imports the union of a project's built modules into one Lean
+  Atomize imports the target modules and their import closure into one Lean
   environment, so two modules declaring the same fully-qualified name make
   `importModules` abort — a layout that builds fine under Lake (which
   compiles modules independently) and is common in benchmark-style repos with
@@ -13,10 +13,9 @@
   Exactness: the check replicates the importer's duplicate-tolerance rule
   (`subsumesInfo` in core `Lean.Environment`, a private def) so it never
   rejects a project the importer would accept. Known misses — collisions
-  involving dependency modules, oleans the scan had to skip, or duplicates
-  inside module-system modules that the exported level hides — are
-  under-detection only: the import then fails as before and lands on the
-  fallback hint in `Atomize.lean`. Only the base `.olean` of each module is
+  involving dependency modules, or duplicates inside module-system modules
+  that the exported level hides — are under-detection only: the import then
+  fails and lands on the hint in `Atomize.lean`. Only the base `.olean` of each module is
   read. For a module-system module that is the exported level: a `public
   theorem` appears as an axiom of the same type (tolerated exactly as the
   importer tolerates the pair), but so does a non-exposed `public def`, and two
@@ -32,7 +31,6 @@
   module's own constants.
 -/
 import Lean
-import ProbeLean.Environment
 
 namespace ProbeLean
 
@@ -53,7 +51,7 @@ structure DeclCollision where
     constant map, because the type's head can live in a dependency, and the
     preflight does not have that map. So this replica is lenient there.
     Leniency only under-detects: a missed collision still fails at import time
-    and hits the fallback hint. Strictness instead can falsely abort a project
+    and hits the import hint. Strictness instead can falsely abort a project
     that the importer accepts. -/
 def constSubsumes (a b : ConstantInfo) : Bool :=
   a.name == b.name &&
@@ -104,61 +102,66 @@ def findCoimportCollisions (moduleDecls : Array (Name × Array (Name × Constant
         collisions := collisions.push { declName, modules := sorted.map (·.1) }
   return collisions.qsort fun a b => a.declName.toString < b.declName.toString
 
-/-- What the preflight found. -/
-structure CoimportPreflight where
-  /-- Names that make the import fail. -/
-  collisions : Array DeclCollision := #[]
-  /-- Modules whose olean is unreadable. The scan is partial for them. -/
-  skipped : Array ProjectModule := #[]
-  /-- Module-system modules (`module` header) whose `.olean.server` or
+/-- What probe-lean reads from the base `.olean` of a project module, once per run:
+    its imports for the closure walk (`Closure.computeClosure`) and its own
+    constants for the collision check. -/
+structure ProjectHeader where
+  name : Name
+  oleanPath : System.FilePath
+  imports : Array Name
+  /-- `(declared name, constant info)` pairs, `ModuleData.constNames` zipped with
+      `ModuleData.constants` by position, as the importer iterates them. -/
+  consts : Array (Name × ConstantInfo)
+  /-- A module-system module (`module` header) whose `.olean.server` or
       `.olean.private` part is missing. `importModules` at `OLeanLevel.private`
       loads the private part only when both exist (`findOLeanParts`). Otherwise it
-      fails with "missing data file" for the module. The abort here is the readable
-      form of that failure, with the remedy. -/
-  proofless : Array ProjectModule := #[]
+      fails with "missing data file" for the module. -/
+  proofless : Bool
   deriving Inhabited
 
 /-- Whether a module-system module's split parts are both next to its base olean.
     Mirrors `findOLeanParts`: the private part is used only when `.olean.server`
     and `.olean.private` both exist. -/
-def hasOLeanParts (m : ProjectModule) : IO Bool := do
-  let server := m.oleanPath.addExtension "server"
-  let priv := m.oleanPath.addExtension "private"
+def hasOLeanParts (oleanPath : System.FilePath) : IO Bool := do
+  let server := oleanPath.addExtension "server"
+  let priv := oleanPath.addExtension "private"
   return (← server.pathExists) && (← priv.pathExists)
 
-/-- Run the preflight over the (already filtered) project modules: read each
-    module's base olean and classify duplicated names into collisions. If a
-    module's olean is unreadable, the preflight skips it with a stderr warning and
-    returns it in `skipped`. Callers can then report that the scan was partial. A
-    skip alone must never fail the extraction. A module-system module without its
-    split parts goes into `proofless`. It fails the import of *these* modules,
-    because Lean stops on the missing part. The caller decides whether the
-    extraction then aborts or retries a narrower selection
-    (`importProjectEnvSelecting`). -/
-def detectCoimportCollisions (modules : Array ProjectModule) : IO CoimportPreflight := do
-  let mut moduleDecls : Array (Name × Array (Name × ConstantInfo)) := #[]
-  let mut skipped : Array ProjectModule := #[]
-  let mut proofless : Array ProjectModule := #[]
-  for m in modules do
-    try
-      -- The CompactedRegion backing the ModuleData is deliberately not freed:
-      -- the ConstantInfo values point into it, and extract is short-lived.
-      -- Only the project's own (small) modules are read here — dependency
-      -- oleans, which dominate memory, are never touched by the preflight.
-      let (data, _) ← readModuleData m.oleanPath
-      if data.isModule && !(← hasOLeanParts m) then
-        proofless := proofless.push m
-      else
-        moduleDecls := moduleDecls.push (m.name, data.constNames.zip data.constants)
-    catch e =>
-      IO.eprintln s!"Warning: co-importability preflight could not read {m.oleanPath} (module {m.name}): {e}"
-      IO.eprintln "  The module is skipped, so the preflight may be incomplete."
-      skipped := skipped.push m
-  return { collisions := findCoimportCollisions moduleDecls, skipped, proofless }
+/-- Read the header of one project module. A read failure is an error, never a
+    module with no imports. -/
+def readHeader (name : Name) (oleanPath : System.FilePath) : IO (Except String ProjectHeader) := do
+  try
+    -- The CompactedRegion backing the ModuleData is deliberately not freed:
+    -- the ConstantInfo values point into it, and extract is short-lived.
+    -- Only the project's own (small) modules are read here — dependency
+    -- oleans, which dominate memory, are never touched.
+    let (data, _) ← readModuleData oleanPath
+    let proofless := data.isModule && !(← hasOLeanParts oleanPath)
+    return .ok { name, oleanPath, imports := data.imports.map (·.module),
+                 consts := data.constNames.zip data.constants, proofless }
+  catch e =>
+    return .error s!"could not read {oleanPath} (module {name}): {e}"
+
+/-- What the preflight found. -/
+structure CoimportPreflight where
+  /-- Names that make the import fail. -/
+  collisions : Array DeclCollision := #[]
+  /-- Module-system modules without their split parts (`ProjectHeader.proofless`).
+      The abort here is the readable form of Lean's "missing data file". -/
+  proofless : Array Name := #[]
+  deriving Inhabited
+
+/-- Run the preflight over the headers of P (read once by the closure walk):
+    classify duplicated names into collisions, and list the module-system modules
+    without their split parts. -/
+def detectCoimportCollisions (headers : Array ProjectHeader) : CoimportPreflight :=
+  let ok := headers.filter (!·.proofless)
+  { collisions := findCoimportCollisions (ok.map fun h => (h.name, h.consts)),
+    proofless := (headers.filter (·.proofless)).map (·.name) }
 
 /-- The abort message for `CoimportPreflight.proofless`. -/
-def formatProoflessError (proofless : Array ProjectModule) : String :=
-  let names := (proofless.map (·.name.toString)).qsort (· < ·)
+def formatProoflessError (proofless : Array Name) : String :=
+  let names := (proofless.map (·.toString)).qsort (· < ·)
   s!"{proofless.size} module-system module(s) have no `.olean.private`/`.olean.server` part next to \
     their `.olean`: {", ".intercalate names.toList}.\n\
     Lean loads a `module` file's proofs from its private part and fails the import without it \
@@ -167,17 +170,6 @@ def formatProoflessError (proofless : Array ProjectModule) : String :=
 
 /-- How many duplicated names are listed individually in the diagnostic. -/
 def maxDisplayedCollisions : Nat := 10
-
-/-- One-line note listing modules the preflight did not scan (empty string
-    when none were skipped). Shared by the preflight abort message and the
-    post-import fallback hint. -/
-def skippedModulesNote (skipped : Array ProjectModule) : String :=
-  if skipped.isEmpty then ""
-  else
-    let names := skipped.map (·.name.toString) |>.qsort (· < ·)
-    s!"\nNote: {skipped.size} module(s) could not be scanned (unreadable .olean): " ++
-      ", ".intercalate names.toList ++
-      "\nThe check may be incomplete."
 
 /-- Pick the module suggested in the `--module` example. `--module` selects
     the named module *plus its submodules* (prefix semantics). So prefer a
@@ -191,8 +183,7 @@ def pickExampleModule (c : DeclCollision) : Option Name :=
 /-- Format the preflight abort message: the capped collision list, the
     co-importability requirement, structural fixes, and the `--module`
     escape hatch for manual runs. -/
-def formatCoimportError (collisions : Array DeclCollision)
-    (skipped : Array ProjectModule) : String := Id.run do
+def formatCoimportError (collisions : Array DeclCollision) : String := Id.run do
   let displayable := collisions.filter fun c => isDisplayableCollisionName c.declName
   -- Internal names are hidden from the list as noise — unless they are the
   -- ONLY evidence, in which case hiding them would leave the message with no
@@ -209,9 +200,10 @@ def formatCoimportError (collisions : Array DeclCollision)
   if !displayable.isEmpty && collisions.size > displayable.size then
     lines := lines.push s!"  (plus {collisions.size - displayable.size} internal/auxiliary duplicated name(s) not shown)"
   lines := lines.push ""
-  lines := lines.push "probe-lean imports all built modules into a single Lean environment. Lake"
-  lines := lines.push "compiles each module independently, so the project builds — but Lean forbids"
-  lines := lines.push "duplicate declarations in one environment, so extraction cannot proceed."
+  lines := lines.push "probe-lean imports the target modules and their imports into a single Lean"
+  lines := lines.push "environment. Lake compiles each module independently, so the project builds,"
+  lines := lines.push "but Lean forbids duplicate declarations in one environment, so extraction"
+  lines := lines.push "cannot proceed."
   lines := lines.push ""
   lines := lines.push "Fix the project structure: give each variant family its own namespace, or"
   lines := lines.push "have the dependent module `import` the shared module instead of restating"
@@ -221,9 +213,9 @@ def formatCoimportError (collisions : Array DeclCollision)
       lines := lines.push ""
       lines := lines.push "For a manual run, a non-conflicting subset can be extracted with --module,"
       lines := lines.push s!"e.g.: probe-lean extract . --module {m}"
-      lines := lines.push "(--module also selects submodules of the named module; --library matches module-name roots, not lakefile library names)."
+      lines := lines.push "(--module also selects submodules of the named module; --library takes lean_lib names)."
   lines := lines.push ""
   lines := lines.push "See README \"Supported Projects\" for the co-importability requirement."
-  return "\n".intercalate lines.toList ++ skippedModulesNote skipped
+  return "\n".intercalate lines.toList
 
 end ProbeLean
