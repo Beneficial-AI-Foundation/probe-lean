@@ -110,8 +110,9 @@ Known limitations:
 2. a theorem with a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`, also
    with `local` or `scoped`), only when exactly one such theorem in `specs` is not about another
    function.
-3. the theorem named exactly `<T>_spec` or `<T>.spec`, where `<T>` is the atom's own name. If
-   both names are present, rule 3 picks nothing.
+3. the theorem named exactly `<T>_spec` or `<T>.spec`, where `<T>` is the atom's own name. Rule 3
+   compares names without the private prefix `_private.<module>.0.`, so a private target and a
+   public spec, or the reverse, match. If two theorems match, rule 3 picks nothing.
 4. the only theorem about `T` whose name ends in `<last>.spec` or `<last>_spec`, where `<last>`
    is the last component of `T`. The namespace of the theorem does not matter.
 5. the only theorem in `specs`.
@@ -165,9 +166,6 @@ Three kinds of project break the assumption. The first tags generic lemmas `∀ 
 which Aeneas accepts and which have no head. The second mixes the old and the new shape. The third
 registers its own spec statement. A companion of an axiom does not break it, because it takes the
 head of the axiom. For such a project, probe-lean gives no guarantee about `primary-spec`.
-
-`specs` is keyed by published names. If two spec sources publish the same name (#88), one
-atom's head serves both.
 
 If several `@[primary_spec]` theorems target one atom, the tie-break is arbitrary and `extract`
 prints a warning on stderr. The other tagged theorems stay in `specs` with `is-primary-spec: true`.

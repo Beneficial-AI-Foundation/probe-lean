@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-22
+
+### Fixed
+
+- Two private declarations with the same name in different modules are two atoms (#88, #116). Before, both got one code-name, the output kept one atom, and every edge to either one pointed to the survivor. On curve25519-dalek-lean-verify 2 atoms were missing, on SparsePostQuantumRatchet 2 and on SymCRust-lean 5. Statuses do not change. `specs` and `primary-spec` can change where a collision merged targets or spec atoms.
+
+### Changed
+
+- The code-name of a private declaration keeps the `_private.<module>.0.` prefix: `probe:_private.M.0.Bar.foo`, not `probe:Bar.foo`. Every code-name is `probe:` followed by `Name.toString` of the raw Lean name. Public code-names do not change. This changes the atom key and every reference in `dependencies`, the categorized dependency arrays, `specs` and `primary-spec`. A code-name starts with `probe:_private.` exactly when the declaration is private.
+  To map a new code-name to the old one, remove `_private.<module>.0.`. Two new code-names that map to one old code-name are a former collision, and the old output kept only one of them. The mapping is not exact when Lean escapes the name only behind the prefix (a root component that starts with `#` or `?`): `probe:«#foo.bar»` was `probe:#foo.bar`.
+- Rule 3 of `primary-spec` compares names without the private prefix, so a private target and a public `<T>_spec`, or the reverse, still match.
+- An entry of the config lists `is-hidden`, `is-ignored` and `extraction-artifact-suffixes` matches the name without the private prefix, as before, and also the code-name without `probe:`. The entry `_private.M.0.aux` matches only the `aux` of module `M`.
+- `viewify` keys and the `code-name` and `spec-name` of molecules use the new private code-names. A short-key group that holds a private atom can change the keys of its public members too. Regenerate stored view keys.
+- `tools/audit/check-status-consistency.py` matches report entries to atoms by raw name, and `tools/audit/Audit6.lean` prints raw names.
+
+### Added
+
+- `is-protected` on every atom: the declaration is `protected`. Readers take `false` when the field is absent.
+- The `tests/fixtures/private-collision` end-to-end check.
+
 ## [0.23.0] - 2026-10-21
 
 ### Fixed

@@ -100,8 +100,8 @@ that every edge was emitted: a missing edge that does not change taint is invisi
 dependencies never fail the run. The script reads enveloped artifacts from 0.16.0 on. It rejects
 input whose version it cannot read, because before 0.16.0 a tainted atom that reads `"verified"`
 has no `status-origin` marker and looks clean. If `extract`
-printed the duplicate-name warning, the artifact keeps one of the colliding atoms, and the report
-lacks the other one and its edges.
+printed the duplicate-name warning (two raw names that print as the same string), the artifact
+keeps one of the colliding atoms, and the report lacks the other one and its edges.
 
 ## Kernel dependencies, not executable bodies
 

@@ -50,6 +50,7 @@ def unifyAtom (atom : Atom) : UnifiedAtom :=
     isIgnored := atom.isIgnored
     isRelevant := atom.isRelevant
     isInPackage := atom.isInPackage
+    isProtected := atom.isProtected
     rustSource := atom.rustSource
     attributes := atom.attributes
     specs := atom.specs
@@ -110,9 +111,9 @@ def ensureMathlibCache (projectPath : System.FilePath)
     IO.println "  ✓ Mathlib cache downloaded"
     IO.println ""
 
-/-- Published atom names occurring more than once. Only private declarations can
-    collide, when their user-facing names coincide across modules (for example,
-    a top-level `private theorem aux` in two files both publish as `probe:aux`).
+/-- Published atom names occurring more than once. Two different raw names collide
+    only when their `Name.toString` is equal, for example `«#foo.bar»` (one
+    component) and `«#foo».bar` (two components) both print `#foo.bar`.
     Reported as a warning, not deduplicated. -/
 def duplicateAtomNames (atoms : Array Atom) : Array String := Id.run do
   let mut counts : Std.HashMap String Nat := {}
@@ -136,8 +137,9 @@ structure PrimarySpecCollision where
     Only targets with `primarySpec` set are considered, so this must run on the
     post-`computeSpecs` array. The records come from the same `specs` /
     `isPrimarySpec` data the artifact emits. So a warning cannot disagree with
-    the emitted JSON when published names are unique. Under duplicate names it
-    follows the pre-serialization array and is the more correct of the two.
+    the emitted JSON when published names are unique. Names are duplicate only
+    when two raw names print the same (`duplicateAtomNames`). Then it follows the
+    pre-serialization array and is the more correct of the two.
 
     The tagged set is a union over names rather than a `name → Bool` map: with
     duplicate published names, an untagged namesake must not clobber a tagged
@@ -364,7 +366,7 @@ def runExtractInProject (config : ExtractConfig) : IO UInt32 := do
   IO.println s!"Found {atoms.size} atoms"
 
   for dupName in duplicateAtomNames atoms do
-    IO.eprintln s!"Warning: duplicate atom name {dupName} (private declarations in different modules recover to the same user-facing name)"
+    IO.eprintln s!"Warning: duplicate atom name {dupName} (two different Lean names print as the same string)"
 
   -- Mark filtering flags from .verilib/probes/config.json (bug fix: was missing in old pipeline)
   let hiddenList := loadIsHiddenList userConfig

@@ -56,6 +56,7 @@ Limits:
 
 - `compare-extract.py` compares normalized values. To it, absent, `null` and `[]` are the same.
 - Oracle agreement shows that two implementations agree on one reading of the contract. It does not show that the contract is right.
-- Private-name collisions are outside what the recipe can check. Artifacts print names through `privateToUserName`, so two declarations can print as one string. `Audit6.lean` works on raw `Name`s, so `--oracle` can report a false "predicted but not added". `compare-extract.py` therefore reports a repeated name as a diagnostic and does not fail on it.
+- Versions before 0.24.0 print private names without their `_private.<module>.0.` prefix. Compare two artifacts of the same name format. `--oracle` needs artifacts from 0.24.0 on, because `Audit6.lean` prints the prefix.
+- Two different raw names can print as one string (`«#foo.bar»` and `«#foo».bar`). `compare-extract.py` reports a repeated name as a diagnostic and does not fail on it.
 
 The baseline numbers measured on curve25519-dalek-lean-verify for issue #99 are in the description of [PR #100](https://github.com/Beneficial-AI-Foundation/probe-lean/pull/100).

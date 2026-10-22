@@ -1,0 +1,9 @@
+name = "privcoll"
+defaultTargets = ["PrivColl"]
+
+# Private declarations with one user-facing name in several modules (issue #88).
+# `A`, `B` and the module-system module `E` each define a private `aux`, `D` has a
+# private `pub` next to the public `pub` of `C`. Each must be its own atom.
+[[lean_lib]]
+name = "PrivColl"
+globs = ["PrivColl.+"]

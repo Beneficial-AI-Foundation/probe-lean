@@ -133,11 +133,9 @@ def reachFor (c : Ctx) (raw : Array Name) : Std.HashSet Name := Id.run do
 def sorted (s : Std.HashSet Name) : Array Name :=
   s.toArray.qsort fun a b => a.toString < b.toString
 
-/-- Render a name the way the artifact does: `probeRef` strips the private
-mangling (`_private.M.0.Bar.foo` → `Bar.foo`), so the oracle must too or every
-private declaration reads as a mismatch. Classification and self-edge
-suppression above work on the *raw* names, as in probe-lean. -/
-def render (n : Name) : String := (Lean.privateToUserName n).toString
+/-- Render a name the way the artifact does: `probeRef` prints the raw name,
+private prefix kept (`_private.M.0.Bar.foo`). -/
+def render (n : Name) : String := n.toString
 
 def main (args : List String) : IO Unit := do
   let prefixes := (args.map fun s => s.toName).toArray
@@ -163,9 +161,8 @@ def main (args : List String) : IO Unit := do
       unless directTerm.contains t || t == name do termAdd := termAdd.insert t
     for t in sorted termAdd do
       rows := rows.push s!"{render name}\tterm\t{render t}"
-  -- Deduplicated after rendering: two private declarations in different modules
-  -- can recover to the same user-facing name (`extract` warns about exactly
-  -- this), and then they are one row, not two.
+  -- Deduplicated after rendering: two different raw names can print as one
+  -- string (`extract` warns about exactly this), and then they are one row.
   let mut seen : Std.HashSet String := {}
   for r in rows.qsort (· < ·) do
     unless seen.contains r do

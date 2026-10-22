@@ -1411,6 +1411,7 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
     kind := info.kind
     isRelevant := isRelevant
     isInPackage := true
+    isProtected := Lean.isProtected env info.name
     rustSource := rustSource
     attributes := attrs
     isPrimarySpec := isPrimarySpec

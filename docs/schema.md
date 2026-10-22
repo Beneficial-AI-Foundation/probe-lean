@@ -52,6 +52,7 @@ other atoms that the arrays name. Keys appear in descending order at every level
       "language": "lean",
       "kind": "def",
       "is-relevant": true,
+      "is-protected": false,
       "is-primary-spec": false,
       "is-lean-generated": false,
       "is-in-package": true,
@@ -77,6 +78,7 @@ other atoms that the arrays name. Keys appear in descending order at every level
       "language": "lean",
       "kind": "def",
       "is-relevant": true,
+      "is-protected": false,
       "is-primary-spec": false,
       "is-lean-generated": false,
       "is-in-package": true,
@@ -107,6 +109,7 @@ other atoms that the arrays name. Keys appear in descending order at every level
       "language": "lean",
       "kind": "def",
       "is-relevant": true,
+      "is-protected": false,
       "is-primary-spec": false,
       "is-lean-generated": false,
       "is-in-package": true,
@@ -147,14 +150,26 @@ The output filename has the form `lean_<package>_<version>.json`, for example
 
 ## Code-name format
 
-A Lean atom's code-name is `probe:` followed by the fully qualified Lean name, with private
-mangling stripped (`_private.M.0.Bar.foo` becomes `probe:Bar.foo`):
+A Lean atom's code-name is `probe:` followed by `Name.toString` of the raw Lean name. Every
+reference to a declaration in `dependencies`, the categorized dependency arrays, `specs` and
+`primary-spec` uses the same string.
 
 - `probe:ArkLib.SumCheck.Protocol.Prover.prove`
 - `probe:Mathlib.Data.Nat.Basic.succ_pos`
 
-The code-name embeds no package or version. Lean names are unique within a project by
-construction, and `source.package` tells projects apart.
+Lean stores a private declaration `Bar.foo` of module `M` under the raw name
+`_private.M.0.Bar.foo`, and the code-name keeps this prefix: `probe:_private.M.0.Bar.foo`. So
+two private declarations with the same name in different modules get different code-names.
+`display-name` is still `foo`.
+
+A code-name starts with `probe:_private.` exactly when the declaration is private. This is how
+a consumer finds private atoms. No public code-name starts with `probe:_private.`, because
+probe-lean does not emit a public name whose first component starts with `_`.
+
+The code-name embeds no package or version. `source.package` tells projects apart. Two
+different raw names can print as the same string, for example `«#foo.bar»` (one component) and
+`«#foo».bar` (two components). Then `extract` prints a duplicate-name warning and the output
+keeps one of the two atoms.
 
 ## Declaration kinds (`kind`)
 
@@ -218,6 +233,7 @@ where the value comes from: auto (computed from the environment), config
 | `is-lean-generated` | bool | auto | Core-Lean output: `deriving`-generated instance clusters and structure or class projections. |
 | `is-aeneas-generated` | bool | config + auto | Exists only because of Aeneas, see [Generated-code hiding](#generated-code-hiding). |
 | `is-ignored` | bool | config | From the config's `is-ignored` list. Always an editorial decision. |
+| `is-protected` | bool | auto | The declaration is `protected` (`Lean.isProtected`). A `private protected` declaration reads `true`. Output from before 0.24.0 has no field, and readers take `false`. |
 | `is-primary-spec` | bool | attribute | The declaration carries `@[primary_spec]`. This means tagged, not chosen, see [spec-relationships.md](spec-relationships.md). |
 | `attributes` | array or absent | attribute | Lean attributes on the declaration. Absent when empty. Not evidence of trust, see [Attributes](#attributes). |
 | `rust-source` | string or null | auto | Path from an Aeneas docstring's `Source: 'path'` line. probe-lean reads the declaration's own docstring first, then the docstring of its sibling `<name>_body`. |
@@ -236,9 +252,9 @@ where the value comes from: auto (computed from the environment), config
 The module filter is the emitted set: every project module of the import closure (P), the modules
 of P that the `--library` libraries own, or the `--module` selection.
 `dependencies` is exactly the union of `type-dependencies` and `term-dependencies`. Deduplication
-uses declaration identity before private mangling is stripped. Two distinct private declarations
-that print to the same name can therefore both appear. This is permitted and silent, and
-`tools/audit/compare-extract.py` reports it as a diagnostic.
+uses declaration identity (the raw Lean name). Two different raw names that print as the same
+string (see [Code-name format](#code-name-format)) can therefore both appear. This is permitted
+and silent, and `tools/audit/compare-extract.py` reports it as a diagnostic.
 
 `type-dependencies` is exactly the signature, so `specs` and `primary-spec` derive from it. The
 `*-external` arrays list Mathlib, core, other packages, and, under `--module`/`--library`, the
@@ -265,6 +281,10 @@ does not contain `/cargo/registry/`.
 probe-lean sets `is-hidden` from the config's `is-hidden` list, and also on auto-detected
 generated atoms: `deriving` clusters, projections, and `@[step]` companions. Atoms that match a
 config suffix are flagged generated but not hidden.
+
+An entry of the `is-hidden`, `is-ignored` and suffix lists matches the name without the private
+prefix, and also the code-name without `probe:`. For example, the entry `aux` matches every
+private `aux`, and the entry `_private.M.0.aux` matches only the `aux` of module `M`.
 
 Two kinds of atom are `is-aeneas-generated`. The first has a name that ends with a suffix in the
 config's `extraction-artifact-suffixes`. The second is the companion theorem `X.mvcgen_spec` that
@@ -410,10 +430,9 @@ in [verification-status.md](verification-status.md#assumption-sets).
   the set of a `"transitively-verified"` atom, because the status walk does not search
   dependency proofs. An axiom such as `axiom bad : False` leaves its callers
   `"transitively-verified"`, and only this field names it.
-- Atom lookup: if a name has an atom, the code-name of that atom is built from the name (see
-  [Code-name format](#code-name-format)). Most names have no atom, for example generated axioms
-  and dependency constants. Two private names that differ only in their module map to the same
-  code-name.
+- Atom lookup: if a name has an atom, the code-name of that atom is `probe:` followed by the
+  name (see [Code-name format](#code-name-format)). Most names have no atom, for example
+  generated axioms and dependency constants.
 
 ## Auxiliary-dependency folding
 

@@ -371,6 +371,8 @@ probe-lean reads the atom filtering flags from the project's `.verilib/probes/co
 - `is-aeneas-generated`: `true` if the atom name ends with a suffix in `extraction-artifact-suffixes`. `extract` also sets it (with `is-hidden`) on the companion theorems that `@[step]` generates (`X.mvcgen_spec`).
 - `is-ignored`: `true` if the atom name appears in `is-ignored`.
 
+For a private declaration, the atom name is the name without the `_private.<module>.0.` prefix, and also the code-name without `probe:`. For example, the entry `aux` matches every private `aux`, and the entry `_private.M.0.aux` matches only the `aux` of module `M`.
+
 `is-relevant` comes from `relevant-crate` and the atom's `rust-source` field:
 
 - If `relevant-crate` is not set: `true` for every atom.
