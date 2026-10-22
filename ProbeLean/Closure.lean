@@ -122,6 +122,18 @@ def computeClosure (buildDir : System.FilePath) (sp : SearchPath) (importSet : A
     if !outside.isEmpty then return .error (formatTargetsOutsideProject buildDir outside)
     return .ok (hs.qsort fun a b => a.name.toString < b.name.toString)
 
+/-- The headers of the project modules in the closure of `roots`, taken from
+    `headers` (a closure that `computeClosure` already read), sorted by name. A
+    module without a header in `headers` is a dependency module, as in
+    `computeClosure`. Every root must have a header. -/
+def narrowClosure (headers : Array ProjectHeader) (roots : Array Name) : Array ProjectHeader :=
+  let byName : Std.HashMap Name ProjectHeader :=
+    headers.foldl (init := {}) fun m h => m.insert h.name h
+  -- The step never fails, so the walk never returns an error.
+  let walked := Id.run <| closureWalk roots (·.imports) fun n =>
+    pure (.ok byName[n]? : Except String (Option ProjectHeader))
+  (walked.toOption.getD #[]).qsort fun a b => a.name.toString < b.name.toString
+
 /-- The modules that some header in `headers` imports. -/
 def importedNames (headers : Array ProjectHeader) : Std.HashSet Name :=
   headers.foldl (init := {}) fun s h => h.imports.foldl (init := s) fun s i => s.insert i

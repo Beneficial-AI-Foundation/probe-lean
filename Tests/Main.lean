@@ -5730,8 +5730,9 @@ def testModulePrefix (result : TestResult) : IO TestResult := do
   result ← test "Foo/Bar is an error" (parseModulePrefix "Foo/Bar" matches .error _) result
   result ← test "bad prefix is an error" (parseModulePrefix "bad prefix" matches .error _) result
   result ← test "empty string is an error" (parseModulePrefix "" matches .error _) result
-  result ← test "empty result message suggests --library"
-    (containsSubstring (formatEmptyModuleFilter `Nope 3) "--library") result
+  result ← test "empty result message suggests --library and --all-libraries"
+    (containsSubstring (formatEmptyModuleFilter `Nope 3) "--library" &&
+     containsSubstring (formatEmptyModuleFilter `Nope 3) "--all-libraries") result
   return result
 
 def testOwnership (result : TestResult) : IO TestResult := do
@@ -5779,6 +5780,11 @@ def testEmittedSet (result : TestResult) : IO TestResult := do
     (emittedSet #[`Core.Sub] p owners (some `Core.Sub) none == #[`Core.Sub]) result
   result ← test "--module with --library: the import set"
     (emittedSet #[`Core.Sub] p owners (some `Core.Sub) (some #[`Core]) == #[`Core.Sub]) result
+  -- `First` and `Second` both have the root `Shared`. Lake gives it to the last
+  -- library, `Second`, but `--library First` imports it.
+  let shared : Array OwnerInfo := #[{ module := `Shared, lib := some `Second }]
+  result ← test "--library: an import set module owned by another library is emitted"
+    (emittedSet #[`Shared] #[`Shared] shared none (some #[`First]) == #[`Shared]) result
   return result
 
 def testClosureWalk (result : TestResult) : IO TestResult := do
@@ -5800,6 +5806,14 @@ def testClosureWalk (result : TestResult) : IO TestResult := do
     | .error e => containsSubstring e "Missing" && containsSubstring e "imported by Bad"
     | .ok _ => false
   result ← test "an error stops the walk and names the importer" walkErr result
+  -- narrowClosure: A imports B and the dependency Dep, C is outside A's closure.
+  let hdr (n : Lean.Name) (is : Array Lean.Name) : ProjectHeader :=
+    { name := n, oleanPath := "x.olean", imports := is, consts := #[], proofless := false }
+  let full := #[hdr `A #[`B, `Dep], hdr `B #[], hdr `C #[`A]]
+  result ← test "narrowClosure keeps the closure of the roots, sorted"
+    ((narrowClosure full #[`A]).map (·.name) == #[`A, `B]) result
+  result ← test "narrowClosure of every root is the whole set"
+    ((narrowClosure full #[`C]).map (·.name) == #[`A, `B, `C]) result
   return result
 
 def testClosureFiles (result : TestResult) : IO TestResult := do
@@ -5885,6 +5899,9 @@ def testImportHints (result : TestResult) : IO TestResult := do
   IO.println "Testing the import failure hint..."
   result ← test "declaration name from Lean's message"
     (alreadyContainsName? "import failed, environment already contains 'dup' from ModColl.A" == some `dup) result
+  result ← test "a primed declaration name keeps its prime"
+    (alreadyContainsName? "import M failed, environment already contains 'dup'' from ModColl.A"
+      == some (Lean.Name.mkSimple "dup'")) result
   result ← test "no name in another message" (alreadyContainsName? "boom" == none) result
   let h := formatAlreadyContainsHint (some `dup) #[`ModColl.A, `ModColl.B]
   result ← test "hint names the colliding modules and suggests --module or --library"

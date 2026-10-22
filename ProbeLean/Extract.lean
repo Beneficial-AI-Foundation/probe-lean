@@ -233,13 +233,15 @@ private def loadAndBuild (projectPath : System.FilePath) (sel : Selection)
     return .error s!"Lake build failed:\n{out}{err}"
   return .ok (info, targets, projectReal)
 
-/-- The import set, its `.olean` check and the closure. -/
+/-- The import set, the `.olean` check and the closure. The closure of every
+    target module comes first. Without `--module`, the target modules are the
+    import set. With `--module`, the import set is the modules of that closure
+    under the prefix, and P narrows to their closure (`narrowClosure`). The prefix
+    filters the closure, not the target list, because a library with the default
+    glob lists only its root module. -/
 private def importClosure (info : WorkspaceInfo) (targets : Array Target)
     (projectReal : System.FilePath) (moduleFilter : Option String)
     : IO (Except String (Array Name × Option Name × Array ProjectHeader × SearchPath × System.FilePath)) := do
-  let targetMods := targetModules info targets
-  if targetMods.isEmpty then
-    return .error "Error: No modules found in the target libraries."
   let pre? ← match moduleFilter with
     | none => pure none
     | some s => match parseModulePrefix s with
@@ -247,29 +249,35 @@ private def importClosure (info : WorkspaceInfo) (targets : Array Target)
       | .ok n => pure (some n)
   -- Sorted by name, for a deterministic import order (P14). The order decides
   -- which module a merged declaration's name goes to.
-  let importSet := (match pre? with
-    | some pre => filterModulePrefix targetMods pre
-    | none => targetMods).qsort (·.toString < ·.toString)
-  if let some pre := pre? then
-    if importSet.isEmpty then return .error (formatEmptyModuleFilter pre targetMods.size)
+  let targetMods := (targetModules info targets).qsort (·.toString < ·.toString)
+  if targetMods.isEmpty then
+    return .error "Error: No modules found in the target libraries."
   -- A real path, as the search path entries are (`resolveSearchPath`), so that a
   -- symlinked `.lake` or `.lake/build` passes the prefix test of `isInBuildDir`.
   let buildDir := projectReal / ".lake" / "build" / "lib" / "lean"
   let buildDir ← if ← buildDir.pathExists then IO.FS.realPath buildDir else pure buildDir
-  let missing ← missingOleans buildDir importSet
+  let missing ← missingOleans buildDir targetMods
   if !missing.isEmpty then return .error (formatMissingOleans missing)
   let sp ← resolveSearchPath projectReal info.leanPath
-  match ← computeClosure buildDir sp importSet with
-  | .error e => return .error e
-  | .ok headers => return .ok (importSet, pre?, headers, sp, buildDir)
+  let full ← match ← computeClosure buildDir sp targetMods with
+    | .error e => return .error e
+    | .ok hs => pure hs
+  match pre? with
+  | none => return .ok (targetMods, none, full, sp, buildDir)
+  | some pre =>
+    -- `full` is sorted by name, so the import set is too.
+    let importSet := filterModulePrefix (full.map (·.name)) pre
+    if importSet.isEmpty then return .error (formatEmptyModuleFilter pre full.size)
+    return .ok (importSet, pre?, narrowClosure full importSet, sp, buildDir)
 
 /-- Build the targets on every run and compute what to import and what to emit.
     Shared by `runExtractInProject` and `check-axioms` (`runCheckAxiomsInProject`)
     so the audit path and the extraction path cannot drift. Steps, in order: the
     workspace load with the Lean version check, the build directory check
     (`checkLeanLibDir`), the targets (`chooseTargets`), `ensureMathlibCache`, the
-    target build, the `--module` filter, the `.olean` check (`missingOleans`), the
-    closure (`computeClosure`), the owners (`queryOwners`), the ownership check
+    target build, the `.olean` check (`missingOleans`), the closure
+    (`computeClosure`), the `--module` filter (`narrowClosure`), the owners
+    (`queryOwners`), the ownership check
     (`classifyOwnership`) and the emitted set (`emittedSet`). Returns the
     `PreparedProject` or the exit code to fail with. -/
 def prepareProject (projectPath : System.FilePath) (sel : Selection)

@@ -243,8 +243,9 @@ jobs:
       # Stale build outputs (#152): probe-lean builds the targets on every run and
       # imports only the closure of the target modules, every project module of
       # which a lean_lib must own. check.sh changes a copy of the fixture step by
-      # step: a stale library outside the closure, --library, --all-libraries, a
-      # symlinked .lake/build, a library with a missing glob directory,
+      # step: a stale library outside the closure, --library, --all-libraries,
+      # --module on a library with the default glob, a symlinked .lake/build, a
+      # library with a missing glob directory,
       # defaultFacets = [], and the three ownership rejections.
       - name: End-to-end stale build outputs check
         run: |
@@ -532,8 +533,9 @@ jobs:
       # Stale build outputs (#152): probe-lean builds the targets on every run and
       # imports only the closure of the target modules, every project module of
       # which a lean_lib must own. check.sh changes a copy of the fixture step by
-      # step: a stale library outside the closure, --library, --all-libraries, a
-      # symlinked .lake/build, a library with a missing glob directory,
+      # step: a stale library outside the closure, --library, --all-libraries,
+      # --module on a library with the default glob, a symlinked .lake/build, a
+      # library with a missing glob directory,
       # defaultFacets = [], and the three ownership rejections.
       - name: End-to-end stale build outputs check
         run: |

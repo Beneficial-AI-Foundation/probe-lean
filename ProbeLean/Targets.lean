@@ -139,11 +139,11 @@ def parseModulePrefix (s : String) : Except String Name :=
 def filterModulePrefix (mods : Array Name) (pre : Name) : Array Name :=
   mods.filter pre.isPrefixOf
 
-/-- The error for a `--module` prefix that keeps no target module. -/
-def formatEmptyModuleFilter (pre : Name) (targetCount : Nat) : String :=
-  s!"Error: --module {pre} matches none of the {targetCount} target module(s). \
-    --module filters the modules of the targets. For a module of another lean_lib, \
-    name that library with --library."
+/-- The error for a `--module` prefix that keeps no module of P. -/
+def formatEmptyModuleFilter (pre : Name) (projectCount : Nat) : String :=
+  s!"Error: --module {pre} matches none of the {projectCount} project module(s) that \
+    the targets import. For a module of a lean_lib that no target imports, name that \
+    library with --library, or use --all-libraries."
 
 /-- Why the ownership check (`classifyOwnership`) rejects a project module. -/
 inductive Rejection where
@@ -196,8 +196,11 @@ def formatRejections (rs : Array (Name × Rejection)) : String :=
     "\n".intercalate lines
 
 /-- The modules whose atoms the run reports. With `--module`, the import set.
-    Else with `--library`, the modules of P whose `lean_lib` owner is a named
-    library. Else every module of P. -/
+    Else with `--library`, the modules of P that are in the import set or whose
+    `lean_lib` owner is a named library. The import set counts on its own, because
+    Lake gives a module that two libraries own to the last one
+    (`Package.findModule?`), which need not be a named library. Else every module
+    of P. -/
 def emittedSet (importSet p : Array Name) (owners : Array OwnerInfo)
     (modulePrefix? : Option Name) (libraries? : Option (Array Name)) : Array Name :=
   match modulePrefix?, libraries? with
@@ -207,7 +210,8 @@ def emittedSet (importSet p : Array Name) (owners : Array OwnerInfo)
       owners.foldl (init := {}) fun m o => match o.lib with
         | some l => m.insert o.module l
         | none => m
-    p.filter fun m => match libOf[m]? with
+    let imp := Std.HashSet.ofArray importSet
+    p.filter fun m => imp.contains m || match libOf[m]? with
       | some l => libs.contains l
       | none => false
   | none, none => p

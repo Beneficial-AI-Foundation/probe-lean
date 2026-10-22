@@ -9,8 +9,8 @@ The CLI output for these cases is in [usage.md](usage.md#extract).
 ## Notation
 
 - P: every constant of every project module of the import closure, atoms or not. The import
-  closure is the set of modules that the import of the target modules (narrowed by `--module`)
-  loads. A project module is a module of the closure whose `.olean` is in `.lake/build/lib/lean`
+  closure is the set of modules that the import of the target modules loads. With `--module`,
+  the import is the project modules of that closure under the prefix, and the closure is theirs. A project module is a module of the closure whose `.olean` is in `.lake/build/lib/lean`
   of the project. See [Coverage of P](#coverage-of-p).
 - T: the trusted base, the constants of P that one of the three trust rules matches. See
   [The trusted base T in full](#the-trusted-base-t-in-full).
@@ -130,8 +130,8 @@ does not detect it.
 
 ## Coverage of P
 
-`extract` imports the target modules, narrowed by `--module`. P is the set of project modules that
-this import loads. A constant can only reference constants of its own module's import closure, so
+`extract` imports the target modules, or with `--module` the project modules of their closure under
+the prefix. P is the set of project modules that this import loads. A constant can only reference constants of its own module's import closure, so
 every emitted atom's dependency closure is inside P.
 
 probe-lean builds the targets in the same run and requires that a `lean_lib` of the root package

@@ -265,12 +265,13 @@ def declaringModules (headers : Array ProjectHeader) (decl : Name) : Array Name 
   ((headers.filter fun h => h.consts.any (·.1 == decl)).map (·.name)).qsort
     (·.toString < ·.toString)
 
-/-- The declaration name of Lean's `environment already contains 'X'` message. -/
+/-- The declaration name of Lean's `environment already contains 'X' from M`
+    message. The name ends at `' from `, as a name can hold `'` (`dup'`). -/
 def alreadyContainsName? (msg : String) : Option Name :=
   match (msg.splitOn "already contains '").drop 1 with
-  | rest :: _ => match rest.splitOn "'" with
-    | n :: _ => if n.isEmpty then none else some n.toName
-    | [] => none
+  | rest :: _ => match rest.splitOn "' from " with
+    | n :: _ :: _ => if n.isEmpty then none else some n.toName
+    | _ => none
   | [] => none
 
 /-- The hint for an import that fails on a duplicate declaration that the

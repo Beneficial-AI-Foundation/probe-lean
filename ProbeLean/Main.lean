@@ -52,7 +52,7 @@ def extractCmd : Cmd := `[Cli|
 
   FLAGS:
     o, output : String; "Output file path (default: .verilib/probes/lean_<pkg>_<ver>.json)"
-    m, module : String; "Import and emit only the target modules under this module-name prefix"
+    m, module : String; "Import and emit only the project modules under this module-name prefix that the targets import"
     "skip-verify"; "Omit verification-status (trusted atoms keep it)"
     l, library : String; "Comma-separated lean_lib names. Build them and emit their modules. Omit to build defaultTargets (else every lean_lib)"
     "all-libraries"; "Build every lean_lib of the root package and emit every project module that the import loads"
@@ -76,7 +76,7 @@ def checkAxiomsCmd : Cmd := `[Cli|
   "Audit a Lean 4 project: report declarations whose transitive closure depends on `sorryAx`"
 
   FLAGS:
-    m, module : String; "Import and emit only the target modules under this module-name prefix"
+    m, module : String; "Import and emit only the project modules under this module-name prefix that the targets import"
     l, library : String; "Comma-separated lean_lib names. Build them and emit their modules. Omit to build defaultTargets (else every lean_lib)"
     "all-libraries"; "Build every lean_lib of the root package and emit every project module that the import loads"
 

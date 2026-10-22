@@ -104,7 +104,7 @@ probe-lean extract <PROJECT_PATH> [OPTIONS]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--output <PATH>` | `-o` | Output file path (default: `.verilib/probes/lean_<pkg>_<ver>.json`). |
-| `--module <PREFIX>` | `-m` | Import and emit only the target modules whose name is `<PREFIX>` or starts with `<PREFIX>.` (compared by name component). The kernel walk covers the import closure of these modules. If no target module matches, the run fails. For a module of another library, use `--library`. |
+| `--module <PREFIX>` | `-m` | Import and emit only the project modules whose name is `<PREFIX>` or starts with `<PREFIX>.` (compared by name component). The prefix filters every project module that the target modules import, not only the modules that the lakefile lists, so a submodule of a library with the default glob matches. The kernel walk covers the import closure of the matching modules. If no project module matches, the run fails. For a module of a library that no target imports, use `--library` or `--all-libraries`. |
 | `--library <LIBS>` | `-l` | Comma-separated `lean_lib` names. probe-lean builds these libraries and emits the project modules that they own. An unknown name or a `lean_exe` name is an error. |
 | `--all-libraries` | | Build every `lean_lib` of the root package and emit every project module that the import loads. Executables are not built. Cannot be used with `--library`. |
 | `--skip-verify` | | Omit `verification-status` and `assumptions`. Trusted atoms keep their status (`"trusted"`). |
@@ -163,7 +163,7 @@ probe-lean check-axioms <PROJECT_PATH> [OPTIONS]
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--module <PREFIX>` | `-m` | Import only the target modules under `<PREFIX>`, as for `extract`. The walk covers their import closure. The other constants of the closure carry the `[not emitted]` marker. |
+| `--module <PREFIX>` | `-m` | Import only the project modules under `<PREFIX>`, as for `extract`. The walk covers their import closure. The other constants of the closure carry the `[not emitted]` marker. |
 | `--library <LIBS>` | `-l` | Comma-separated `lean_lib` names to build. The constants of other libraries carry the `[not emitted]` marker. |
 | `--all-libraries` | | Build every `lean_lib` of the root package. |
 
@@ -441,7 +441,7 @@ Fixes, best first:
 
 1. Restructure the project. Give each variant family its own namespace, or make the dependent module `import` the shared module instead of restating its definitions. This is the only fix for automated consumers such as verilib, which cannot pass per-project flags.
 2. Split the conflicting modules into separate `lean_lib` entries, and keep only one of them in `defaultTargets`.
-3. For manual runs only, extract a subset with no conflict using `--module` or `--library`, for example `probe-lean extract . --module H1.solution`. `--module` selects the named target module and its submodules, so for a clash between a root and its submodule, name the deepest module.
+3. For manual runs only, extract a subset with no conflict using `--module` or `--library`, for example `probe-lean extract . --module H1.solution`. `--module` selects the named module and its submodules, so for a clash between a root and its submodule, name the deepest module.
 
 If two modules of the module system (`module` header) export the same `public def`, the preflight does not see the conflict, and the import fails with `environment already contains '<name>'`. probe-lean then names the modules that declare it. The fixes are the same.
 
