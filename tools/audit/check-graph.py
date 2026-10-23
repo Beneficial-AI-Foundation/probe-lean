@@ -47,8 +47,9 @@ Limits:
   marker, so a tainted atom that reads "verified" looks clean. The script rejects
   them, and it rejects input whose version it cannot read: a bare dict, an envelope
   without `tool`, an envelope from another tool.
-- If `extract` printed the duplicate-name warning, the artifact keeps one of the
-  colliding atoms. The report then lacks the other atom and its edges.
+- If `extract` printed the duplicate-name warning (two raw names that print as
+  one string), the artifact keeps one of the colliding atoms. The report then
+  lacks the other atom and its edges.
 - A `--skip-verify` artifact has no kernel-walk status, and the script rejects it.
 
 Usage:

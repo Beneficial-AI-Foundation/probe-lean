@@ -310,7 +310,7 @@ def testAnalysisHelpers (result : TestResult) : IO TestResult := do
 def testPrivateNames (result : TestResult) : IO TestResult := do
   let mut result := result
   -- A human-written private lemma `Bar.foo` in module `M` is stored as
-  -- `_private.M.0.Bar.foo`. It must survive filtering and publish as `Bar.foo`.
+  -- `_private.M.0.Bar.foo`. It must survive filtering and keep its raw name.
   let priv := Lean.mkPrivateNameCore `M `Bar.foo
   -- A private declaration's compiler-generated helper is still internal.
   let privHelper := Lean.mkPrivateNameCore `M `Bar.foo.match_1
@@ -319,8 +319,14 @@ def testPrivateNames (result : TestResult) : IO TestResult := do
   result ← test "private lemma not filtered" (!isInternalName priv) result
   result ← test "private helper still filtered" (isInternalName privHelper) result
   result ← test "private name recovered" (Lean.privateToUserName priv == `Bar.foo) result
-  result ← test "probeRef un-mangles private" (probeRef priv == "probe:Bar.foo") result
+  let privA := Lean.mkPrivateNameCore `A `aux
+  let privB := Lean.mkPrivateNameCore `B `aux
+  result ← test "probeRef keeps the private prefix" (probeRef priv == "probe:_private.M.0.Bar.foo") result
   result ← test "probeRef leaves public" (probeRef `Bar.foo == "probe:Bar.foo") result
+  result ← test "private names of two modules: distinct code-names" (probeRef privA != probeRef privB) result
+  result ← test "private and public code-names differ" (probeRef priv != probeRef `Bar.foo) result
+  result ← test "private code-name starts with probe:_private."
+    ((probeRef privA).startsWith "probe:_private.") result
   return result
 
 def testSharedUtilities (result : TestResult) : IO TestResult := do
@@ -4845,6 +4851,155 @@ def testComputeSpecsTargetRule (result : TestResult) : IO TestResult := do
      out2.all fun r => r.name == "d" || r.primarySpec.isNone) result
   return result
 
+/-- An atom of module `mod`, private when `priv`. The code-name comes from
+`probeRef`, as in production. `deps` are statement dependencies, as in
+`mkSpecAtom`. -/
+def mkVisAtom (mod user : Lean.Name) (priv : Bool) (kind : DeclKind)
+    (deps : Array String := #[]) (isPrimarySpec : Bool := false)
+    (codePath : String := "Test.lean") : Atom :=
+  let leanName := if priv then Lean.mkPrivateNameCore mod user else user
+  { name := probeRef leanName, leanName, displayName := user.toString,
+    dependencies := deps, typeDependencies := deps,
+    codeModule := mod.toString, codePath, codeText := none, kind, isPrimarySpec }
+
+/-- Rule 3 for one visibility pair: target `foo` and spec `foo_spec` of module `A`,
+plus a public `foo_other` so that rule 5 does not apply. -/
+def rule3PicksExact (targetPriv specPriv : Bool) : Bool :=
+  let t := mkVisAtom `A `foo targetPriv .def
+  let exact := mkVisAtom `A `foo_spec specPriv .theorem #[t.name]
+  let other := mkVisAtom `A `foo_other false .theorem #[t.name]
+  let res := computeSpecs #[t, exact, other]
+  match res.find? (·.name == t.name) with
+  | some a => a.primarySpec == some exact.name
+  | none => false
+
+def testRule3Visibility (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing rule 3 compares user-facing names..."
+  result ← test "rule 3: public target, public spec" (rule3PicksExact false false) result
+  result ← test "rule 3: private target, private spec" (rule3PicksExact true true) result
+  result ← test "rule 3: private target, public spec" (rule3PicksExact true false) result
+  result ← test "rule 3: public target, private spec" (rule3PicksExact false true) result
+  -- Two private `aux_spec` of two modules about one public `aux`: two candidates.
+  let t := mkVisAtom `C `aux false .def
+  let specA := mkVisAtom `A `aux_spec true .theorem #[t.name]
+  let specB := mkVisAtom `B `aux_spec true .theorem #[t.name]
+  let res := computeSpecs #[specA, specB, t]
+  let tRes := res.find? (·.name == t.name)
+  result ← test "rule 3: two specs with one user-facing name pick neither"
+    (tRes.any fun a => a.specs.size == 2 && a.primarySpec.isNone) result
+  return result
+
+def testComputeSpecsPrivateCollision (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing computeSpecs on colliding private names..."
+  let auxA := mkVisAtom `A `aux true .def
+  let auxB := mkVisAtom `B `aux true .def
+  let specA := mkVisAtom `A `aux_correct true .theorem #[auxA.name] (isPrimarySpec := true)
+  let specB := mkVisAtom `B `aux_correct true .theorem #[auxB.name] (isPrimarySpec := true)
+  let res := computeSpecs #[auxA, specA, auxB, specB]
+  let own (t s : Atom) : Bool := (res.find? (·.name == t.name)).any fun a =>
+    a.specs == #[s.name] && a.primarySpec == some s.name
+  result ← test "colliding private targets: A gets only its own spec" (own auxA specA) result
+  result ← test "colliding private targets: B gets only its own spec" (own auxB specB) result
+  result ← test "colliding private targets: no ambiguity record"
+    (ambiguousPrimarySpecs res).isEmpty result
+  -- Mixed kinds: a private theorem `aux` of B must not hide the target `aux` of A.
+  let thmB := mkVisAtom `B `aux true .theorem
+  let bar := mkVisAtom `A `bar false .def
+  let s := { mkVisAtom `A `s false .theorem #[auxA.name] (isPrimarySpec := true) with
+    dependencies := #[auxA.name, bar.name] }
+  let mixed := computeSpecs #[auxA, thmB, bar, s]
+  result ← test "mixed-kind collision: s attaches to the aux of A"
+    ((mixed.find? (·.name == auxA.name)).any (·.specs == #[s.name])) result
+  result ← test "mixed-kind collision: bar gets no specs"
+    ((mixed.find? (·.name == bar.name)).any (·.specs.isEmpty)) result
+  -- A private constructor `T.c` of A is not an atom. A public `T.c` of B must not
+  -- receive the spec that names the constructor.
+  let ctorA := probeRef (Lean.mkPrivateNameCore `A `T.c)
+  let tcB := mkVisAtom `B `T.c false .def
+  let sCtor := mkVisAtom `A `c_spec false .theorem #[ctorA]
+  let ctorRes := computeSpecs #[sCtor, tcB]
+  result ← test "non-atom collision: public T.c of B gets no specs and no primary-spec"
+    ((ctorRes.find? (·.name == tcB.name)).any fun a => a.specs.isEmpty && a.primarySpec.isNone)
+    result
+  return result
+
+def testMarkAtomFlagsPrivate (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing markAtomFlags on private names..."
+  let auxA := mkVisAtom `A `aux true .def
+  let auxB := mkVisAtom `B `aux true .def
+  let byUser := markAtomFlags #[auxA, auxB] #["aux"] #[] #[]
+  result ← test "entry aux hides every private aux" (byUser.all (·.isHidden)) result
+  let byRaw := markAtomFlags #[auxA, auxB] #["_private.A.0.aux"] #[] #["_private.B.0.aux"]
+  result ← test "entry _private.A.0.aux hides only the aux of A"
+    (byRaw[0]!.isHidden && !byRaw[1]!.isHidden) result
+  result ← test "entry _private.B.0.aux ignores only the aux of B"
+    (!byRaw[0]!.isIgnored && byRaw[1]!.isIgnored) result
+  let bySuffix := markAtomFlags #[mkVisAtom `A `foo_body true .def] #[] #["_body"] #[]
+  result ← test "suffix list matches a private name" bySuffix[0]!.isAeneasGenerated result
+  return result
+
+def testViewifyPrivateKeys (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing viewify keys of private atoms..."
+  let keys := generateUniqueKeys #[
+    mkVisAtom `A `aux true .def (codePath := "Funs.lean"),
+    mkVisAtom `A `Bar.aux true .def (codePath := "Other.lean"),
+    mkVisAtom `G `aux true .def (codePath := "Group.lean"),
+    mkVisAtom `G `N.aux false .def (codePath := "Group.lean")]
+  result ← test "unqualified private atom: short key"
+    (keys[0]!.1 == "Funs.lean/aux") result
+  result ← test "qualified private atom: short key"
+    (keys[1]!.1 == "Other.lean/aux") result
+  result ← test "short-key group with a private atom: full-name keys"
+    (keys[2]!.1 == "Group.lean/_private.G.0.aux" && keys[3]!.1 == "Group.lean/N.aux") result
+  return result
+
+def testIsProtectedJson (result : TestResult) : IO TestResult := do
+  let mut result := result
+  IO.println ""
+  IO.println "Testing is-protected serialization..."
+  let atom := { mkVisAtom `A `Foo.bar false .def with isProtected := true }
+  result ← test "is-protected emitted for Atom"
+    (match (Lean.toJson atom).getObjValAs? Bool "is-protected" with
+      | .ok b => b | .error _ => false) result
+  result ← test "is-protected round-trips through Atom"
+    (match Lean.FromJson.fromJson? (Lean.toJson atom) (α := Atom) with
+      | .ok a => a.isProtected | .error _ => false) result
+  let unified := unifyAtom atom
+  result ← test "unifyAtom copies is-protected" unified.isProtected result
+  result ← test "is-protected round-trips through UnifiedAtom"
+    (match Lean.FromJson.fromJson? (Lean.toJson unified) (α := UnifiedAtom) with
+      | .ok a => a.isProtected | .error _ => false) result
+  result ← test "is-protected emitted false for UnifiedAtom"
+    (match (Lean.toJson (unifyAtom (mkVisAtom `A `x false .def))).getObjValAs? Bool
+        "is-protected" with
+      | .ok b => !b | .error _ => false) result
+  let legacy := Lean.Json.mkObj [
+    ("display-name", Lean.toJson "x"), ("dependencies", Lean.toJson (#[] : Array String)),
+    ("code-module", Lean.toJson "A"), ("code-path", Lean.toJson "A.lean"),
+    ("code-text", Lean.Json.null), ("kind", Lean.toJson "def")]
+  result ← test "Atom without is-protected reads false"
+    (match Lean.FromJson.fromJson? legacy (α := Atom) with
+      | .ok a => !a.isProtected | .error _ => false) result
+  result ← test "UnifiedAtom without is-protected reads false"
+    (match Lean.FromJson.fromJson? legacy (α := UnifiedAtom) with
+      | .ok a => !a.isProtected | .error _ => false) result
+  let bad := legacy.setObjVal! "is-protected" (Lean.toJson "yes")
+  result ← test "Atom with non-bool is-protected is an error"
+    (match Lean.FromJson.fromJson? bad (α := Atom) with
+      | .ok _ => false | .error _ => true) result
+  result ← test "UnifiedAtom with non-bool is-protected is an error"
+    (match Lean.FromJson.fromJson? bad (α := UnifiedAtom) with
+      | .ok _ => false | .error _ => true) result
+  return result
+
 /-- Part A of the suite. `main` calls four suites so no `do` block grows past
     the elaborator's comfortable nesting depth (see CLAUDE.md, "Elaboration
     depth"): the single 80-bind chain hit `maxRecDepth`. -/
@@ -5923,6 +6078,15 @@ def runSuiteH (result : TestResult) : IO TestResult := do
   result ← testImportHints result
   return result
 
+def runSuiteI (result : TestResult) : IO TestResult := do
+  let mut result := result
+  result ← testRule3Visibility result
+  result ← testComputeSpecsPrivateCollision result
+  result ← testMarkAtomFlagsPrivate result
+  result ← testViewifyPrivateKeys result
+  result ← testIsProtectedJson result
+  return result
+
 def main : IO UInt32 := do
   let mut result : TestResult := { passed := 0, failed := 0 }
   result ← runSuiteA result
@@ -5933,6 +6097,7 @@ def main : IO UInt32 := do
   result ← runSuiteF result
   result ← runSuiteG result
   result ← runSuiteH result
+  result ← runSuiteI result
 
   IO.println ""
   IO.println s!"Results: {result.passed} passed, {result.failed} failed"

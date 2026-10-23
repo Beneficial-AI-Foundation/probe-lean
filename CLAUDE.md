@@ -61,7 +61,7 @@ CI (`.github/workflows/ci.yml`, on push and PR to `main`) runs these jobs:
 
 - `build`: builds the project.
 - `shell-tests`: the Lean version-policy and installer helper tests, and the tests of `tools/audit/check-graph.py`.
-- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`, `step-spec`, `stale`, `lakefile-lean`). `tests/fixtures/stale` also holds the artifact cache check and the Lean version check. The job also regenerates the example fixture and fails on any diff.
+- `test`: the unit suite and end-to-end `extract`, `check-axioms` and `tools/audit/check-graph.py` checks. The checks run on the Lake projects in `tests/fixtures/` (`aux-fold`, `collision`, `merge`, `cross-merge`, `assumptions`, `module-merge`, `module-collision`, `orphan`, `step-spec`, `private-collision`, `stale`, `lakefile-lean`). `tests/fixtures/stale` also holds the artifact cache check and the Lean version check. The job also regenerates the example fixture and fails on any diff.
 - `test-newest`: the same suite and fixture checks on the newest supported Lean (`LEAN_VERSION` in the job).
 - `check-version`: `ProbeLean/Version.lean` matches `lakefile.toml`.
 - `check-extract`: runs `probe-extract-check` on the example fixture.

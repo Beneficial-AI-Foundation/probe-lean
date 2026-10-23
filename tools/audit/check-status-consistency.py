@@ -35,13 +35,9 @@ Usage:
     tools/audit/check-status-consistency.py ARTIFACT.json check-axioms.out
                                             [--allow-missing] [--no-upgrade]
 
-Names: the artifact prints private declarations through `privateToUserName`, but
-the report prints raw `Name`s. So `_private.<module>.0.` prefixes are stripped
-before matching (`user_name`, the same normalization). A listed name marked emitted
-that is still not an atom after that is a failure like any other. The stripping is
-exact, so there is no residual class of "unresolvable" names. Treating one as such
-let the gate pass while an emitted private atom was missing from the artifact. The
-message says when a prefix was stripped so the raw name can be found in the report.
+Names: the artifact and the report both print raw `Name`s, private prefix
+included, so a report entry `raw` matches the atom `probe:raw` without any
+normalization. A listed name marked emitted that is not an atom is a failure.
 
 The report must contain the tainted header, followed by exactly as many lines as
 its count says. Otherwise the gate fails.
@@ -55,13 +51,6 @@ import re
 import sys
 
 PREFIX = "probe:"
-PRIVATE = re.compile(r"^_private\.(?:[^.]+\.)*?0\.")
-
-
-def user_name(raw):
-    return PRIVATE.sub("", raw)
-
-
 TAINTED_HEADER = re.compile(r"^(?P<count>\d+) constant\(s\) rest on an unexcused project sorry:$")
 
 # A listed line is the raw name followed by the optional flags, in the order
@@ -72,9 +61,8 @@ TAINTED_LINE = re.compile(r"^(?P<raw>.*?)(?P<direct> \[direct\])?(?P<not_emitted
 
 
 def parse_report(path):
-    """({name: (direct, emitted, raw)}, problems). The map has every listed tainted
-    constant, keyed by the user-facing name. `raw` is the name as the report printed
-    it, which differs from the key only for a private declaration.
+    """({name: (direct, emitted)}, problems). The map has every listed tainted
+    constant, keyed by the name as the report printed it.
 
     Only the indented lines under the tainted header are read: the report goes on to
     list the trusted base (`N trusted constant(s) (T):`) with the same indentation.
@@ -99,8 +87,8 @@ def parse_report(path):
             seen += 1
             m = TAINTED_LINE.match(line.strip())
             raw = m.group("raw")
-            listed[user_name(raw)] = (m.group("direct") is not None,
-                                      m.group("not_emitted") is None, raw)
+            listed[raw] = (m.group("direct") is not None,
+                           m.group("not_emitted") is None)
     problems = []
     if expected is None:
         problems.append("report: no tainted header (`N constant(s) rest on an unexcused project sorry:`)")
@@ -203,12 +191,11 @@ def main():
         else:
             bad.append(f"{name}: unexpected status {status!r}")
 
-    for name, (direct, emitted, raw) in sorted(listed.items()):
-        private = f" (private, listed as {raw})" if raw != name else ""
+    for name, (direct, emitted) in sorted(listed.items()):
         if emitted and name not in atoms:
-            bad.append(f"{name}: listed as emitted but not an atom of the artifact{private}")
+            bad.append(f"{name}: listed as emitted but not an atom of the artifact")
         if not emitted and name in atoms:
-            bad.append(f"{name}: listed [not emitted] but is an atom{private}")
+            bad.append(f"{name}: listed [not emitted] but is an atom")
 
     print(f"atoms {len(atoms)} | unverified {counts['unverified']} | verified {counts['verified']} "
           f"| transitively-verified {counts['clean']} | trusted {counts['trusted']} "

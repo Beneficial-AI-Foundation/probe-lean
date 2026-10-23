@@ -20,16 +20,13 @@ Read its output with two limits in mind:
 
 - Field values are compared *normalized*: absent, `null` and `[]` are all read as
   `[]`. So this script compares values, not field presence.
-- **Private-name collisions are outside what it can detect.** The artifact prints
-  names through `privateToUserName`, so two distinct declarations can serialize
-  identically. This script only ever sees the printed form, which costs it two
-  things. First, a repeated name is reported as a diagnostic rather than tested
-  (see the `collisions` note below). Second, the added-edge diff below is a set
-  difference over printed strings. `Audit6.lean` instead subtracts direct
-  dependencies by raw `Name` and renders afterwards. On a colliding pair the two
-  disagree: the oracle can predict an edge this diff cannot see, and `--oracle`
-  then reports a spurious "predicted but not added". These cases need identity
-  in the artifact, which it does not carry.
+- Versions before 0.24.0 print private names without their `_private.<module>.0.`
+  prefix. An artifact from before 0.24.0 and one from 0.24.0 on have different
+  atom sets, so the gate fails. `--oracle` needs artifacts from 0.24.0 on, because
+  `Audit6.lean` prints the prefix.
+- Two different raw names can print as one string (`«#foo.bar»` and
+  `«#foo».bar`). This script only sees the printed form, so a repeated name is
+  reported as a diagnostic rather than tested (see the `collisions` note below).
 
 Usage:
 
@@ -163,9 +160,9 @@ def main():
             bad_union.append(name)
     fail("dependencies is not the union of type+term", bad_union)
 
-    # Deduplication is by *declaration identity* (raw `Lean.Name`), but the
-    # artifact prints names through `privateToUserName`, so two private
-    # declarations that recover to one user-facing name serialize identically.
+    # Deduplication is by *declaration identity* (raw `Lean.Name`), but two
+    # different raw names can print as one string (`«#foo.bar»` and `«#foo».bar`),
+    # and then they serialize identically.
     #
     # Reported, NOT failed. `docs/schema.md` permits this duplicate, so failing
     # on it rejected artifacts the fold had not touched at all: a before/after
@@ -195,7 +192,7 @@ def main():
         # multiplicity merely *grew*.
         new_sites = dup_after - dup_before
         notes.append(
-            f"repeated serialized dependency names (private-name collisions, "
+            f"repeated serialized dependency names (names that print alike, "
             f"permitted by docs/schema.md — not an invariant): "
             f"{len(dup_before)} site(s) before, {len(dup_after)} after"
             + (f", {len(new_sites)} newly repeated — CHECK THESE" if new_sites else ""))
@@ -203,11 +200,10 @@ def main():
             notes.append(f"  newly repeated: {atom}/{field} -> {value} (x{n})")
 
     # --- sorted output (P14) ------------------------------------------------
-    # Only *regressions* are failures. Some arrays are already unsorted with
-    # respect to the emitted strings, because probe-lean sorts by the raw
-    # `Name` (`_private.M.0.Bar.foo`) while the artifact shows the recovered
-    # user-facing name (`Bar.foo`) — deterministic, but not lexicographic in the
-    # printed form. That is pre-existing and unrelated to folding.
+    # Only *regressions* are failures. probe-lean sorts by the printed raw
+    # `Name`, which the artifact shows since 0.24.0, so the count is normally 0.
+    # Artifacts before 0.24.0 printed private names without their prefix and were
+    # not lexicographic in the printed form. That is unrelated to folding.
     def unsorted_fields(data):
         out = set()
         for name in common:

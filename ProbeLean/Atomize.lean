@@ -83,15 +83,18 @@ def loadRelevantCrate (userConfig : Option Lean.Json) : String :=
 def hasAnySuffix (name : String) (suffixes : Array String) : Bool :=
   suffixes.any fun suffix => name.endsWith suffix
 
-/-- Set isHidden, isAeneasGenerated, and isIgnored fields on atoms based on config -/
+/-- Set isHidden, isAeneasGenerated, and isIgnored fields on atoms based on config.
+    An entry matches the user-facing name (`aux` matches every private `aux`) or the
+    code-name without `probe:` (`_private.M.0.aux` matches only the one of `M`). -/
 def markAtomFlags (atoms : Array Atom) (hiddenList : Array String) (aeneasGeneratedSuffixes : Array String) (ignoredList : Array String) : Array Atom :=
   atoms.map fun atom =>
-    let nameWithoutPrefix := stripProbePrefix atom.name
+    let names := #[(privateToUserName atom.leanName).toString, stripProbePrefix atom.name]
     -- OR with any flag already set (e.g. auto-detected generated code), so config
     -- adds to rather than overwrites automatic detection.
-    let isHidden := atom.isHidden || hiddenList.contains nameWithoutPrefix
-    let isAeneasGenerated := atom.isAeneasGenerated || hasAnySuffix nameWithoutPrefix aeneasGeneratedSuffixes
-    let isIgnored := atom.isIgnored || ignoredList.contains nameWithoutPrefix
+    let isHidden := atom.isHidden || names.any hiddenList.contains
+    let isAeneasGenerated := atom.isAeneasGenerated ||
+      names.any (hasAnySuffix · aeneasGeneratedSuffixes)
+    let isIgnored := atom.isIgnored || names.any ignoredList.contains
     { atom with isHidden := isHidden, isAeneasGenerated := isAeneasGenerated, isIgnored := isIgnored }
 
 /-- The kinds of a spec target (`isSpecTarget`). -/
@@ -128,11 +131,10 @@ private def specNameMatches (n : Name) (last : String) : Bool :=
     exists in other namespaces. Rule 5 has no head check, so the only spec of `t` wins
     even if it is about another function.
 
-    Several candidates at a rule never resolve arbitrarily: the next rule decides.
+    Rules 3 and 4 compare user-facing names (`privateToUserName`), so a private
+    target and a public spec, or the reverse, still match.
 
-    Known limit: `specs` and `specAtom` are keyed by published names. A #88 collision
-    merges targets and makes colliding specs share one atom's program head. The head
-    comparison itself is exact (raw names, private prefix kept). -/
+    Several candidates at a rule never resolve arbitrarily: the next rule decides. -/
 def heuristicPrimarySpec (t : Atom) (specs : Array String)
     (specAtom : String → Option Atom) : Option String := Id.run do
   let aboutOther : Atom → Bool := fun s =>
@@ -145,8 +147,13 @@ def heuristicPrimarySpec (t : Atom) (specs : Array String)
     | some s => hasKnownSpecAttribute s.attributes && !aboutOther s
     | none => false
   if tagged.size == 1 then return some tagged[0]!
-  -- Rule 3: exactly one of `<T>_spec` and `<T>.spec`, whatever its head
-  let exact := #[t.name ++ "_spec", t.name ++ ".spec"].filter specs.contains
+  -- Rule 3: exactly one spec named `<T>_spec` or `<T>.spec`, whatever its head
+  let user := (privateToUserName t.leanName).toString
+  let exactNames := #[user ++ "_spec", user ++ ".spec"]
+  let exact := specs.filter fun n =>
+    match specAtom n with
+    | some s => exactNames.contains (privateToUserName s.leanName).toString
+    | none => false
   if exact.size == 1 then return some exact[0]!
   -- Rule 4: the only spec about `t` whose name ends in `<last>.spec` or `<last>_spec`
   if let .str _ last := privateToUserName t.leanName then
@@ -199,8 +206,7 @@ def computeSpecs (atoms : Array Atom) : Array Atom :=
   let targetMap : Lean.RBMap String Bool compare :=
     atoms.foldl (init := .empty) fun m a => m.insert a.name (isSpecTarget a)
   -- Spec name → spec atom, for the rules that read a spec's attributes, step
-  -- program head and Lean name. Keyed by the published name like `specs`, so a #88
-  -- collision keeps one of the colliding atoms.
+  -- program head and Lean name. Keyed by the code-name like `specs`.
   let specAtomMap : Lean.RBMap String Atom compare :=
     atoms.foldl (init := .empty) fun m a =>
       if a.kind == DeclKind.theorem then m.insert a.name a else m

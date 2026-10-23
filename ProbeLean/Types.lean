@@ -118,11 +118,19 @@ instance [Lean.FromJson α] : Lean.FromJson (Envelope α) where
 def addProbePrefix (name : String) : String :=
   s!"probe:{name}"
 
-/-- `probe:`-prefixed reference for a declaration. Normalises Lean's synthetic
-    private name (`_private.<module>.0.Bar.foo` → `Bar.foo`) so emitted references
-    match the atom published under the user-facing name. No-op for public names. -/
+/-- The code-name of a declaration: `probe:` followed by `Name.toString` of the raw
+    name. A private name keeps its `_private.<module>.0.` prefix, so two private
+    declarations of different modules get different code-names. Every atom name and
+    every reference to it come from this function. -/
 def probeRef (n : Lean.Name) : String :=
-  addProbePrefix (Lean.privateToUserName n).toString
+  addProbePrefix n.toString
+
+/-- Read an optional boolean field: an absent key gives `false`, a present key with a
+    non-boolean value is an error. -/
+def getOptBool (json : Lean.Json) (key : String) : Except String Bool :=
+  match json.getObjVal? key with
+  | .ok v => Lean.fromJson? v
+  | .error _ => pure false
 
 /-- Strip the probe: prefix from a name, or return unchanged if no prefix -/
 def stripProbePrefix (name : String) : String :=
@@ -232,6 +240,8 @@ structure Atom where
   isIgnored : Bool := false
   isRelevant : Bool := true
   isInPackage : Bool := true
+  /-- `Lean.isProtected` of the raw name. -/
+  isProtected : Bool := false
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
@@ -275,6 +285,7 @@ instance : Lean.ToJson Atom where
       ("is-ignored", Lean.toJson atom.isIgnored),
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("is-in-package", Lean.toJson atom.isInPackage),
+      ("is-protected", Lean.toJson atom.isProtected),
       ("is-primary-spec", Lean.toJson atom.isPrimarySpec),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
@@ -305,12 +316,13 @@ instance : Lean.FromJson Atom where
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let isInPackage ← json.getObjValAs? Bool "is-in-package" <|> pure true
+    let isProtected ← getOptBool json "is-protected"
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     let attributes ← json.getObjValAs? (Array String) "attributes" <|> pure #[]
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
     let isPrimarySpec ← json.getObjValAs? Bool "is-primary-spec" <|> pure false
     let primarySpec ← json.getObjValAs? (Option String) "primary-spec" <|> pure none
-    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, isProtected, rustSource, attributes, specs, isPrimarySpec, primarySpec }
 
 /-- Output format for atoms: an object keyed by atom name -/
 structure AtomsOutput where
@@ -431,6 +443,8 @@ structure UnifiedAtom where
   isIgnored : Bool := false
   isRelevant : Bool := true
   isInPackage : Bool := true
+  /-- `Lean.isProtected` of the raw name. -/
+  isProtected : Bool := false
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
@@ -474,6 +488,7 @@ instance : Lean.ToJson UnifiedAtom where
       ("is-ignored", Lean.toJson atom.isIgnored),
       ("is-relevant", Lean.toJson atom.isRelevant),
       ("is-in-package", Lean.toJson atom.isInPackage),
+      ("is-protected", Lean.toJson atom.isProtected),
       ("is-primary-spec", Lean.toJson atom.isPrimarySpec),
       ("rust-source", Lean.toJson atom.rustSource)
     ]
@@ -529,6 +544,7 @@ instance : Lean.FromJson UnifiedAtom where
     let isIgnored ← json.getObjValAs? Bool "is-ignored" <|> pure false
     let isRelevant ← json.getObjValAs? Bool "is-relevant" <|> pure true
     let isInPackage ← json.getObjValAs? Bool "is-in-package" <|> pure true
+    let isProtected ← getOptBool json "is-protected"
     let rustSource ← json.getObjValAs? (Option String) "rust-source" <|> pure none
     let attributes ← json.getObjValAs? (Array String) "attributes" <|> pure #[]
     let specs ← json.getObjValAs? (Array String) "specs" <|> pure #[]
@@ -549,7 +565,7 @@ instance : Lean.FromJson UnifiedAtom where
     let codomainHead ← json.getObjValAs? (Option String) "codomain-head" <|> pure none
     let codomainIsProp ← json.getObjValAs? Bool "codomain-is-prop" <|> pure false
     let codomainLastArgIsBool ← json.getObjValAs? Bool "codomain-last-arg-is-bool" <|> pure false
-    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, statusOrigin, assumptions, codomainHead, codomainIsProp, codomainLastArgIsBool }
+    return { name, displayName, dependencies, typeDependencies, termDependencies, typeDependenciesExternal, termDependenciesExternal, codeModule, codePath, codeText, kind, language, isHidden, isLeanGenerated, isAeneasGenerated, isIgnored, isRelevant, isInPackage, isProtected, rustSource, attributes, specs, isPrimarySpec, primarySpec, verificationStatus, trustedReason, statusOrigin, assumptions, codomainHead, codomainIsProp, codomainLastArgIsBool }
 
 /-- Output format for unified atoms: an object keyed by atom name -/
 structure UnifiedAtomsOutput where

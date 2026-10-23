@@ -240,6 +240,23 @@ jobs:
           lake build
           python3 check.py "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean"
 
+      # Private declarations with one user-facing name in several modules (#88):
+      # each must be its own atom under its raw name, with its own edges.
+      - name: End-to-end private-name collision check
+        run: |
+          diff lean-toolchain tests/fixtures/private-collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/private-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/private-collision
+          rm -f .verilib/probes/lean_*.json
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-graph.py" --fail-on-divergence .verilib/probes/lean_*.json
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
+
       # Stale build outputs (#152): probe-lean builds the targets on every run and
       # imports only the closure of the target modules, every project module of
       # which a lean_lib must own. check.sh changes a copy of the fixture step by
@@ -328,6 +345,7 @@ jobs:
           cp lean-toolchain tests/fixtures/module-collision/lean-toolchain
           cp lean-toolchain tests/fixtures/orphan/lean-toolchain
           cp lean-toolchain tests/fixtures/step-spec/lean-toolchain
+          cp lean-toolchain tests/fixtures/private-collision/lean-toolchain
           cp lean-toolchain tests/fixtures/stale/lean-toolchain
           cp lean-toolchain tests/fixtures/lakefile-lean/lean-toolchain
           # Clear any stale build dir but KEEP lake-manifest.json — lean-action's
@@ -529,6 +547,23 @@ jobs:
           cd tests/fixtures/step-spec
           lake build
           python3 check.py "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean"
+
+      # Private declarations with one user-facing name in several modules (#88):
+      # each must be its own atom under its raw name, with its own edges.
+      - name: End-to-end private-name collision check
+        run: |
+          diff lean-toolchain tests/fixtures/private-collision/lean-toolchain \
+            || { echo "::error::tests/fixtures/private-collision/lean-toolchain must match the root lean-toolchain"; exit 1; }
+          cd tests/fixtures/private-collision
+          rm -f .verilib/probes/lean_*.json
+          lake build
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" extract . 2>extract.stderr || {
+            status=$?; cat extract.stderr >&2; exit "$status"; }
+          cat extract.stderr >&2
+          "$GITHUB_WORKSPACE/.lake/build/bin/probe-lean" check-axioms . | tee check-axioms.out
+          python3 check.py
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-graph.py" --fail-on-divergence .verilib/probes/lean_*.json
+          python3 "$GITHUB_WORKSPACE/tools/audit/check-status-consistency.py" .verilib/probes/lean_*.json check-axioms.out
 
       # Stale build outputs (#152): probe-lean builds the targets on every run and
       # imports only the closure of the target modules, every project module of

@@ -72,3 +72,7 @@ tests/fixtures/assumptions/check-axioms.out
 tests/fixtures/step-spec/.verilib/
 tests/fixtures/step-spec/lake-manifest.json
 tests/fixtures/step-spec/step-spec*.json
+tests/fixtures/private-collision/.verilib/
+tests/fixtures/private-collision/lake-manifest.json
+tests/fixtures/private-collision/extract.stderr
+tests/fixtures/private-collision/check-axioms.out
