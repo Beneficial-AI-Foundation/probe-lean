@@ -488,9 +488,9 @@ external constant reached only through an auxiliary is not listed anywhere, beca
 `by omega` reaches about 50 `Lean.Omega.*` constants.
 
 `type-dependencies` never grows, so type-driven spec selection is unaffected. One fallback reads
-`dependencies`: a theorem tagged `@[primary_spec]` or marked in its docstring whose statement
-names no spec target. A folded edge can add a second candidate there and detach the tag or the
-marker.
+`dependencies`. It applies to a theorem that is tagged `@[primary_spec]` or marked in its
+docstring, when the statement of the theorem names no spec target. A folded edge can add a second
+spec target there, and then the theorem becomes the primary spec of no target.
 
 Folding recovers edges, not nodes. It does not bear on `verification-status`, which the kernel walk
 decides. It covers compiled-environment reachability only. Notation, macros, attributes and

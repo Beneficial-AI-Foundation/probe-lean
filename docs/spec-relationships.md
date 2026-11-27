@@ -56,9 +56,9 @@ Decisions (issue #130):
   `montgomery.valid_ladder_state` had the wrong `primary-spec`.
 - Projections and types are not targets. Their specs are dropped, not moved to another atom (for
   example, from `Bundle.val` to a constructor). The theorems that name only a projection are
-  mostly structure lemmas such as `ext`. The `@[primary_spec]` fallback in "Spec sources" is the
-  one exception: if a tagged theorem's statement names no target, its tag can attach to a
-  function that its proof uses.
+  mostly structure lemmas such as `ext`. The fallback for a tagged or marked theorem in "Spec
+  sources" is the one exception: if the statement of such a theorem names no target, the theorem
+  can become the primary spec of a function that its proof uses.
 - Type formers are not targets. A type alias plays the role of a structure: theorems mention it
   because they are about its values. In curve25519-dalek-lean-verify, 10 type formers received
   specs before this rule, for example `Edwards.CurveField` (275), `FieldElement51` (219) and
@@ -89,10 +89,11 @@ The projection of a Prop-valued field or class parent is not a spec source eithe
 it as a theorem, but its kind is `projection` (#115). Its statement only restates the field.
 A `@[primary_spec]` tag on such a projection has no effect.
 
-One exception reads the proof. If the statement of a theorem that is tagged `@[primary_spec]` or
-marked names no spec target, probe-lean reads the theorem's `dependencies` instead. If that array
-names exactly one spec target, the tag or the marker attaches to it. With several, it attaches to
-nothing.
+Fallback for a tagged or marked theorem. The rule above reads only the statement of a theorem. If
+a theorem is tagged `@[primary_spec]` or marked, and its statement names no spec target, probe-lean
+also reads the constants that its proof uses (`dependencies`). If they contain exactly one spec
+target, the theorem becomes a spec and the primary spec of that target. If they contain several,
+the theorem becomes the primary spec of none of them.
 
 Known limitations:
 
