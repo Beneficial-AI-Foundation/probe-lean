@@ -131,7 +131,8 @@ structure PrimarySpecCollision where
   deriving Repr, BEq
 
 /-- Targets whose `primary-spec` was an arbitrary tie-break: two or more
-    `@[primary_spec]`-tagged theorems resolve to the same target. One record per
+    theorems tagged `@[primary_spec]` or marked in their docstring
+    (`Atom.isPrimarySpec`) resolve to the same target. One record per
     target name, sorted by target name, candidate names de-duplicated.
 
     Only targets with `primarySpec` set are considered, so this must run on the
@@ -180,8 +181,8 @@ def ambiguousPrimarySpecs (atoms : Array Atom) : Array PrimarySpecCollision := I
 def formatPrimarySpecWarning (c : PrimarySpecCollision) : String :=
   let count := c.rejected.size + 1
   let alsoTagged := ", ".intercalate c.rejected.toList
-  s!"Warning: {count} @[primary_spec] theorems target {c.target} — " ++
-    s!"chose {c.winner} (arbitrary tie-break); also tagged: {alsoTagged}"
+  s!"Warning: {count} @[primary_spec] or primary-spec theorems target {c.target} — " ++
+    s!"chose {c.winner} (arbitrary tie-break); also tagged or marked: {alsoTagged}"
 
 /-- The `extract` wiring for `ambiguousPrimarySpecs`, split out so the call site
     is covered by a test rather than only by review. -/

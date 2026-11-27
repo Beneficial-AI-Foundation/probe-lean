@@ -1,7 +1,8 @@
 name = "step"
 defaultTargets = ["Step"]
 
-# The step-program primary-spec fixture (#129, #132, #133). `Step.Stub` stubs the
+# The step-program primary-spec fixture (#129, #132, #133) and the primary-spec
+# docstring marker (`Step.Marker`). `Step.Attrs` stubs `@[primary_spec]`. `Step.Stub` stubs the
 # Aeneas spec statement `Aeneas.Std.WP.spec` and a `step` label attribute, so the
 # fixture needs no Aeneas dependency. `Step.Funs` holds one shape per rule.
 # `check.py` holds the expected `primary-spec` values.

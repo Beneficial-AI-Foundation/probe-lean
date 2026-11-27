@@ -1963,15 +1963,15 @@ def testPrimarySpecAmbiguityWarning (result : TestResult) : IO TestResult := do
     rejected := #["probe:MyModule.helper_bounds"] }
   result ← test "two-candidate warning text"
     (formatPrimarySpecWarning twoCandidates ==
-      "Warning: 2 @[primary_spec] theorems target probe:MyModule.helper — chose " ++
-      "probe:MyModule.helper_correct (arbitrary tie-break); also tagged: " ++
+      "Warning: 2 @[primary_spec] or primary-spec theorems target probe:MyModule.helper — chose " ++
+      "probe:MyModule.helper_correct (arbitrary tie-break); also tagged or marked: " ++
       "probe:MyModule.helper_bounds") result
   let threeCandidates : PrimarySpecCollision := { twoCandidates with
     rejected := #["probe:MyModule.helper_alt", "probe:MyModule.helper_bounds"] }
   result ← test "three-candidate warning counts candidates, not rejects"
     (formatPrimarySpecWarning threeCandidates ==
-      "Warning: 3 @[primary_spec] theorems target probe:MyModule.helper — chose " ++
-      "probe:MyModule.helper_correct (arbitrary tie-break); also tagged: " ++
+      "Warning: 3 @[primary_spec] or primary-spec theorems target probe:MyModule.helper — chose " ++
+      "probe:MyModule.helper_correct (arbitrary tie-break); also tagged or marked: " ++
       "probe:MyModule.helper_alt, probe:MyModule.helper_bounds") result
 
   IO.println ""
@@ -6078,6 +6078,58 @@ def runSuiteH (result : TestResult) : IO TestResult := do
   result ← testImportHints result
   return result
 
+/-- Check `docMarksPrimarySpec` on each docstring against the expected result. -/
+def checkDocMarkerCases (cases : Array (String × Bool)) (result : TestResult) :
+    IO TestResult := do
+  let mut result := result
+  for (doc, expected) in cases do
+    result ← test s!"docMarksPrimarySpec {repr doc} = {expected}"
+      (docMarksPrimarySpec doc == expected) result
+  return result
+
+/-- The docstring marker `primary-spec` matches at the start, in the middle, at the
+    end and on a later line of a docstring. -/
+def testPrimarySpecDocMarkerPlacement (result : TestResult) : IO TestResult := do
+  IO.println "Testing the primary-spec docstring marker: placement..."
+  checkDocMarkerCases #[
+    ("primary-spec", true),
+    ("primary-spec The spec of `foo`.", true),
+    ("The spec of `foo`. primary-spec", true),
+    ("The main spec primary-spec of foo.", true),
+    ("The spec of `foo`.\n\nprimary-spec\n", true)] result
+
+/-- The marker matches next to ASCII punctuation other than `-` and `_`. -/
+def testPrimarySpecDocMarkerPunctuation (result : TestResult) : IO TestResult := do
+  IO.println "Testing the primary-spec docstring marker: punctuation..."
+  checkDocMarkerCases #[
+    ("The spec. `primary-spec`", true),
+    ("The spec, primary-spec.", true),
+    ("primary-spec, the spec", true),
+    ("!primary-spec", true),
+    ("primary-spec\x0b", true),
+    ("\x0cprimary-spec", true)] result
+
+/-- The marker does not match inside a longer word, in another case, next to a
+    non-ASCII character, or in an empty docstring. -/
+def testPrimarySpecDocMarkerNegative (result : TestResult) : IO TestResult := do
+  IO.println "Testing the primary-spec docstring marker: non-matches..."
+  checkDocMarkerCases #[
+    ("primary-specs", false),
+    ("Primary-spec", false),
+    ("non-primary-spec", false),
+    ("primary-spec_foo", false),
+    ("xprimary-spec", false),
+    ("primary-spec2", false),
+    ("éprimary-spec", false),
+    ("primary-spec٢", false),
+    ("primary-spec🙂", false),
+    ("“primary-spec”", false),
+    ("primary-spec\u00a0", false),
+    ("primary-spec\x07", false),
+    ("primary spec", false),
+    ("primary", false),
+    ("", false)] result
+
 def runSuiteI (result : TestResult) : IO TestResult := do
   let mut result := result
   result ← testRule3Visibility result
@@ -6085,6 +6137,9 @@ def runSuiteI (result : TestResult) : IO TestResult := do
   result ← testMarkAtomFlagsPrivate result
   result ← testViewifyPrivateKeys result
   result ← testIsProtectedJson result
+  result ← testPrimarySpecDocMarkerPlacement result
+  result ← testPrimarySpecDocMarkerPunctuation result
+  result ← testPrimarySpecDocMarkerNegative result
   return result
 
 def main : IO UInt32 := do

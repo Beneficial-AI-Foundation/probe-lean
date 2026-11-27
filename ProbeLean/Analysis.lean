@@ -255,6 +255,50 @@ def extractSourceFromDocstring (doc : String) : Option String :=
 def getDeclDocstring (env : Environment) (name : Name) : IO (Option String) :=
   Lean.findDocString? env name
 
+/-- The word that marks a declaration as a primary spec when its docstring contains
+    it. See `docMarksPrimarySpec`. -/
+def primarySpecMarker : String := "primary-spec"
+
+/-- Whether a docstring contains `primarySpecMarker` as a whole word. The match is
+    case-sensitive. The characters on both sides of the word are the start or end
+    of the text, ASCII whitespace (space, tab, line feed, vertical tab, form feed,
+    carriage return), or ASCII punctuation other than `-` and `_`. Any other
+    character next to the word prevents a match, for example a control character
+    or any non-ASCII character. Lean has no Unicode letter test (`Char.isAlphanum`
+    knows only ASCII), so this is the safe side: a missed marker is visible, and a
+    wrong one changes `primary-spec`. So `` `primary-spec` `` and `primary-spec.`
+    match, and `primary-specs`, `non-primary-spec`, `primary-spec_foo` and
+    `éprimary-spec` do not. The scan works on a `Char` array, because the
+    `String.Pos` API differs across the supported Lean versions. -/
+def docMarksPrimarySpec (doc : String) : Bool := Id.run do
+  let cs := doc.toList.toArray
+  let pat := primarySpecMarker.toList.toArray
+  -- A boundary is ASCII whitespace, or ASCII punctuation (33 to 126, not a letter
+  -- or a digit) other than `-` and `_`.
+  let isBoundary (c : Char) : Bool :=
+    c == ' ' || (c.toNat ≥ 9 && c.toNat ≤ 13) ||
+      (c.toNat ≥ 33 && c.toNat ≤ 126 && !c.isAlphanum && c != '-' && c != '_')
+  if cs.size < pat.size then return false
+  for i in [0:cs.size - pat.size + 1] do
+    let mut eq := true
+    for j in [0:pat.size] do
+      if cs[i + j]! != pat[j]! then
+        eq := false
+        break
+    if !eq then continue
+    let beforeOk := i == 0 || isBoundary cs[i - 1]!
+    let afterOk := i + pat.size == cs.size || isBoundary cs[i + pat.size]!
+    if beforeOk && afterOk then return true
+  return false
+
+/-- Whether the docstring of `name` marks it as a primary spec
+    (`docMarksPrimarySpec`). `findDocString?` also returns a docstring inherited
+    with `@[inherit_doc]`, so such a declaration is marked when its source is. -/
+def hasPrimarySpecMarker (env : Environment) (name : Name) : IO Bool := do
+  match ← getDeclDocstring env name with
+  | some doc => return docMarksPrimarySpec doc
+  | none => return false
+
 /-- Get the Rust source path from the docstring of a declaration.
     If no source is found and the name does not end with _body, try the _body variant. -/
 def getDeclRustSource (env : Environment) (name : Name) : IO (Option String) := do
@@ -1394,7 +1438,11 @@ def declInfoToAtom (env : Environment) (projectPath : System.FilePath) (projFilt
 
   let rustSource ← getDeclRustSource env info.name
   let isRelevant := if crate.isEmpty then true else isRelevantSource rustSource crate
-  let isPrimarySpec := primarySpecAttr.hasTag env info.name
+  -- Tagged `@[primary_spec]`, or marked by the word `primary-spec` in its docstring.
+  -- Rule 1, the `dependencies` fallback, the generated-theorem exception and the
+  -- collision warning read this one flag, so the two forms behave the same.
+  let isPrimarySpec :=
+    primarySpecAttr.hasTag env info.name || (← hasPrimarySpecMarker env info.name)
 
   return {
     name := probeRef info.name
