@@ -170,12 +170,17 @@ def heuristicPrimarySpec (t : Atom) (specs : Array String)
 /-- Compute reverse edges: for each theorem atom, add its name to the `specs`
     list of every spec-target **type** dependency (`isSpecTarget`). Also propagate `primarySpec`
     using a precedence chain:
-    1. `@[primary_spec]` attribute (always wins)
+    1. `@[primary_spec]` attribute or docstring marker (always wins)
     2. The only framework-tagged spec (`primarySpecAttributes`) that is not about
        another function (`heuristicPrimarySpec`)
     3. The exact name `<T>_spec` or `<T>.spec`
     4. The only spec about `T` whose name ends in `<last>.spec` or `<last>_spec`
     5. Sole-spec inference (exactly one spec)
+
+    Rule 1, the `dependencies` fallback and the generated-theorem exception read
+    `Atom.isPrimarySpec`, which the `@[primary_spec]` tag and the docstring marker
+    `primary-spec` both set. So `@[primary_spec]` below also covers a marked theorem.
+    Rules 2 to 5 do not read the flag.
 
     Only `typeDependencies` are walked, not the union `dependencies`: a theorem
     specifies what its *statement* is about. A constant that only the proof uses

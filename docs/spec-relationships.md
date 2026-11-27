@@ -81,16 +81,18 @@ the `HiddenPredicate` case.
 what its statement is about. A constant that the theorem uses only in its proof (a helper lemma,
 a definition it unfolds) is not something the theorem specifies.
 
-Generated theorems are not spec sources. A generated theorem tagged `@[primary_spec]` is the
-exception: the tag is a human decision about that theorem.
+Generated theorems are not spec sources. A generated theorem tagged `@[primary_spec]`, or marked
+by the word `primary-spec` in its docstring, is the exception: the tag or the marker is a human
+decision about that theorem. See "Docstring marker".
 
 The projection of a Prop-valued field or class parent is not a spec source either. Lean compiles
 it as a theorem, but its kind is `projection` (#115). Its statement only restates the field.
 A `@[primary_spec]` tag on such a projection has no effect.
 
-One exception reads the proof. If a `@[primary_spec]` theorem's statement names no spec target,
-probe-lean reads the theorem's `dependencies` instead. If that array names exactly one spec
-target, the tag attaches to it. With several, the tag attaches to nothing.
+One exception reads the proof. If the statement of a theorem that is tagged `@[primary_spec]` or
+marked names no spec target, probe-lean reads the theorem's `dependencies` instead. If that array
+names exactly one spec target, the tag or the marker attaches to it. With several, it attaches to
+nothing.
 
 Known limitations:
 
@@ -106,7 +108,8 @@ Known limitations:
 
 `primary-spec` picks one theorem from `specs`, by this precedence:
 
-1. a theorem tagged `@[primary_spec]`.
+1. a theorem tagged `@[primary_spec]`, or marked by the word `primary-spec` in its docstring
+   (see "Docstring marker" below).
 2. a theorem with a verification-framework attribute (`@[progress]`, `@[pspec]`, `@[step]`, also
    with `local` or `scoped`), only when exactly one such theorem in `specs` is not about another
    function.
@@ -117,8 +120,41 @@ Known limitations:
    is the last component of `T`. The namespace of the theorem does not matter.
 5. the only theorem in `specs`.
 
-At each rule, several candidates never resolve arbitrarily. The next rule decides, or the atom
-gets no `primary-spec`.
+At rules 2 to 5, several candidates never resolve arbitrarily. The next rule decides, or the atom
+gets no `primary-spec`. At rule 1, several tagged or marked candidates resolve arbitrarily, and
+`extract` prints a warning. See the end of "Step program head".
+
+### Docstring marker
+
+A declaration whose docstring contains the word `primary-spec` is marked. A marked declaration
+is treated exactly like one tagged `@[primary_spec]`: rule 1, the `dependencies` fallback and the
+generated-theorem exception in "Spec sources", and the collision warning all apply to it. Where
+this document says that a declaration is tagged `@[primary_spec]`, the same holds for a marked
+declaration. The tag needs `import ProbeLean.Attrs` in the
+target project. The marker needs no import.
+
+```lean
+/-- The main spec of `double`. primary-spec -/
+theorem double_correct (x : Nat) : spec (double x) (fun r => r = x + x) := trivial
+```
+
+The rules of the marker:
+
+- The match is case-sensitive and on the whole word. The characters on both sides of the word
+  are the start or end of the docstring, ASCII whitespace, or ASCII punctuation other than `-` and
+  `_`. `` `primary-spec` `` and `primary-spec.` match. `primary-specs`, `Primary-spec`,
+  `non-primary-spec` and `primary-spec_foo` do not. Any other character next to the word prevents a
+  match, for example `é`, a typographic quote or a no-break space.
+- probe-lean reads the docstring with `findDocString?`, by the name of the declaration. Lean drops
+  plain comments (`--`, `/- -/`) during parsing, so they never mark a declaration. A module
+  docstring (`/-! -/`) belongs to no declaration and marks none.
+- A docstring added with `add_decl_doc`, or inherited with `@[inherit_doc]`, counts.
+- The marker does not add `primary_spec` to `attributes`.
+- The marker is not passed from one declaration to another. A marker on a `@[step]` axiom `X`
+  does not reach its companion `X.mvcgen_spec`, in the same way that a tag on `X` does not. To
+  mark the companion, write `/-- primary-spec -/ add_decl_doc X.mvcgen_spec` in the module of `X`.
+- A docstring that uses the word in prose, for example "the primary-spec of `bar`", marks its
+  declaration. Do not use the word in prose.
 
 ### Step program head
 
@@ -168,8 +204,9 @@ registers its own spec statement. A companion of an axiom does not break it, bec
 head of the axiom. For such a project, probe-lean gives no guarantee about `primary-spec`.
 
 If several `@[primary_spec]` theorems target one atom, the tie-break is arbitrary and `extract`
-prints a warning on stderr. The other tagged theorems stay in `specs` with `is-primary-spec: true`.
-Rules 2 to 5 pick a theorem without tagging it, so the winner's own `is-primary-spec` can be
-`false`. A tagged non-theorem reads `true`. A tagged theorem that the inference attaches to no
-target (issue #104) also reads `true`. To find a target's tagged candidates, intersect its `specs`
+prints a warning on stderr. The same holds for marked theorems. The other tagged or marked theorems
+stay in `specs` with `is-primary-spec: true`.
+Rules 2 to 5 pick a theorem without tagging or marking it, so the winner's own `is-primary-spec`
+can be `false`. A tagged or marked non-theorem reads `true`. A tagged or marked theorem that the inference attaches
+to no target (issue #104) also reads `true`. To find a target's tagged or marked candidates, intersect its `specs`
 with this flag.

@@ -245,9 +245,10 @@ structure Atom where
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
-  /-- The declaration carries `@[primary_spec]`. *Tagged*, not *won*: a theorem
+  /-- The declaration carries `@[primary_spec]`, or its docstring has the word
+  `primary-spec` (`ProbeLean.docMarksPrimarySpec` in `ProbeLean/Analysis.lean`). *Tagged*, not *won*: a theorem
   the heuristic signals pick as some target's `primarySpec` is `false` here
-  unless it is also tagged, and the attribute accepts non-theorems. -/
+  unless it is also tagged or marked, and both forms accept non-theorems. -/
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
   /-- Head constant of the result type, if any (neutral fact). -/
@@ -448,7 +449,8 @@ structure UnifiedAtom where
   rustSource : Option String := none
   attributes : Array String := #[]
   specs : Array String := #[]
-  /-- The declaration carries `@[primary_spec]` (see `Atom.isPrimarySpec`). -/
+  /-- The declaration is tagged `@[primary_spec]` or marked in its docstring
+    (see `Atom.isPrimarySpec`). -/
   isPrimarySpec : Bool := false
   primarySpec : Option String := none
   verificationStatus : Option WebVerificationStatus

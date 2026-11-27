@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-27
+
+### Added
+
+- The word `primary-spec` in the docstring of a declaration marks it as a primary spec, with the same effect as `@[primary_spec]`. The marker needs no `import ProbeLean.Attrs`. The match is case-sensitive and on the whole word. A non-ASCII character next to the word prevents a match. Plain comments and module docstrings never mark a declaration. The marker sets `is-primary-spec` and adds no entry to `attributes`. See docs/spec-relationships.md, section "Docstring marker".
+- Marker cases in the `tests/fixtures/step-spec` end-to-end check.
+
+### Changed
+
+- The collision warning reads `@[primary_spec] or primary-spec theorems` and `also tagged or marked`.
+
 ## [0.24.0] - 2026-10-22
 
 ### Fixed

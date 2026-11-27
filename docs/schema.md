@@ -135,7 +135,8 @@ other atoms that the arrays name. Keys appear in descending order at every level
 ```
 
 A theorem atom has the same fields with `"kind": "theorem"`. When it carries `@[primary_spec]`, it
-also has `"attributes": ["primary_spec"]` and `"is-primary-spec": true`.
+also has `"attributes": ["primary_spec"]` and `"is-primary-spec": true`. When its docstring has the
+word `primary-spec`, it has `"is-primary-spec": true` and no new attribute.
 
 ## Package version
 
@@ -212,7 +213,8 @@ target.
 
 Every atom carries every field below unless the type says "or absent". The Source column says
 where the value comes from: auto (computed from the environment), config
-(`.verilib/probes/config.json`), or attribute (a Lean attribute on the declaration).
+(`.verilib/probes/config.json`), attribute (a Lean attribute on the declaration), or docstring
+(the docstring of the declaration).
 
 | Field | Type | Source | Description |
 |-------|------|--------|-------------|
@@ -234,7 +236,7 @@ where the value comes from: auto (computed from the environment), config
 | `is-aeneas-generated` | bool | config + auto | Exists only because of Aeneas, see [Generated-code hiding](#generated-code-hiding). |
 | `is-ignored` | bool | config | From the config's `is-ignored` list. Always an editorial decision. |
 | `is-protected` | bool | auto | The declaration is `protected` (`Lean.isProtected`). A `private protected` declaration reads `true`. Output from before 0.24.0 has no field, and readers take `false`. |
-| `is-primary-spec` | bool | attribute | The declaration carries `@[primary_spec]`. This means tagged, not chosen, see [spec-relationships.md](spec-relationships.md). |
+| `is-primary-spec` | bool | attribute + docstring | The declaration carries `@[primary_spec]`, or its docstring has the word `primary-spec`. This means tagged or marked, not chosen, see [spec-relationships.md](spec-relationships.md). |
 | `attributes` | array or absent | attribute | Lean attributes on the declaration. Absent when empty. Not evidence of trust, see [Attributes](#attributes). |
 | `rust-source` | string or null | auto | Path from an Aeneas docstring's `Source: 'path'` line. probe-lean reads the declaration's own docstring first, then the docstring of its sibling `<name>_body`. |
 | `specs` | array or absent | auto | Theorem atoms whose statement mentions this atom. Only spec targets have `specs`, see [spec-relationships.md](spec-relationships.md). Absent when empty. An atom is "specified" when `specs` is non-empty. |
@@ -329,8 +331,8 @@ Only a spec target has `specs` and `primary-spec`. A spec target is a data `def`
 `instance`, `opaque` or `axiom`: a constant that is not a proof, a predicate or a type former
 (a type alias such as `abbrev Score : Type := Nat`). `specs` lists
 the theorems whose statement (`type-dependencies`) names the target. Generated theorems are
-excluded unless they carry `@[primary_spec]`. `primary-spec` picks one of them: a
-`@[primary_spec]` tag, then a known framework attribute, then the `<def>_spec` or `<def>.spec`
+excluded unless they carry `@[primary_spec]` or the docstring marker `primary-spec`.
+`primary-spec` picks one of them: a `@[primary_spec]` tag or a docstring marker, then a known framework attribute, then the `<def>_spec` or `<def>.spec`
 name, then a `<last>.spec` or `<last>_spec` name in any namespace, then the only spec. The rules
 read the step program head of each theorem, which is not in the output. [spec-relationships.md](spec-relationships.md) states the rules, the edge cases and the
 reasons for each decision.
@@ -486,8 +488,9 @@ external constant reached only through an auxiliary is not listed anywhere, beca
 `by omega` reaches about 50 `Lean.Omega.*` constants.
 
 `type-dependencies` never grows, so type-driven spec selection is unaffected. One fallback reads
-`dependencies`: a `@[primary_spec]` theorem whose statement names no spec target. A
-folded edge can add a second candidate there and detach the tag.
+`dependencies`: a theorem tagged `@[primary_spec]` or marked in its docstring whose statement
+names no spec target. A folded edge can add a second candidate there and detach the tag or the
+marker.
 
 Folding recovers edges, not nodes. It does not bear on `verification-status`, which the kernel walk
 decides. It covers compiled-environment reachability only. Notation, macros, attributes and
