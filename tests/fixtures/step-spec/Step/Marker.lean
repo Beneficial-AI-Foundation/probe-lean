@@ -60,4 +60,14 @@ def triple (x : Nat) : Option Nat := some (3 * x)
 /-- primary-spec -/
 add_decl_doc triple_ax.mvcgen_spec
 
+-- An inherited docstring counts: `cube_correct` has no docstring, tag or marker of its
+-- own, and inherits the marked docstring of `cube_doc` with `@[inherit_doc]`. Rule 3
+-- alone would pick `cube_spec`. `cube_doc` is about no target, so it changes nothing else.
+/-- primary-spec -/
+theorem cube_doc : True := trivial
+def cube (x : Nat) : Option Nat := some (x * x * x)
+theorem cube_spec (x : Nat) : spec (cube x) (fun r => r = x * x * x) := trivial
+@[inherit_doc cube_doc]
+theorem cube_correct (x : Nat) : spec (cube x) (fun r => r = x ^ 3) := trivial
+
 end Marker

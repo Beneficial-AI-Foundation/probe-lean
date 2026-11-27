@@ -33,6 +33,7 @@ EXPECTED = {
     "Marker.double": "Marker.double_correct",  # rule 1 by marker, over rule 3
     "Marker.square": "Marker.square_spec",  # plain comments and primary-specs do not mark
     "Marker.triple": "Marker.triple_ax.mvcgen_spec",  # marker added with add_decl_doc
+    "Marker.cube": "Marker.cube_correct",  # marker inherited with @[inherit_doc]
     "Marker.half": "Marker.half_both",  # tagged and marked counts once, over rule 3
 }
 
@@ -60,6 +61,9 @@ MARKED = {
     "Marker.triple_ax": True,
     "Marker.triple_ax.mvcgen_spec": True,  # add_decl_doc
     "Marker.triple_spec": False,
+    "Marker.cube_doc": True,
+    "Marker.cube_correct": True,  # @[inherit_doc]
+    "Marker.cube_spec": False,
     "Marker.double": False,  # the module docstring marks nothing
 }
 
